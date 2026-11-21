@@ -260,7 +260,11 @@ async def test_recheck_settlement_skips_transport():
     assert lifecycle.recheck_last_uncertain_handoff.await_count == 1
     lifecycle.reserve_retry_attempt.assert_not_called()
     pipeline.deliver_execution_to_target.assert_not_called()
-    storage.read_event_for_outbox.assert_not_called()
+    # Missing dispatch context consults the content authority even on the
+    # settlement path; a retained verdict lets the recheck settle undisturbed.
+    storage.read_event_for_outbox.assert_awaited_once_with(
+        "evt-handoff-recheck", "obox-handoff-recheck"
+    )
     assert worker.state.processed == 1
     assert worker.state.succeeded == 1
     assert worker.state.failed == 0
