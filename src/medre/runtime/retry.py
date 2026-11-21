@@ -1456,46 +1456,28 @@ class RetryWorker:
                         resolved: (
                             RetryAttemptFinalization | UncertainHandoffResolution | None
                         )
-                        if item.active_attempt is not None:
-                            resolved = await self._lifecycle.reconcile_retry_claim(
-                                self._lifecycle_storage,
-                                item,
-                                RetryPolicy(max_attempts=self._max_attempts),
-                                handoff_resolver=self._handoff_resolver,
-                            )
-                        elif any(
-                            receipt.status in ("sent", "queued")
-                            for receipt in current_receipts
-                        ):
-                            resolved = (
-                                await self._lifecycle.finalize_retry_attempt_error(
-                                    self._lifecycle_storage,
-                                    item,
-                                    RetryPolicy(max_attempts=self._max_attempts),
-                                    error=RuntimeError(
-                                        "content_authority_denied under a "
-                                        "committed receipt"
-                                    ),
-                                    attempt_number=attempt,
-                                )
-                            )
-                        elif (
-                            self._handoff_resolver is not None
+                        # Even unreserved claims can have a newer committed
+                        # receipt. Reconcile them before considering terminal
+                        # content denial, never repeatedly finalize queued.
+                        resolved = await self._lifecycle.reconcile_retry_claim(
+                            self._lifecycle_storage,
+                            item,
+                            RetryPolicy(max_attempts=self._max_attempts),
+                            handoff_resolver=self._handoff_resolver,
+                        )
+                        if (
+                            resolved is None
+                            and self._handoff_resolver is not None
                             and attempt >= 1
-                            and not current_receipts
-                            and item.failure_kind_detail
-                            == UNCERTAIN_NATIVE_HANDOFF_DETAIL
                         ):
                             resolved = (
-                                await self._lifecycle.recheck_last_uncertain_handoff(
+                                await self._lifecycle.reconcile_content_denied_handoff(
                                     self._lifecycle_storage,
                                     item,
-                                    RetryPolicy(max_attempts=self._max_attempts),
-                                    handoff_resolver=self._handoff_resolver,
+                                    self._handoff_resolver,
+                                    existing_receipt_count=len(current_receipts),
                                 )
                             )
-                        else:
-                            resolved = None
                     except RetryAttemptCommitRejected as stale:
                         self.state.processed += 1
                         self._log_superseded_transition(item, stale)
@@ -1516,6 +1498,17 @@ class RetryWorker:
                             return
                         evidence_count = resolved.observation_count
                         checkpoint_revision = resolved.checkpoint_revision
+                        if (
+                            resolved.verdict == "delivered_with_evidence"
+                            and current_receipts
+                        ):
+                            self.state.processed += 1
+                            _logger.warning(
+                                "RetryWorker: conflicting receipt and native acceptance "
+                                "for outbox %s; leaving claim for conservative recovery",
+                                item.outbox_id,
+                            )
+                            return
                     else:
                         if resolved is not None:
                             self.state.processed += 1
@@ -1697,6 +1690,71 @@ class RetryWorker:
             # Reconcile persisted evidence above BEFORE treating an
             # unavailable body as terminal. The outbox attempt remains
             # durable; this refusal never invokes the native transport.
+            if (
+                self._handoff_resolver is not None
+                and recheck_observation_count is None
+                and (item.active_attempt or item.attempt_number) >= 1
+            ):
+                # A failed-receipt generation can still accept an exact
+                # observation before abandonment. Acquire a fresh count and
+                # revision rather than assuming the evidence set is empty.
+                try:
+                    current_attempt = item.active_attempt or item.attempt_number
+                    observed_receipts = await self._lifecycle.list_attempt_receipts(
+                        self._lifecycle_storage, item.outbox_id, current_attempt
+                    )
+                    checked = await self._lifecycle.reconcile_content_denied_handoff(
+                        self._lifecycle_storage,
+                        item,
+                        self._handoff_resolver,
+                        existing_receipt_count=len(observed_receipts),
+                    )
+                    if isinstance(checked, UncertainHandoffResolution):
+                        if checked.observation_count is None or (
+                            checked.verdict == "delivered_with_evidence"
+                            and observed_receipts
+                        ):
+                            self.state.processed += 1
+                            return
+                        recheck_observation_count = checked.observation_count
+                        recheck_checkpoint_revision = checked.checkpoint_revision
+                    elif checked is not None:
+                        self.state.processed += 1
+                        self._record_retry_finalization(item, checked, reconciled=True)
+                        return
+                except RetryAttemptCommitRejected as stale:
+                    self.state.processed += 1
+                    self._log_superseded_transition(item, stale)
+                    return
+                except Exception as lifecycle_exc:
+                    self.state.processed += 1
+                    self._record_lifecycle_persistence_error(
+                        item,
+                        lifecycle_exc,
+                        attempt_number=item.active_attempt or item.attempt_number,
+                    )
+                    return
+            # The receipt fence must reflect the set actually inspected,
+            # including a previous failed receipt; assuming zero prevents
+            # terminal cleanup of otherwise eligible expired claims.
+            try:
+                denied_receipts = (
+                    await self._lifecycle.list_attempt_receipts(
+                        self._lifecycle_storage,
+                        item.outbox_id,
+                        item.active_attempt or item.attempt_number,
+                    )
+                    if (item.active_attempt or item.attempt_number) >= 1
+                    else []
+                )
+            except Exception as lifecycle_exc:
+                self.state.processed += 1
+                self._record_lifecycle_persistence_error(
+                    item,
+                    lifecycle_exc,
+                    attempt_number=item.active_attempt or item.attempt_number,
+                )
+                return
             self.state.processed += 1
             self.state.failed += 1
             try:
@@ -1706,6 +1764,11 @@ class RetryWorker:
                     error_summary="content_authority_denied",
                     expected_observation_count=recheck_observation_count,
                     expected_checkpoint_revision=recheck_checkpoint_revision,
+                    expected_receipt_count=(
+                        len(denied_receipts)
+                        if (item.active_attempt or item.attempt_number) >= 1
+                        else None
+                    ),
                 )
             except RetryAttemptCommitRejected as stale:
                 self._log_superseded_transition(item, stale)

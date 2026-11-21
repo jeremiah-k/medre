@@ -1415,6 +1415,9 @@ async def test_retry_worker_abandons_outbox_when_content_authority_is_denied(
         enabled=True,
     )
     assert isinstance(worker._lifecycle, DeliveryLifecycleService)
+    # This test exercises a backend without native-evidence reads; generic
+    # MagicMock attributes must not simulate an installed resolver.
+    worker._handoff_resolver = None
     emit = MagicMock()
     monkeypatch.setattr(worker, "_emit", emit)
 

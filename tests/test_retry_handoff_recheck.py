@@ -99,6 +99,7 @@ def _lifecycle(recheck_result) -> MagicMock:
     await-expectation assertions are valid on each fake method."""
     lifecycle = MagicMock()
     lifecycle.reconcile_retry_claim = AsyncMock(return_value=None)
+    lifecycle.reconcile_content_denied_handoff = AsyncMock(return_value=None)
     lifecycle.recheck_last_uncertain_handoff = AsyncMock(return_value=recheck_result)
     lifecycle.list_attempt_receipts = AsyncMock(return_value=[])
     lifecycle.reserve_retry_attempt = AsyncMock(return_value=None)

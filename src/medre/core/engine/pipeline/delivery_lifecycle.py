@@ -1267,6 +1267,36 @@ class DeliveryLifecycleService:
 
     # -- Retry-worker outbox transitions -----------------------------------
 
+    async def reconcile_content_denied_handoff(
+        self,
+        storage: DeliveryLifecycleStorage,
+        item: DeliveryOutboxItem,
+        handoff_resolver: UncertainNativeHandoffResolver,
+        *,
+        existing_receipt_count: int,
+    ) -> RetryAttemptFinalization | UncertainHandoffResolution | None:
+        """Reconcile already-authorized acceptance without restoring send authority.
+
+        Called when content has expired and dispatch context is gone. The
+        absence of the old uncertainty label does not erase exact-attempt
+        evidence. Positive native evidence settles only without a conflicting
+        receipt, using the existing observation/receipt/checkpoint CAS.
+        """
+        attempt = item.active_attempt or item.attempt_number
+        if attempt < 1:
+            return None
+        resolution = await handoff_resolver.resolve(item, attempt)
+        if resolution.observation_count is None:
+            return resolution
+        if (
+            resolution.verdict == "delivered_with_evidence"
+            and not existing_receipt_count
+        ):
+            return await self._settle_resolved_handoff(
+                storage, item, attempt, resolution
+            )
+        return resolution
+
     async def abandon_retry_outbox(
         self,
         storage: DeliveryLifecycleStorage,
@@ -1281,7 +1311,6 @@ class DeliveryLifecycleService:
         evidence_guard: _ObservationGuard = {}
         if expected_observation_count is not None:
             evidence_guard["expected_observation_count"] = expected_observation_count
-            evidence_guard["expected_receipt_count"] = 0
         if expected_receipt_count is not None:
             evidence_guard["expected_receipt_count"] = expected_receipt_count
         if expected_checkpoint_revision is not None:
