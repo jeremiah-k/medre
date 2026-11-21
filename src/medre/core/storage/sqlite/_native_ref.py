@@ -24,9 +24,11 @@ from medre.core.storage.sqlite._projections import inspection_sql
 from medre.core.storage.sqlite.serde import _encode_json, _row_to_native_ref
 from medre.core.storage.sqlite.statements import (
     _GET_NATIVE_REF,
+    _GET_NATIVE_REF_PLAIN,
     _INSERT_NATIVE_REF,
     _RESOLVE_NATIVE_REF,
     _SELECT_NREFS_FOR_EVENT,
+    _SELECT_NREFS_FOR_EVENT_PLAIN,
 )
 
 
@@ -130,7 +132,11 @@ class _NativeRefMixin:
         *native_channel_id*.
         """
         row = await self._read_one(
-            inspection_sql(_GET_NATIVE_REF, "native_message_refs", metadata_only),
+            inspection_sql(
+                _GET_NATIVE_REF_PLAIN if metadata_only else _GET_NATIVE_REF,
+                "native_message_refs",
+                metadata_only,
+            ),
             (adapter, native_channel_id, native_message_id),
         )
         return _row_to_native_ref(row) if row else None
@@ -150,7 +156,13 @@ class _NativeRefMixin:
         """
         rows = await self._read_all(
             inspection_sql(
-                _SELECT_NREFS_FOR_EVENT, "native_message_refs", metadata_only
+                (
+                    _SELECT_NREFS_FOR_EVENT_PLAIN
+                    if metadata_only
+                    else _SELECT_NREFS_FOR_EVENT
+                ),
+                "native_message_refs",
+                metadata_only,
             ),
             (event_id,),
         )

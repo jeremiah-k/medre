@@ -279,3 +279,16 @@ _GET_NATIVE_REF = (
     + _NATIVE_REFERENCE_SAFE_FROM
     + "WHERE adapter = ? AND native_channel_id IS ? AND native_message_id = ? LIMIT 1"
 )
+
+# Inspection variants carry no derived subquery: the metadata-only projection
+# rewrites the base-table column list directly, so the stored metadata column
+# is never referenced — not even inside an ELSE branch a column authorizer
+# would deny. Ordinary reads above keep the enforcement-receipt masking.
+_SELECT_NREFS_FOR_EVENT_PLAIN = (
+    "SELECT * FROM native_message_refs "
+    "WHERE event_id = ? ORDER BY created_at ASC, id ASC"
+)
+_GET_NATIVE_REF_PLAIN = (
+    "SELECT * FROM native_message_refs "
+    "WHERE adapter = ? AND native_channel_id IS ? AND native_message_id = ? LIMIT 1"
+)
