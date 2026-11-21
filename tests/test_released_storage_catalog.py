@@ -1,8 +1,9 @@
 """Open a populated released catalog, independently of the current DDL.
 
 The SQL fixture is the verbatim concatenation of _SCHEMA and _INDEXES from
-0.1.0 (fd2927d1a518c792f85bf8c31c297dbe6e7e7cb8). The 0.1.1 tag has the
-same DDL and version stamp. Do not regenerate the fixture from current code:
+0.1.0 (fd2927d1a518c792f85bf8c31c297dbe6e7e7cb8). Releases through 0.2.1
+have the same catalog and version stamp. The 0.2.2 release adds the handoff
+settlement table. Do not regenerate the fixture from current code:
 future migrations must continue to accept this released baseline. When a
 new catalog is introduced, update the expected post-migration state, not
 the fixture.
@@ -12,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import sqlite3
 from contextlib import closing, redirect_stdout
 from pathlib import Path
@@ -24,6 +26,7 @@ from medre.core.storage.backend import (
     PreReleaseSchemaMismatchError,
     StorageInitializationError,
 )
+from medre.core.storage.sqlite import schema_validation
 from medre.core.storage.sqlite.catalog_assessment import (
     CatalogCompatibility,
     assess_storage_catalog,
@@ -44,6 +47,18 @@ _FIXTURE = Path(__file__).parent / "fixtures/released-storage-0.1.0.sql"
 _FIXTURE_SHA256 = "623dceec6e92745222c98dac94de976c66bdb50834fe588fa373520822295811"
 _NOW = "2026-11-14T00:00:00+00:00"
 _HANDOFF_SETTLEMENTS = "delivery_handoff_settlements"
+_CEILING_ADDITIONS = (
+    ("table", "event_content_ceiling_log"),
+    ("index", "idx_ceiling_enforcement_order"),
+)
+_RELEASED_010_ADDITIONS = (("table", _HANDOFF_SETTLEMENTS), *_CEILING_ADDITIONS)
+# SQLite catalog from tag 0.2.2 (dd2b50899c7bc1f6fff2abe7594d8ea3dc7809d5).
+_RELEASED_022_CATALOG_SHA256 = (
+    "4b46e00fa039ab1a5a5108a5dd61bbd5a34435fb4130f466a067191e924eb280"
+)
+_HANDOFF_SETTLEMENT_SCHEMA = (
+    _FIXTURE.parents[2] / "docs" / "schemas" / "handoff-settlements.schema.sql"
+)
 
 
 def _populate(path: Path) -> None:
@@ -119,24 +134,73 @@ def _state(
 
 def _expected_upgraded_state(
     original: tuple[list[tuple[Any, ...]], dict[str, list[tuple[Any, ...]]]],
+    added_catalog_objects: tuple[tuple[str, str], ...] = _RELEASED_010_ADDITIONS,
 ) -> tuple[list[tuple[Any, ...]], dict[str, list[tuple[Any, ...]]]]:
     catalog, rows = original
-    added_catalog_objects = (
-        ("table", _HANDOFF_SETTLEMENTS),
-        ("table", "event_content_ceiling_log"),
-        ("index", "idx_ceiling_enforcement_order"),
-    )
-    added_row_names = (_HANDOFF_SETTLEMENTS, "event_content_ceiling_log")
-    for _kind, name in added_catalog_objects:
-        assert name not in rows
+    original_objects = {(kind, name) for kind, name, _sql in catalog}
+    assert original_objects.isdisjoint(added_catalog_objects)
     entries = [
         (kind, name, _expected_definitions()[(kind, name)])
         for kind, name in added_catalog_objects
     ]
     return sorted([*catalog, *entries]), {
         **rows,
-        **{name: [] for name in added_row_names},
+        **{name: [] for kind, name in added_catalog_objects if kind == "table"},
     }
+
+
+def test_released_022_ceiling_upgrade_preserves_handoff_settlements(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "released-022.sqlite"
+    _populate(path)
+    with closing(sqlite3.connect(path)) as db:
+        db.execute("PRAGMA foreign_keys=ON")
+        db.executescript(_HANDOFF_SETTLEMENT_SCHEMA.read_text(encoding="utf-8"))
+        with db:
+            db.execute("INSERT INTO delivery_handoff_settlements VALUES ('work', 1, 1)")
+        before = _state(db)
+    assert (
+        hashlib.sha256(json.dumps(before[0]).encode()).hexdigest()
+        == _RELEASED_022_CATALOG_SHA256
+    )
+    assessment = assess_storage_catalog(str(path))
+    assert assessment.classification is CatalogCompatibility.SUPPORTED_UPGRADE
+    assert assessment.stored_version == "1"
+    expected = _expected_upgraded_state(before, _CEILING_ADDITIONS)
+    for _ in range(2):
+        with closing(sync_open(str(path))) as db:
+            assert _state(db) == expected
+            assert not db.execute("PRAGMA foreign_key_check").fetchall()
+
+
+def test_released_upgrade_rolls_back_if_ceiling_index_creation_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "released.sqlite"
+    _populate(path)
+    before = path.read_bytes()
+    with closing(sqlite3.connect(path)) as db:
+        expected = _expected_upgraded_state(_state(db))
+    execute_ddl = schema_validation.execute_ddl
+
+    def fail_index(db: sqlite3.Connection, ddl: str) -> None:
+        if "CREATE INDEX IF NOT EXISTS idx_ceiling_enforcement_order" in ddl:
+            assert db.in_transaction
+            assert (
+                db.execute("SELECT * FROM event_content_ceiling_log").fetchall() == []
+            )
+            raise sqlite3.OperationalError("injected ceiling index failure")
+        execute_ddl(db, ddl)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(schema_validation, "execute_ddl", fail_index)
+        with pytest.raises(sqlite3.OperationalError, match="injected ceiling index"):
+            sync_open(str(path))
+    assert path.read_bytes() == before
+    with closing(sync_open(str(path))) as db:
+        assert _state(db) == expected
+        assert not db.execute("PRAGMA foreign_key_check").fetchall()
 
 
 def test_released_catalog_sql_boundary_preserves_rows(tmp_path: Path) -> None:

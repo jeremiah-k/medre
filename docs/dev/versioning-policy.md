@@ -39,18 +39,26 @@ namespace. An already-published `0.1.0` must not be followed by `0.1.0a1`
 source reproducibility; no broad package-version constraint is a compatibility
 proof.
 
-**Persisted databases:** The tagged 0.1.0 SQL snapshot identifies the released
-baseline. The current writable initializer recognizes only explicitly declared,
-structurally exact additive predecessors. Other incompatible development
-catalogs are refused with an operator recovery or reset decision. See the
-[storage policy](../spec/storage.md#10-database-compatibility-policy). Future
-supported database layout changes identify their source and target catalogs
-and include an explicit forward-only migration with data-preservation,
-failure/rollback and restart tests. Unchanged catalogs reopen without
-transformation. Compatibility review defines each change's supported upgrade
-and recovery paths; it does not make arbitrary development layouts supported.
-Schema version increments track supported persisted-state changes, not Git
-commits, adapter API changes, or package releases.
+**Persisted databases:** The SQLite version stamp identifies a storage
+generation. Exact catalog validation identifies which layouts a build
+can open. Keep the stamp for a named additive upgrade whose catalog and
+data can be verified under the existing generation. A release can add an
+empty table or index this way. The newer build installs only the approved
+objects in one transaction before opening the database for use.
+
+Treat an incompatible layout or a change in how existing persisted values
+are interpreted as a storage-generation decision. A supported version bump
+needs an explicit forward migration from the affected released catalogs,
+with source and target validation, data-preservation, failure rollback and
+restart tests. Write the new stamp in the same transaction after validating
+the result. Qualify each distinct released layout covered by the upgrade
+claim. The tagged 0.1.0 catalog is the first fixture for that purpose.
+Unrecognized development layouts require a separate recovery decision.
+
+Forward upgrade support does not imply downgrade support. A prior build
+can refuse a database whose catalog changed under the same stamp. An
+operator rollback plan should use a verified pre-upgrade backup and a
+compatible build. See the [storage policy](../spec/storage.md#10-database-compatibility-policy).
 
 ## 0.1.0 schema compatibility baseline
 
@@ -71,9 +79,7 @@ review differences against exact tagged artifacts. Abandoned experimental
 shapes from before the first release are not automatically supported migration
 baselines.
 
-The current source configuration schema lives under `docs/schemas/current/`;
-the released top-level snapshots remain immutable. The initial current adapter
-schema adds the optional Meshtastic startup drain setting without changing
-canonical event, native metadata or persisted-state generations. Source drift
-is checked against that current schema, and release packaging retains both
-the baseline and current artifacts.
+Current source configuration schemas live under `docs/schemas/current/`.
+The top-level 0.1.0 snapshots and their manifest retain the released bytes.
+Check source drift against the current schemas and package both sets. Use the
+current schema for options introduced after 0.1.0.
