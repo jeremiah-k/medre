@@ -383,6 +383,17 @@ def _verify_wheel_package_files(wheel: Path) -> None:
         f"package modules differ from source; absent from wheel={sorted(expected - actual)}, absent from source={sorted(actual - expected)}. Source inventory includes untracked .py files: remove abandoned modules or rebuild the wheel after adding them. Remove stale build/lib outputs before rebuilding.",
     )
     _verify_wheel_schema_files(wheel)
+    with ZipFile(wheel) as archive:
+        for filename in ("adapter-config.schema.json", "runtime-config.schema.json"):
+            path = f"current/{filename}"
+            packaged = f"medre/_schemas/{path}"
+            _expect(
+                packaged in archive.namelist()
+                and archive.read(packaged)
+                == (_REPO_ROOT / "docs" / "schemas" / path).read_bytes(),
+                "wheel schemas",
+                f"packaged current schema is missing or differs from source: {filename}",
+            )
 
 
 def _verify_wheel_schema_files(wheel: Path, *, required: bool = True) -> None:
