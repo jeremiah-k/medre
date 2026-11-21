@@ -154,7 +154,7 @@ async def _seed_every_copy(store: SQLiteStorage, event_id: str) -> str:
     await store._write(
         "INSERT INTO delivery_evidence_diagnostics (family, row_id, attempt, "
         "field, diagnostic, created_at) VALUES ('observation', ?, 1, "
-        "'last_error', ?, ?)",
+        "'error', ?, ?)",
         (f"obs-{event_id}", f"late failure {MARKER}", now),
     )
     # Radio recovery plan riding the outbox generation.
@@ -237,7 +237,7 @@ async def test_elapsed_ceiling_purges_every_enumerated_store(
     assert summary.rows_removed > 0
     assert summary.logical_bytes_removed > 0
     assert summary.blobs_removed == 1
-    assert summary.blob_bytes_removed == 10
+    assert summary.blob_bytes_removed == len(b"ATTACHDATA")
 
     # Separated content rows are gone.
     assert (
@@ -633,7 +633,13 @@ async def test_first_time_enforcement_advances_across_a_page_of_receipts(
     pending = "ceiling-pending"
     await _admit_with_ceiling(temp_storage, pending)
     later = await _read_ceiling(temp_storage, pending) + timedelta(seconds=1)
-    enforced = await temp_storage.enforce_content_ceilings(now=later, limit=1)
+    # The bounded keyset page visits receipted keys too, then reaches the
+    # newly elapsed policy on a subsequent poll without unbounded scanning.
+    enforced = []
+    for _ in range(3):
+        enforced += await temp_storage.enforce_content_ceilings(now=later, limit=1)
+        if enforced:
+            break
     assert [item.event_id for item in enforced] == [pending]
     assert await temp_storage.enforce_content_ceilings(now=later, limit=1) == []
 
@@ -651,9 +657,12 @@ async def test_receipt_cursor_preserves_unexamined_short_page(
     for event_id in pending:
         await _admit_with_ceiling(temp_storage, event_id)
     now = await _read_ceiling(temp_storage, pending[-1]) + timedelta(seconds=1)
-    for event_id in pending:
-        outcomes = await temp_storage.enforce_content_ceilings(now=now, limit=1)
-        assert [outcome.event_id for outcome in outcomes] == [event_id]
+    processed = []
+    for _ in range(5):
+        processed.extend(await temp_storage.enforce_content_ceilings(now=now, limit=1))
+        if len(processed) == len(pending):
+            break
+    assert [outcome.event_id for outcome in processed] == pending
     assert await temp_storage.enforce_content_ceilings(now=now, limit=1) == []
 
 
@@ -942,9 +951,19 @@ async def test_residual_cursor_revisits_old_receipts_despite_new_high_ids(
     newcomers = [f"receipt-z-{index:02}" for index in range(25)]
     for event_id in newcomers:
         await _admit_with_ceiling(temp_storage, event_id)
-    new_enforcement = await temp_storage.enforce_content_ceilings(
-        now=now + timedelta(seconds=1), limit=50
-    )
+    newcomer_ceilings = [
+        await _read_ceiling(temp_storage, event_id) for event_id in newcomers
+    ]
+    new_now = max(newcomer_ceilings) + timedelta(seconds=1)
+    new_enforcement = []
+    for _ in range(5):
+        new_enforcement += await temp_storage.enforce_content_ceilings(
+            now=new_now, limit=50
+        )
+        if {item.event_id for item in new_enforcement if not item.residual_pass} == set(
+            newcomers
+        ):
+            break
     assert {item.event_id for item in new_enforcement if not item.residual_pass} == set(
         newcomers
     )
@@ -1165,6 +1184,7 @@ async def test_native_reference_read_uses_clock_after_sqlite_lock_wait(
     monkeypatch.setattr(
         connection, "ceiling_read_time", lambda: clock["now"].isoformat()
     )
+    entered.clear()  # The earlier fixture query also invoked the patched reader.
     temp_storage._lock.acquire()
     try:
         task = asyncio.create_task(temp_storage.list_native_refs_for_event(event_id))

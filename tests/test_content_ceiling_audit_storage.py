@@ -217,7 +217,7 @@ async def test_shared_blob_bytes_go_with_last_referent_across_receipts(
     assert both["verdict"] == "passed"
     b_receipt = next(r for r in both["receipts"] if r["event_id"] == owner_b)
     assert b_receipt["blobs_removed"] == 1
-    assert b_receipt["blob_bytes_removed"] == 10
+    assert b_receipt["blob_bytes_removed"] == len(b"ATTACHDATA")
     audit = await temp_storage.audit_content_ceilings()
     assert audit["elapsed_pending"] == []
     assert audit["residual_enforced"] == []

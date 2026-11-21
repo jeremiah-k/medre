@@ -168,7 +168,7 @@ def test_cli_audit_and_verify_prove_purged_lifecycle(tmp_path: Path) -> None:
     assert receipt["rows_removed"] > 0
     assert receipt["logical_bytes_removed"] > 0
     assert receipt["blobs_removed"] == 1
-    assert receipt["blob_bytes_removed"] == 10
+    assert receipt["blob_bytes_removed"] == len(b"ATTACHDATA")
 
 
 def test_cli_verify_exits_failed_on_residual_and_flags(tmp_path: Path) -> None:

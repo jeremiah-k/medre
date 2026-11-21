@@ -11,8 +11,17 @@ normative invariant and the store-by-store census live in
 
 The sweep is **disabled by default**. An elapsed ceiling denies content
 reads, but does not by itself purge physical SQLite rows or create a receipt.
-Set `enabled = true` under `[retry.ceiling_sweep]` (see
-[configuration](configuration.md#content-ceiling-sweep)) to run enforcement.
+Enable the sweep in the bridge YAML configuration (SQLite storage only):
+
+```yaml
+retry:
+  ceiling_sweep:
+    enabled: true
+```
+
+See [configuration](configuration.md#content-ceiling-sweep) for the
+schedule and prerequisites. Other storage backends do not implement this
+purge transition; enabling the flag there cannot enforce stored ceilings.
 The purge and its receipt occur when the enabled sweep processes the event.
 
 Two read-only commands let an operator check that contract against the
