@@ -1979,13 +1979,15 @@ and the named rebuild steps in
 [`_prerelease_migrate.py`](../../src/medre/core/storage/sqlite/_prerelease_migrate.py)
 (the legacy module name is retained). The recognized changes are:
 
-- Recognized missing tables: `event_content_collection_log`, `content_retention_epochs`,
+- Recognized missing tables: `event_content_collection_log`,
+  `event_content_ceiling_log`, `content_retention_epochs`,
   `delivery_evidence_diagnostics`, `event_routing_facts`,
   `delivery_outbox_snapshots`, `delivery_handoff_settlements`, and
   `inbound_pressure_outage_gaps`.
 - Recognized missing indexes: `idx_outbox_deadline_cleanup_order`,
-  `idx_diagnostics_identity`, `idx_events_admission_order`, and
-  `idx_outbox_snapshot_owner_unique`.
+  `idx_diagnostics_identity`, `idx_events_admission_order`,
+  `idx_outbox_snapshot_owner_unique`, and
+  `idx_ceiling_enforcement_order`.
 - The exact predecessor of `event_content_access_grants` without nullable
   `expired_at`.
 - The exact predecessor definitions for `operator_delivery_decisions`,

@@ -128,12 +128,12 @@ async def test_explicit_additions_are_atomic_and_idempotent(
 async def test_missing_diagnostics_table_is_upgraded_atomically(tmp_path):
     """A current predecessor lacking the diagnostics surface is accepted.
 
-    ``_old_database`` strips five tables: the collection log, the retention
-    activation epochs, the routing facts and the outbox work snapshot
-    unconditionally, and the diagnostics surface for this test. The
-    assertions below pin the table set exactly — the upgrade adds those five
-    tables and removes no table. The created index and the untouched legacy
-    row are asserted separately in this test.
+    ``_old_database`` strips six tables: the collection log, the hard-ceiling
+    enforcement receipt, the retention activation epochs, the routing facts
+    and the outbox work snapshot unconditionally, and the diagnostics
+    surface for this test. The assertions below pin the table set exactly —
+    the upgrade adds those six tables and removes no table. The created
+    index and the untouched legacy row are asserted separately in this test.
     """
     path = str(tmp_path / "upgrade-diagnostics.db")
     _old_database(path, missing_diagnostics=True)
@@ -196,6 +196,7 @@ async def test_missing_diagnostics_table_is_upgraded_atomically(tmp_path):
         "content_retention_epochs",
         "delivery_evidence_diagnostics",
         "delivery_outbox_snapshots",
+        "event_content_ceiling_log",
         "event_content_collection_log",
         "event_routing_facts",
     }

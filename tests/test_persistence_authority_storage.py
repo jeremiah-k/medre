@@ -523,8 +523,25 @@ class TestNoDeleteInStorageModule:
 
     def test_only_classified_content_rows_are_deleted(self) -> None:
         delete_pattern = re.compile(r"\bDELETE\s+FROM\b", re.IGNORECASE)
+        target_pattern = re.compile(
+            r"\bDELETE\s+FROM\s+([A-Za-z_][A-Za-z0-9_]*)", re.IGNORECASE
+        )
         permitted = {"event_body_content", "event_relation_excerpts"}
+        # The guarded ceiling-enforcement transition deletes exactly the
+        # census-declared content-potential rows of an elapsed-ceiling event
+        # (docs/spec/content-privacy-ceiling.md §3); linkage and evidence
+        # rows are never deleted there.
+        ceiling_permitted = {
+            "event_body_content",
+            "event_relation_excerpts",
+            "delivery_evidence_diagnostics",
+            "radio_attempt_progress",
+            "delivery_outbox_snapshots",
+            "event_attachment_associations",
+            "attachment_blobs",
+        }
         found: set[str] = set()
+        ceiling_found: set[str] = set()
         violations: list[str] = []
         for py_file in _sqlite_source_files():
             for line_no, line in enumerate(py_file.read_text().split("\n"), 1):
@@ -535,6 +552,14 @@ class TestNoDeleteInStorageModule:
                     matches = {table for table in permitted if table in line}
                     if len(matches) == 1:
                         found.update(matches)
+                        continue
+                # The ceiling-enforcement purge targets the row's DELETE
+                # destination exactly; subqueries may name surviving
+                # linkage tables.
+                if py_file.name == "_ceiling_enforcement.py":
+                    target = target_pattern.search(line)
+                    if target is not None and target.group(1) in ceiling_permitted:
+                        ceiling_found.add(target.group(1))
                         continue
                 # Frozen work context is an owned, transient projection, not
                 # durable delivery evidence. Its one exact-table DELETE is
@@ -550,6 +575,7 @@ class TestNoDeleteInStorageModule:
             violations
         )
         assert found == permitted
+        assert ceiling_found == ceiling_permitted
 
     def test_no_delete_method_on_storage(self) -> None:
         """SQLiteStorage has no delete/remove method.

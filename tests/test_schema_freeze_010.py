@@ -17,6 +17,9 @@ FROZEN = json.loads((SCHEMA_DIR / "v0.1.0.freeze.json").read_text(encoding="utf-
 #: operator view); the 0.1.0 manifest itself never changes. Removal or
 #: silent content drift of a listed file still fails below.
 POST_RELEASE_SCHEMA_FILES: dict[str, str] = {
+    "event-content-ceiling-log.schema.sql": (
+        "11695fbf64f3684902e3dd87be6656108640c47aa2c222a5bf941758e7114140"
+    ),
     "handoff-settlements.schema.sql": (
         "ecceceaf4808b658313101674b60e260850b5e679a7b6f4788d74281fc549237"
     ),

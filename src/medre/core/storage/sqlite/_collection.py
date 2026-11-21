@@ -87,8 +87,18 @@ def _read_collection_state(
     ).fetchone()
     if identity is None or type(identity[0]) is not int or identity[0] not in (0, 1):
         raise StorageError("Collection requires a valid admission identity")
+    ceiling_receipt = db.execute(
+        "SELECT 1 FROM event_content_ceiling_log WHERE event_id=?", (event_id,)
+    ).fetchone()
     if previous is not None and rows:
         raise StorageError("Collected content was unexpectedly recreated")
+    if ceiling_receipt is not None and rows:
+        raise StorageError("Ceiling-purged content was unexpectedly recreated")
+    if ceiling_receipt is not None:
+        # The hard-ceiling enforcement transition already removed this
+        # event's content and recorded its own immutable receipt; nothing
+        # remains for the relay-only collector to collect.
+        return "already_collected", blockers, rows, logical_bytes
     if previous is None and identity[0] == 0 and measure[0]:
         raise StorageError("Body row exists but admission recorded no body")
     if previous is None and identity[0] and not measure[0]:

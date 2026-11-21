@@ -121,10 +121,22 @@ def _expected_upgraded_state(
     original: tuple[list[tuple[Any, ...]], dict[str, list[tuple[Any, ...]]]],
 ) -> tuple[list[tuple[Any, ...]], dict[str, list[tuple[Any, ...]]]]:
     catalog, rows = original
-    kind, name = "table", _HANDOFF_SETTLEMENTS
-    assert name not in rows
-    entry = (kind, name, _expected_definitions()[(kind, name)])
-    return sorted([*catalog, entry]), {**rows, name: []}
+    added_catalog_objects = (
+        ("table", _HANDOFF_SETTLEMENTS),
+        ("table", "event_content_ceiling_log"),
+        ("index", "idx_ceiling_enforcement_order"),
+    )
+    added_row_names = (_HANDOFF_SETTLEMENTS, "event_content_ceiling_log")
+    for _kind, name in added_catalog_objects:
+        assert name not in rows
+    entries = [
+        (kind, name, _expected_definitions()[(kind, name)])
+        for kind, name in added_catalog_objects
+    ]
+    return sorted([*catalog, *entries]), {
+        **rows,
+        **{name: [] for name in added_row_names},
+    }
 
 
 def test_released_catalog_sql_boundary_preserves_rows(tmp_path: Path) -> None:
@@ -136,7 +148,13 @@ def test_released_catalog_sql_boundary_preserves_rows(tmp_path: Path) -> None:
     assert sync_find_schema_shape_mismatch(str(path), _REQUIRED_COLUMNS) is None
     with closing(sync_open_readonly(str(path))) as db:
         assert safe_additive_state(db)
-        with pytest.raises(PreReleaseSchemaMismatchError, match=_HANDOFF_SETTLEMENTS):
+        # The read-only validation names the first missing additive object in
+        # the required-column walk; the released predecessor lacks both the
+        # handoff settlement and the ceiling receipt tables.
+        with pytest.raises(
+            PreReleaseSchemaMismatchError,
+            match="event_content_ceiling_log|delivery_handoff_settlements",
+        ):
             validate_schema_definition(db, str(path))
         assert _state(db) == before
     expected = _expected_upgraded_state(before)
@@ -241,7 +259,10 @@ def test_released_catalog_assessment_reports_upgrade_then_current(
         assessment = assess_storage_catalog(str(path))
         assert assessment.classification is CatalogCompatibility.SUPPORTED_UPGRADE
         assert assessment.stored_version == "1"
-        assert assessment.detail == f"missing objects: table {_HANDOFF_SETTLEMENTS}"
+        assert assessment.detail == (
+            "missing objects: index idx_ceiling_enforcement_order, "
+            "table delivery_handoff_settlements, table event_content_ceiling_log"
+        )
     with closing(sqlite3.connect(path)) as db:
         assert _state(db) == before
     with closing(sync_open(str(path))) as db:
