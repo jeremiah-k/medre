@@ -249,11 +249,22 @@ _CEILING_RESIDUAL_SQL = "SELECT " + " + ".join(
     for predicate in _residual_fragments(":ev")
 )
 
-#: Candidate discovery: elapsed ceilings without an enforcement receipt, in
-#: a stable keyset ordering backed by the additive partial-order index.
-#: Already-enforced events are re-discovered separately by the residual
-#: battery, not here: the main pass is bounded to unenforced events.
-_CEILING_CANDIDATES_SQL = """
+#: Page all elapsed policies before filtering by receipt so LIMIT bounds
+#: the policies visited under the writer lock, even in a mostly clean store.
+_CEILING_POLICY_PAGE_SQL = """
+    SELECT p.event_id, p.hard_ceiling,
+           EXISTS (
+               SELECT 1 FROM event_content_ceiling_log l WHERE l.event_id=p.event_id
+           ) AS enforced
+      FROM event_content_access_policies AS p
+     WHERE p.hard_ceiling <= ?
+       AND (p.hard_ceiling, p.event_id) > (?, ?)
+     ORDER BY p.hard_ceiling ASC, p.event_id ASC
+     LIMIT ?
+"""
+
+#: The read-only audit selects matching events without taking a writer lock.
+_CEILING_AUDIT_PENDING_SQL = """
     SELECT p.event_id, p.hard_ceiling
       FROM event_content_access_policies AS p
      WHERE p.hard_ceiling <= ?
@@ -636,8 +647,7 @@ def sync_enforce_content_ceilings(
                 (_CEILING_RESIDUAL_CURSOR_KEY, json.dumps(residual_cursor)),
             )
 
-            # Main pass: unenforced elapsed ceilings in keyset order, with
-            # durable progress persisted in the same transaction.
+            # Record progress over every policy examined in keyset order.
             progress = db.execute(
                 "SELECT value FROM _medre_schema_meta WHERE key=?",
                 (_CEILING_SWEEP_CURSOR_KEY,),
@@ -656,19 +666,21 @@ def sync_enforce_content_ceilings(
             while first_time < limit and examined < budget:
                 page_size = min(100, budget - examined)
                 page = db.execute(
-                    _CEILING_CANDIDATES_SQL,
+                    _CEILING_POLICY_PAGE_SQL,
                     (observed, last_ceiling, last_event_id, page_size),
                 ).fetchall()
                 if not page:
                     # Wrap: the next sweep rescans from the start so events
                     # admitted (or backdated) behind the cursor are still
-                    # enforced. Receipt presence makes re-scan cheap.
+                    # enforced.
                     last_ceiling = last_event_id = ""
                     break
                 for row in page:
                     examined += 1
                     last_ceiling = str(row["hard_ceiling"])
                     last_event_id = str(row["event_id"])
+                    if row["enforced"]:
+                        continue
                     event_id = str(row["event_id"])
                     ceiling = str(row["hard_ceiling"])
                     (
@@ -781,7 +793,7 @@ def sync_audit_content_ceilings(
 
             fetch = limit + 1
             pending_rows = db.execute(
-                _CEILING_CANDIDATES_SQL, (observed, "", "", fetch)
+                _CEILING_AUDIT_PENDING_SQL, (observed, "", "", fetch)
             ).fetchall()
             pending = [
                 _audit_finding(db, str(row["event_id"]), str(row["hard_ceiling"]))

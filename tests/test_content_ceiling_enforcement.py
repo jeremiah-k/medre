@@ -586,6 +586,25 @@ async def test_additive_predecessor_gains_ceiling_objects(
 # -- Adversarial review: pending/repaired progress and late-write denial --
 
 
+async def test_first_time_enforcement_advances_across_a_page_of_receipts(
+    temp_storage: SQLiteStorage,
+) -> None:
+    prior = [f"ceiling-prior-{index:02}" for index in range(25)]
+    for event_id in prior:
+        await _admit_with_ceiling(temp_storage, event_id)
+    now = await _read_ceiling(temp_storage, prior[-1]) + timedelta(seconds=1)
+    enforced = await temp_storage.enforce_content_ceilings(now=now, limit=25)
+    assert {item.event_id for item in enforced} == set(prior)
+    # Wrap the policy cursor, then admit work ordered after the clean page.
+    assert await temp_storage.enforce_content_ceilings(now=now, limit=1) == []
+    pending = "ceiling-pending"
+    await _admit_with_ceiling(temp_storage, pending)
+    later = await _read_ceiling(temp_storage, pending) + timedelta(seconds=1)
+    assert await temp_storage.enforce_content_ceilings(now=later, limit=1) == []
+    enforced = await temp_storage.enforce_content_ceilings(now=later, limit=1)
+    assert [item.event_id for item in enforced] == [pending]
+
+
 async def test_pending_event_is_not_starved_by_residual_repair(
     temp_storage: SQLiteStorage,
 ) -> None:
