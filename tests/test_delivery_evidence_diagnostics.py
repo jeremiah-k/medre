@@ -345,7 +345,9 @@ async def test_diagnostic_coalescing_chunks_large_identity_lists():
 
         async def _read_all(self, sql, params=()):
             self.calls.append(len(params))
-            assert len(params) <= 501
+            # One bound ceiling-read timestamp and the family label precede
+            # the identity chunk.
+            assert len(params) <= 502
             return [
                 {
                     "diag_id": int(row_id.split("-")[1]) + 1,
@@ -354,7 +356,7 @@ async def test_diagnostic_coalescing_chunks_large_identity_lists():
                     "attempt": 1,
                     "diagnostic": row_id,
                 }
-                for row_id in params[1:]
+                for row_id in params[2:]
             ]
 
     rows = [
@@ -370,7 +372,7 @@ async def test_diagnostic_coalescing_chunks_large_identity_lists():
     await fake._resolve_evidence_diagnostics(
         "receipt", rows, identity_column="receipt_id"
     )
-    assert fake.calls == [501, 501, 201]
+    assert fake.calls == [502, 502, 202]
     assert [r["error"] for r in rows] == [f"receipt-{i}" for i in range(1200)]
 
 
