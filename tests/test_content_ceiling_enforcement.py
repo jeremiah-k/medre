@@ -455,6 +455,13 @@ async def test_shared_blob_survives_other_event_reference(
         (_BLOB_REF,),
     )
     assert still_shared == 1
+    remaining = await temp_storage._read_one(
+        "SELECT a.event_id, b.data FROM event_attachment_associations a "
+        "JOIN attachment_blobs b ON b.content_ref=a.content_ref "
+        "WHERE a.content_ref=?",
+        (_BLOB_REF,),
+    )
+    assert remaining == {"event_id": owner_b, "data": b"ATTACHDATA"}
     assert (
         await _count(
             temp_storage,
@@ -919,29 +926,47 @@ async def test_residual_cursor_revisits_old_receipts_despite_new_high_ids(
     enforced = await temp_storage.enforce_content_ceilings(now=now, limit=50)
     assert len(enforced) == 30
     await temp_storage._write(
-        "UPDATE canonical_events SET metadata=? WHERE event_id=?",
-        ('{"late":"text"}', ids[0]),
-    )
-    # A clean first page consumes the scan allowance but leaves old history.
-    await temp_storage._write(
         "INSERT OR REPLACE INTO _medre_schema_meta(key, value) VALUES (?, ?)",
         ("content_ceiling_residual_cursor", '["receipt-page-00","receipt-page-29"]'),
     )
+    # One clean scan page starts a bounded cycle over the existing history.
     assert await temp_storage.enforce_content_ceilings(now=now, limit=1) == []
-    # More receipts arrive after the finite traversal began.
+    started = await temp_storage._read_one(
+        "SELECT value FROM _medre_schema_meta WHERE key=?",
+        ("content_ceiling_residual_cursor",),
+    )
+    assert started is not None
+
+    # Newcomers obtain *real* receipts through the guarded sweep, not
+    # fabricated counters attached to content which was never erased.
     newcomers = [f"receipt-z-{index:02}" for index in range(25)]
     for event_id in newcomers:
         await _admit_with_ceiling(temp_storage, event_id)
-        await temp_storage._write(
-            "INSERT INTO event_content_ceiling_log(event_id, enforced_at, ceiling, "
-            "rows_removed, logical_bytes_removed, blobs_removed, blob_bytes_removed) "
-            "SELECT event_id, ?, hard_ceiling, 0, 0, 0, 0 "
-            "FROM event_content_access_policies WHERE event_id=?",
-            (now.isoformat(), event_id),
-        )
-    assert await temp_storage.enforce_content_ceilings(now=now, limit=1) == []
-    repaired = await temp_storage.enforce_content_ceilings(now=now, limit=1)
-    assert any(item.event_id == ids[0] and item.residual_pass for item in repaired)
+    new_enforcement = await temp_storage.enforce_content_ceilings(
+        now=now + timedelta(seconds=1), limit=50
+    )
+    assert {item.event_id for item in new_enforcement if not item.residual_pass} == set(
+        newcomers
+    )
+    # Model the in-progress older scan after new receipts arrive. Its saved
+    # finite upper bound must wrap rather than chase later IDs forever.
+    await temp_storage._write(
+        "UPDATE _medre_schema_meta SET value=? WHERE key=?",
+        (started["value"], "content_ceiling_residual_cursor"),
+    )
+    await temp_storage._write(
+        "UPDATE canonical_events SET metadata=? WHERE event_id=?",
+        ('{"late":"text"}', ids[0]),
+    )
+    for _ in range(5):
+        repaired = await temp_storage.enforce_content_ceilings(now=now, limit=1)
+        if any(item.event_id == ids[0] and item.residual_pass for item in repaired):
+            break
+    else:
+        raise AssertionError("Finite residual cursor never revisited the old receipt")
+    assert (await temp_storage.verify_content_ceiling_receipts(event_id=ids[0]))[
+        "verdict"
+    ] == "passed"
 
 
 async def test_recreated_diagnostic_after_ceiling_is_not_already_collected(

@@ -333,6 +333,7 @@ async def test_outbox_current_attempt_diagnostic_scopes_the_side_table(temp_stor
 
 
 async def test_diagnostic_coalescing_chunks_large_identity_lists():
+    from medre.core.storage.sqlite._content_identity import CEILING_CLOCK_AT_EXECUTION
     from medre.core.storage.sqlite._evidence_diagnostics import (
         _EvidenceDiagnosticsReadMixin,
     )
@@ -348,6 +349,8 @@ async def test_diagnostic_coalescing_chunks_large_identity_lists():
             # One bound ceiling-read timestamp and the family label precede
             # the identity chunk.
             assert len(params) <= 502
+            assert params[0] is CEILING_CLOCK_AT_EXECUTION
+            assert params[1] == "receipt"
             return [
                 {
                     "diag_id": int(row_id.split("-")[1]) + 1,
