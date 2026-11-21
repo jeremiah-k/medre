@@ -273,7 +273,9 @@ def _read_schema_meta(
         return SchemaEntry(present=False)
     return SchemaEntry(
         present=True,
-        path=str(path),
+        # Relative resource name only: the bundle must never disclose the
+        # operator's filesystem layout (absolute checkout or install paths).
+        path=filename,
         id=data.get("$id"),
         schema=data.get("$schema"),
     )

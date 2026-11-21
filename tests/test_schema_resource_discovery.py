@@ -74,4 +74,6 @@ def test_current_config_schema_is_reported_when_available(
     result = support_bundle._build_schemas_member()
     schema = getattr(result, f"{kind}_config_schema")
     assert schema.id == "urn:current"
-    assert schema.path == str(current / filename)
+    # The bundle reports the relative resource name, never an absolute
+    # local path from the operator's filesystem.
+    assert schema.path == f"current/{filename}"
