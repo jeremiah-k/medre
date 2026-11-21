@@ -39,8 +39,8 @@ scriptable.
 ## Options
 
 ```bash
-medre storage ceiling audit --storage-path PATH [--limit N] [--event EVENT_ID]
-medre storage ceiling verify --storage-path PATH [--limit N] [--event EVENT_ID]
+medre storage ceiling audit --storage-path PATH [--limit N] [--event EVENT_ID | --after-event EVENT_ID]
+medre storage ceiling verify --storage-path PATH [--limit N] [--event EVENT_ID | --after-event EVENT_ID]
 ```
 
 - `--storage-path PATH` — the SQLite database to read (default: the
@@ -54,18 +54,26 @@ medre storage ceiling verify --storage-path PATH [--limit N] [--event EVENT_ID]
   present; the verification fails closed when the event carries no
   receipt, because absence of proof is not proof.
 
+- `--after-event EVENT_ID` — continue in event ID order. Pass the report's
+  `receipts_next_after_event` to verify the next receipt page. For audit,
+  page the pending and residual lists independently using their
+  `*_next_after_event` values. A null continuation means the list ended.
+  Each invocation reads its own snapshot. Stop writes for a whole-store
+  verification across pages.
+
 ## Reading the output
 
 Both reports are metadata-only: event identifiers and census store labels
-are content-free identity. No message text, excerpt, blob bytes, or other
-content value is ever read or printed.
+are content-free identity. SQLite evaluates residual predicates against stored values and returns
+counts and identifiers. The reports contain no message text, excerpt,
+blob bytes, or other content values.
 
 - `elapsed_pending` — elapsed ceilings without a receipt: the sweep's next
   candidates, with the per-store residual counts that would be purged.
 - `residual_enforced` — enforced events still carrying residual values:
   the honest boundary between "gone by enforcement" and writes already
   authorized before the instant. Read mediation keeps such content
-  unreachable in the interim; the next sweep re-purges the residual values
+  unreachable until a subsequent sweep reaches the receipt and purges the residual values
   without rewriting the immutable receipt, and the verification passes
   again afterwards.
 - `receipts` (verify) — one entry per enforcement receipt: `enforced_at`,
@@ -74,9 +82,12 @@ content value is ever read or printed.
 
 A failing verification means content-potential values exist now for an
 enforced event. It does not mean the receipt was wrong: the receipt
-records what its transaction removed and verified. Run sweeps until the
-receipt's page is revisited, then re-run verification; a bounded sweep may
-process other receipts first. If a receipt is absent (`event_state=no_receipt`),
+records what its transaction removed and verified. Enable
+[`retry.ceiling_sweep`](configuration.md#content-ceiling-sweep),
+run MEDRE in live mode, and re-run verification after the sweep reaches
+the receipt's page. A passing window covers only its examined receipts.
+Check `receipts_examined` for an empty window and audit separately for
+elapsed ceilings awaiting enforcement. If a receipt is absent (`event_state=no_receipt`),
 there is no purge proof: verify the event exists and its ceiling has elapsed
 before asking enforcement to create a receipt. An unknown event cannot be
 fixed by sweeping. If a receipt exists but residual stores remain after its

@@ -847,6 +847,15 @@ or transaction latency; enablement depends on whether that recurring cost is
 acceptable for the deployment's queue shape. A sweep failure is isolated: it is logged and
 counted, and the next poll continues delivery unchanged.
 
+#### Content Ceiling Sweep
+
+Set `retry.ceiling_sweep.enabled: true` and run MEDRE in live mode to
+purge content behind installed, elapsed ceilings. The sweep defaults to
+disabled and can run with `retry.enabled: false`. Set `limit` and
+`interval_seconds` to control how much work it does on each pass and how
+often it runs. See the [storage contract](../spec/content-privacy-ceiling.md#4-enforcement-transition)
+and [audit commands](content-ceiling-audit.md).
+
 ## XDG Default Paths
 
 When `MEDRE_HOME` is not set:

@@ -1179,6 +1179,14 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
         help="Verify exactly one event's receipt instead of the window",
     )
 
+    for ceiling_window in (ceiling_audit_p, ceiling_verify_p):
+        ceiling_window.add_argument(
+            "--after-event",
+            default=None,
+            metavar="EVENT_ID",
+            help="Continue the report after this event ID",
+        )
+
     # Adapter/plugin contributed commands (adapter, plugin namespaces)
     parser.set_defaults(_adapter_cli_failures=())
     if include_adapter_cli:
@@ -1650,11 +1658,21 @@ def main(argv: list[str] | None = None) -> None:
             )
             if args.ceiling_command == "audit":
                 asyncio.run(
-                    _storage_ceiling_audit(path, limit=args.limit, event_id=args.event)
+                    _storage_ceiling_audit(
+                        path,
+                        limit=args.limit,
+                        event_id=args.event,
+                        after_event=args.after_event,
+                    )
                 )
             elif args.ceiling_command == "verify":
                 asyncio.run(
-                    _storage_ceiling_verify(path, limit=args.limit, event_id=args.event)
+                    _storage_ceiling_verify(
+                        path,
+                        limit=args.limit,
+                        event_id=args.event,
+                        after_event=args.after_event,
+                    )
                 )
         elif args.storage_command == "reset":
             path = args.storage_path or str(resolve_paths().database_path)

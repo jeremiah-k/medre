@@ -537,6 +537,9 @@ async def test_late_write_flagged_by_audit_then_cleared_by_next_sweep(
     assert passing["verdict"] == "passed"
     assert passing["receipts_examined"] == 1
     assert passing["receipts"][0]["status"] == "passed"
+    assert {
+        key: passing["receipts"][0][key] for key in receipt_before
+    } == receipt_before
     assert (
         await _count(temp_storage, "SELECT COUNT(*) FROM event_content_ceiling_log")
         == 1
@@ -832,14 +835,48 @@ def test_cli_commands_are_strictly_read_only(tmp_path: Path) -> None:
     with open(db_path, "rb") as source:
         before = hashlib.sha256(source.read()).hexdigest()
 
+    import sqlite3
+    from contextlib import closing
+
+    def logical_state():
+        with closing(sqlite3.connect(db_path)) as db:
+            return tuple(db.iterdump())
+
+    original_state = logical_state()
     for mode in ("audit", "verify"):
         code, _, stderr = _run_cli(
             "storage", "ceiling", mode, "--storage-path", db_path
         )
         assert code == 0, stderr
+        assert logical_state() == original_state
 
     with open(db_path, "rb") as source:
         assert hashlib.sha256(source.read()).hexdigest() == before
+
+
+async def test_reports_continue_in_event_id_order(temp_storage: SQLiteStorage) -> None:
+    events = ["ceiling-page-a", "ceiling-page-b"]
+    for event_id in reversed(events):
+        await _admit_with_ceiling(temp_storage, event_id)
+    now = await _read_ceiling(temp_storage, events[0]) + timedelta(seconds=1)
+    first_audit = await temp_storage.audit_content_ceilings(now=now, limit=1)
+    key = first_audit["elapsed_pending_next_after_event"]
+    assert key == events[0]
+    second_audit = await temp_storage.audit_content_ceilings(
+        now=now, limit=1, after_event=key
+    )
+    assert [row["event_id"] for row in second_audit["elapsed_pending"]] == events[1:]
+    assert second_audit["elapsed_pending_next_after_event"] is None
+
+    await temp_storage.enforce_content_ceilings(now=now)
+    first_verify = await temp_storage.verify_content_ceiling_receipts(limit=1)
+    key = first_verify["receipts_next_after_event"]
+    assert key == events[0]
+    second_verify = await temp_storage.verify_content_ceiling_receipts(
+        limit=1, after_event=key
+    )
+    assert [row["event_id"] for row in second_verify["receipts"]] == events[1:]
+    assert second_verify["receipts_next_after_event"] is None
 
 
 def test_ceiling_commands_registered_in_parser() -> None:

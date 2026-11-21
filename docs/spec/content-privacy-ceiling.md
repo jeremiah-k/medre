@@ -233,13 +233,13 @@ with, so the audit cannot drift from what enforcement proves.
    enforced events that regained content-potential values through writes
    authorized before their ceiling (`residual_enforced` — the documented
    late-write case). Reports are bounded windows with explicit `*_has_more`
-   truncation flags; a single-event report states one of `unknown`,
+   truncation flags and per-list continuation event IDs; a single-event report states one of `unknown`,
    `not_elapsed`, `elapsed_pending`, `residual_enforced`,
    `enforced_clean`.
 2. **Verify** (`medre storage ceiling verify`, storage method
    `verify_content_ceiling_receipts`). Re-runs the residual battery
    against the current database for every enforcement receipt in a
-   bounded window and reports pass/fail per receipt with the receipt's
+   bounded window in event ID order with a continuation event ID and reports pass/fail per receipt with the receipt's
    recorded content-free counters. A receipt fails exactly when its event
    holds residual content-potential values at verification time; the
    verdict is `passed` only when every examined receipt re-checks clean.

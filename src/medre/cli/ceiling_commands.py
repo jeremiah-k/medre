@@ -7,7 +7,7 @@
 
 Both modes open storage strictly read-only, emit metadata-only JSON (event
 identifiers and census store labels are content-free identity; no message
-text, excerpt, or blob bytes are ever read), and never purge, tombstone,
+text, excerpts, or blob bytes are returned), and never purge, tombstone,
 record, or rewrite anything: remediation belongs to the guarded sweep.
 """
 
@@ -30,12 +30,20 @@ def _ceiling_event_error() -> None:
     raise SystemExit(EXIT_CONFIG)
 
 
-def _validate_ceiling_flags(limit: int, event_id: str | None) -> None:
+def _validate_ceiling_flags(
+    limit: int, event_id: str | None, after_event: str | None
+) -> None:
     """Reject malformed flags before touching storage."""
     if not 1 <= limit <= 100:
         _ceiling_limit_error()
     if event_id is not None and not event_id:
         _ceiling_event_error()
+    if after_event is not None and (not after_event or event_id is not None):
+        print(
+            "Error: --after-event requires a nonempty ID and excludes --event",
+            file=sys.stderr,
+        )
+        raise SystemExit(EXIT_CONFIG)
 
 
 def _require_ceiling_database(storage_path: str) -> None:
@@ -49,6 +57,7 @@ async def _storage_ceiling_audit(
     *,
     limit: int = 25,
     event_id: str | None = None,
+    after_event: str | None = None,
 ) -> None:
     """Report per-store residuals for elapsed ceilings; read-only.
 
@@ -68,7 +77,7 @@ async def _storage_ceiling_audit(
     from .json import to_json
     from .storage_helpers import _open_readonly_storage
 
-    _validate_ceiling_flags(limit, event_id)
+    _validate_ceiling_flags(limit, event_id, after_event)
     _require_ceiling_database(storage_path)
     storage = await _open_readonly_storage(
         storage_path,
@@ -79,7 +88,7 @@ async def _storage_ceiling_audit(
     )
     try:
         report: dict[str, Any] = await storage.audit_content_ceilings(
-            limit=limit, event_id=event_id
+            limit=limit, event_id=event_id, after_event=after_event
         )
     except (StorageError, ValueError):
         print(
@@ -108,6 +117,7 @@ async def _storage_ceiling_verify(
     *,
     limit: int = 25,
     event_id: str | None = None,
+    after_event: str | None = None,
 ) -> None:
     """Verify enforcement receipts against the live store; read-only.
 
@@ -127,7 +137,7 @@ async def _storage_ceiling_verify(
     from .json import to_json
     from .storage_helpers import _open_readonly_storage
 
-    _validate_ceiling_flags(limit, event_id)
+    _validate_ceiling_flags(limit, event_id, after_event)
     _require_ceiling_database(storage_path)
     storage = await _open_readonly_storage(
         storage_path,
@@ -138,7 +148,7 @@ async def _storage_ceiling_verify(
     )
     try:
         report: dict[str, Any] = await storage.verify_content_ceiling_receipts(
-            limit=limit, event_id=event_id
+            limit=limit, event_id=event_id, after_event=after_event
         )
     except (StorageError, ValueError):
         print(

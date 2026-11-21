@@ -292,8 +292,8 @@ _CEILING_AUDIT_PENDING_SQL = """
        AND NOT EXISTS (
            SELECT 1 FROM event_content_ceiling_log l WHERE l.event_id=p.event_id
        )
-       AND (p.hard_ceiling, p.event_id) > (?, ?)
-     ORDER BY p.hard_ceiling ASC, p.event_id ASC
+       AND p.event_id > ?
+     ORDER BY p.event_id
      LIMIT ?
 """  # nosec B608 - static SQL fragments and parameter placeholders only
 
@@ -301,13 +301,13 @@ _CEILING_AUDIT_PENDING_SQL = """
 _CEILING_RESIDUAL_CANDIDATES_SQL = (
     "SELECT p.event_id, p.hard_ceiling\n"  # nosec B608 - static SQL fragments and parameter placeholders only
     "  FROM event_content_access_policies AS p\n"
-    " WHERE p.hard_ceiling <= ?\n"
+    " WHERE p.hard_ceiling <= ? AND p.event_id > ?\n"
     "   AND EXISTS (\n"
     "       SELECT 1 FROM event_content_ceiling_log l WHERE l.event_id=p.event_id\n"
     "   )\n"
     "   AND (\n" + " OR ".join(_residual_fragments("p.event_id")) + "\n"
     "   )\n"
-    " ORDER BY p.hard_ceiling ASC, p.event_id ASC\n"
+    " ORDER BY p.event_id\n"
     " LIMIT ?\n"
 )
 
@@ -934,6 +934,7 @@ def sync_audit_content_ceilings(
     observed: str | None,
     limit: int,
     event_id: str | None,
+    after_event: str | None = None,
 ) -> dict[str, Any]:
     """Read-only audit of the ceiling residual battery; it purges nothing.
 
@@ -944,9 +945,9 @@ def sync_audit_content_ceilings(
     ``elapsed_pending`` (the sweep's next candidates); enforced events that
     regained content-potential values through writes authorized before
     their ceiling are reported as ``residual_enforced`` (the spec's
-    documented late-write case, which the next sweep re-purges). Event
+    documented late-write case, which a later sweep purges when it revisits the receipt). Event
     identifiers and census store labels are content-free identity; no
-    message text, excerpt, blob bytes, or other content value is read.
+    message text, excerpt, blob bytes, or other content value is returned.
     """
     with lock:
         try:
@@ -960,14 +961,14 @@ def sync_audit_content_ceilings(
 
             fetch = limit + 1
             pending_rows = db.execute(
-                _CEILING_AUDIT_PENDING_SQL, (observed, "", "", fetch)
+                _CEILING_AUDIT_PENDING_SQL, (observed, after_event or "", fetch)
             ).fetchall()
             pending = [
                 _audit_finding(db, str(row["event_id"]), str(row["hard_ceiling"]))
                 for row in pending_rows[:limit]
             ]
             residual_rows = db.execute(
-                _CEILING_RESIDUAL_CANDIDATES_SQL, (observed, fetch)
+                _CEILING_RESIDUAL_CANDIDATES_SQL, (observed, after_event or "", fetch)
             ).fetchall()
             residual = [
                 _audit_finding(db, str(row["event_id"]), str(row["hard_ceiling"]))
@@ -985,6 +986,12 @@ def sync_audit_content_ceilings(
                 "receipts": receipts,
                 "elapsed_pending_has_more": len(pending_rows) > limit,
                 "residual_enforced_has_more": len(residual_rows) > limit,
+                "elapsed_pending_next_after_event": (
+                    pending[-1]["event_id"] if len(pending_rows) > limit else None
+                ),
+                "residual_enforced_next_after_event": (
+                    residual[-1]["event_id"] if len(residual_rows) > limit else None
+                ),
             }
         finally:
             db.rollback()
@@ -1038,10 +1045,7 @@ def _audit_single_event(
     }
 
 
-#: Bounded receipt-verification window: most recent receipts first, so the
-#: operator's one-shot post-sweep proof reads the freshest enforcement
-#: facts. The battery re-runs against the current database, not the
-#: enforcement-time snapshot.
+#: Verify receipts in immutable primary-key order for continuation across windows.
 _CEILING_RECEIPTS_SQL = """
     SELECT event_id, enforced_at, ceiling, rows_removed, logical_bytes_removed,
            blobs_removed, blob_bytes_removed
@@ -1054,6 +1058,7 @@ def sync_verify_content_ceiling_receipts(
     lock: threading.Lock,
     limit: int,
     event_id: str | None,
+    after_event: str | None = None,
 ) -> dict[str, Any]:
     """Read-only one-shot proof: receipts re-checked against the live store.
 
@@ -1062,7 +1067,7 @@ def sync_verify_content_ceiling_receipts(
     a bounded window, and reports pass/fail per receipt with the receipt's
     recorded content-free counters. A receipt fails when its event holds
     any residual content-potential value now (the documented late-write
-    case until the next sweep re-purges it); an explicitly requested event
+    case until a sweep revisits its receipt); an explicitly requested event
     without a receipt fails closed: absence of proof is not proof.
     """
     with lock:
@@ -1078,8 +1083,8 @@ def sync_verify_content_ceiling_receipts(
             else:
                 rows = db.execute(
                     _CEILING_RECEIPTS_SQL
-                    + " ORDER BY enforced_at DESC, event_id ASC LIMIT ?",
-                    (fetch,),
+                    + " WHERE event_id > ? ORDER BY event_id LIMIT ?",
+                    (after_event or "", fetch),
                 ).fetchall()
                 event_state = None
             receipts: list[dict[str, Any]] = []
@@ -1102,6 +1107,9 @@ def sync_verify_content_ceiling_receipts(
                 "receipts_passed": passed,
                 "receipts_failed": failed,
                 "receipts_has_more": len(rows) > limit,
+                "receipts_next_after_event": (
+                    receipts[-1]["event_id"] if len(rows) > limit else None
+                ),
                 "receipts": receipts,
             }
             if event_state is not None:
@@ -1207,6 +1215,7 @@ class _CeilingEnforcementMixin:
         now: datetime | None = None,
         limit: int = 25,
         event_id: str | None = None,
+        after_event: str | None = None,
     ) -> dict[str, Any]:
         """Read-only audit: what the ceiling enforcement would remove, per store.
 
@@ -1218,16 +1227,15 @@ class _CeilingEnforcementMixin:
         the sweep's next candidates (``elapsed_pending``); enforced events
         that regained residual content-potential values through writes
         authorized before their ceiling are the documented late-write case
-        (``residual_enforced``) and are flagged until the next sweep
-        re-purges them. Event identifiers and census store labels are
-        content-free identity; no content value is read. With *event_id*,
+        (``residual_enforced``) and are flagged until the sweep
+        revisits the receipt. Event identifiers and census store labels are
+        content-free identity; no content value is returned. With *event_id*,
         reports exactly one event's state (``unknown``, ``not_elapsed``,
         ``elapsed_pending``, ``residual_enforced``, ``enforced_clean``)
         with its receipt counters when present. Production omits *now* so
         storage samples UTC; an explicit timezone-aware *now* is available
         to trusted controlled-clock qualification. The report window is
-        bounded by *limit* (1–``max(25, limit)`` semantics of the sweep)
-        with explicit ``*_has_more`` truncation flags.
+        bounded by *limit* and exposes a continuation for each list.
         """
         ceiling_observation = (
             None if now is None else _utc_microseconds(now.isoformat(), "Ceiling clock")
@@ -1239,6 +1247,12 @@ class _CeilingEnforcementMixin:
             )
         if event_id is not None and (not isinstance(event_id, str) or not event_id):
             raise ValueError("The ceiling audit event filter must be a nonempty string")
+        if after_event is not None and (
+            event_id is not None or not isinstance(after_event, str) or not after_event
+        ):
+            raise ValueError(
+                "A nonempty continuation is valid only for a report window"
+            )
         try:
             return await self._run_in_thread(
                 sync_audit_content_ceilings,
@@ -1247,6 +1261,7 @@ class _CeilingEnforcementMixin:
                 ceiling_observation,
                 limit,
                 event_id,
+                after_event,
             )
         except sqlite3.Error as exc:
             raise StorageError(f"Ceiling audit failed: {exc}") from exc
@@ -1256,6 +1271,7 @@ class _CeilingEnforcementMixin:
         *,
         limit: int = 25,
         event_id: str | None = None,
+        after_event: str | None = None,
     ) -> dict[str, Any]:
         """Read-only one-shot proof: re-run the battery over the receipts.
 
@@ -1277,6 +1293,12 @@ class _CeilingEnforcementMixin:
             raise ValueError(
                 "The ceiling verification event filter must be a nonempty string"
             )
+        if after_event is not None and (
+            event_id is not None or not isinstance(after_event, str) or not after_event
+        ):
+            raise ValueError(
+                "A nonempty continuation is valid only for a report window"
+            )
         try:
             return await self._run_in_thread(
                 sync_verify_content_ceiling_receipts,
@@ -1284,6 +1306,7 @@ class _CeilingEnforcementMixin:
                 self._lock,
                 limit,
                 event_id,
+                after_event,
             )
         except sqlite3.Error as exc:
             raise StorageError(f"Ceiling receipt verification failed: {exc}") from exc
