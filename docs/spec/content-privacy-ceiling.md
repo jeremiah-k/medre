@@ -230,13 +230,16 @@ with, so the audit cannot drift from what enforcement proves.
 1. **Audit** (`medre storage ceiling audit`, storage method
    `audit_content_ceilings`). Walks the residual battery for content
    whose ceiling has elapsed and reports, per census store, the residual
-   rows the next enforcement would remove (`elapsed_pending`), plus
-   enforced events that regained content-potential values through writes
-   authorized before their ceiling (`residual_enforced` — the documented
-   late-write case). Reports are bounded windows with explicit `*_has_more`
-   truncation flags and per-list continuation event IDs; a single-event report states one of `unknown`,
-   `not_elapsed`, `elapsed_pending`, `residual_enforced`,
-   `enforced_clean`.
+   rows observed for each event in the audit snapshot (`elapsed_pending`),
+   plus enforced events that regained content-potential values through
+   writes authorized before their ceiling (`residual_enforced` — the
+   documented late-write case). Counts are per-event observations, not an
+   additive forecast: a shared blob is attributed only to the event that is
+   currently its sole owner, even though a sweep can delete it after removing
+   another event's last association. Reports are bounded windows with
+   explicit `*_has_more` truncation flags and per-list continuation event
+   IDs; a single-event report states one of `unknown`, `not_elapsed`,
+   `elapsed_pending`, `residual_enforced`, `enforced_clean`.
 2. **Verify** (`medre storage ceiling verify`, storage method
    `verify_content_ceiling_receipts`). Re-runs the residual battery
    against the current database for every enforcement receipt in a
