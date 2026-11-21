@@ -132,6 +132,11 @@ separate. Unknown worker fields, content, and event identifiers are refused.
 
 ## 0.1.0 release schema freeze
 
+The opt-in `retry.ceiling_sweep` declaration is exported in the separately
+pinned additive export `runtime-config-ceiling-sweep.schema.json`. The original
+`runtime-config.schema.json` remains byte-identical to its published v0.1.0
+contract; the additive export is pinned under the post-release schema guard.
+
 `v0.1.0.freeze.json` records the SHA-256 of every exported top-level JSON,
 YAML and SQL schema artifact in this distribution at the first-release
 baseline. `tests/test_schema_freeze_010.py` rejects additions, deletions and

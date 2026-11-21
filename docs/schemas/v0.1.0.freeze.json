@@ -48,7 +48,7 @@
     "readiness-report.schema.json": "6a58aebcab489718a195353a81f1d22499cc6fb8014f5e77a4fd7a14dbb596c2",
     "recovery-action.schema.json": "0147d98500c072093b56e59e53ce10e5d2280ca721204071bc2d535d5e10a5c9",
     "routing-config.schema.json": "91cdebf516497cb9aac1ff28a123ddc1515360c633454d283b747b4834ceff06",
-    "runtime-config.schema.json": "41cbbfd8d81387e585388255616fd3f71c8cb503a00fa48d9f0aea9f39f7ae28",
+    "runtime-config.schema.json": "f15145b0078ace889d7202c8b7ce05651d669f8c6a2b186ed33902e98ab7587b",
     "runtime-snapshot.schema.json": "377f0a6d5c19a20b370d619129a6a777efc987830fe33ccd0c047e6afb9fb814",
     "stopped-state-inventory.schema.json": "b1f76158bdc4df752945466445e4be837e2cd3c145ca4b4def3b7292a38d6396",
     "stopped-state-snapshot.schema.json": "5f566ba208483fa069a709ac60d26340ac59b319194c4ee0d46850b3ccb57ce2",
