@@ -38,6 +38,15 @@ such content unreachable in the interim.
 Physical SQLite pages, WAL frames, provider copies and backups are outside
 logical enforcement; the content-retention ceiling spec documents the
 explicit operator erasure step.
+
+The same module also owns the strictly read-only operator audit surface
+(``audit_content_ceilings`` / ``verify_content_ceiling_receipts``): the
+audit walks the residual battery for elapsed ceilings and reports what the
+enforcement would remove, per census store, and flags residual writes that
+landed after a prior sweep; the verification re-runs the battery over the
+recorded enforcement receipts and reports pass/fail per receipt with the
+receipt's counters. Both derive their probes from the same battery table
+as the purge verification, so the audit cannot drift from enforcement.
 """
 
 from __future__ import annotations
@@ -47,7 +56,7 @@ import sqlite3
 import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from medre.core.storage.backend import StorageError
 from medre.core.storage.sqlite._content_identity import _utc_microseconds
@@ -79,53 +88,139 @@ _INCOMING_EXCERPTS_PREDICATE = (
 )
 
 
-def _residual_fragments(event_ref: str) -> tuple[str, ...]:
-    """Build the residual battery for one event-reference spelling."""
-    ev = event_ref
-    return (
-        # Separated canonical body rows.
-        f"EXISTS (SELECT 1 FROM event_body_content b WHERE b.event_id={ev})",  # nosec B608 - closed module-owned fragment; event reference is a bind parameter or correlated column
-        # Same-event reply-quote excerpts.
+#: The residual battery as one ordered ``(census store label, predicate
+#: template)`` table. This is the single source for three consumers: the
+#: compound per-event battery (``_CEILING_RESIDUAL_SQL``), the residual
+#: candidate discovery (``_CEILING_RESIDUAL_CANDIDATES_SQL``), and the
+#: read-only operator audit's per-store residual counts (which derive a
+#: row-countable ``SELECT COUNT(*)`` from each ``EXISTS`` fragment). One
+#: table means the audit can never drift from what enforcement verifies.
+#: Every predicate carries exactly one ``{ev}`` placeholder spelling: the
+#: ``:ev`` bind parameter (per-event battery and audit counts) or a
+#: correlated outer column reference (candidate discovery).
+_RESIDUAL_BATTERY: tuple[tuple[str, str], ...] = (
+    # Separated canonical body rows.
+    (
+        "event_body_content",
+        "EXISTS (SELECT 1 FROM event_body_content b WHERE b.event_id={ev})",  # nosec B608 - closed module-owned fragment; event reference is a bind parameter or correlated column
+    ),
+    # Same-event reply-quote excerpts.
+    (
+        "event_relation_excerpts",
         "EXISTS (SELECT 1 FROM event_relation_excerpts x WHERE x.relation_id IN "  # nosec B608 - closed module-owned fragment; event reference is a bind parameter or correlated column
-        f"(SELECT r2.id FROM event_relations r2 WHERE r2.event_id={ev}))",
-        # Excerpts other events quoted from this event's content.
+        "(SELECT r2.id FROM event_relations r2 WHERE r2.event_id={ev}))",
+    ),
+    # Excerpts other events quoted from this event's content.
+    (
+        "event_relation_excerpts:incoming",
         "EXISTS (SELECT 1 FROM event_relation_excerpts x "  # nosec B608 - closed module-owned fragment; event reference is a bind parameter or correlated column
         "JOIN event_relations r ON r.id=x.relation_id WHERE "
-        + _INCOMING_EXCERPTS_PREDICATE.format(ev=ev)
+        + _INCOMING_EXCERPTS_PREDICATE
         + ")",
-        # Opaque envelope values on the canonical row.
-        f"EXISTS (SELECT 1 FROM canonical_events c WHERE c.event_id={ev} "  # nosec B608 - closed module-owned fragment; event reference is a bind parameter or correlated column
+    ),
+    # Opaque envelope values on the canonical row.
+    (
+        "canonical_events",
+        "EXISTS (SELECT 1 FROM canonical_events c WHERE c.event_id={ev} "  # nosec B608 - closed module-owned fragment; event reference is a bind parameter or correlated column
         "AND (c.payload<>'{}' OR c.metadata<>'{}'))",
-        # Content-potential values on the event's own relation rows.
-        f"EXISTS (SELECT 1 FROM event_relations r WHERE r.event_id={ev} "  # nosec B608 - closed module-owned fragment; event reference is a bind parameter or correlated column
+    ),
+    # Content-potential values on the event's own relation rows.
+    (
+        "event_relations",
+        "EXISTS (SELECT 1 FROM event_relations r WHERE r.event_id={ev} "  # nosec B608 - closed module-owned fragment; event reference is a bind parameter or correlated column
         "AND (r.key IS NOT NULL OR r.metadata<>'{}'))",
-        # Provider metadata on the event's native references.
-        f"EXISTS (SELECT 1 FROM native_message_refs n WHERE n.event_id={ev} "  # nosec B608 - closed module-owned fragment; event reference is a bind parameter or correlated column
+    ),
+    # Provider metadata on the event's native references.
+    (
+        "native_message_refs",
+        "EXISTS (SELECT 1 FROM native_message_refs n WHERE n.event_id={ev} "  # nosec B608 - closed module-owned fragment; event reference is a bind parameter or correlated column
         "AND n.metadata<>'{}')",
-        # Inline dispatch context on the event's outbox generations.
-        f"EXISTS (SELECT 1 FROM delivery_outbox o WHERE o.event_id={ev} "  # nosec B608 - closed module-owned fragment; event reference is a bind parameter or correlated column
+    ),
+    # Inline dispatch context on the event's outbox generations.
+    (
+        "delivery_outbox",
+        "EXISTS (SELECT 1 FROM delivery_outbox o WHERE o.event_id={ev} "  # nosec B608 - closed module-owned fragment; event reference is a bind parameter or correlated column
         "AND o.metadata<>'{}')",
-        # Provider metadata on the event's delivery observations.
-        f"EXISTS (SELECT 1 FROM delivery_observations o WHERE o.event_id={ev} "  # nosec B608 - closed module-owned fragment; event reference is a bind parameter or correlated column
+    ),
+    # Provider metadata on the event's delivery observations.
+    (
+        "delivery_observations",
+        "EXISTS (SELECT 1 FROM delivery_observations o WHERE o.event_id={ev} "  # nosec B608 - closed module-owned fragment; event reference is a bind parameter or correlated column
         "AND o.metadata<>'{}')",
-        # Separated delivery diagnostic text on the event's evidence rows.
+    ),
+    # Separated delivery diagnostic text on the event's evidence rows.
+    (
+        "delivery_evidence_diagnostics",
         "EXISTS (SELECT 1 FROM delivery_evidence_diagnostics d WHERE "  # nosec B608 - closed module-owned fragment; event reference is a bind parameter or correlated column
         "(d.family='receipt' AND d.row_id IN (SELECT r3.receipt_id "
-        f"FROM delivery_receipts r3 WHERE r3.event_id={ev})) "
+        "FROM delivery_receipts r3 WHERE r3.event_id={ev})) "
         "OR (d.family='observation' AND d.row_id IN (SELECT o2.observation_id "
-        f"FROM delivery_observations o2 WHERE o2.event_id={ev})) "
+        "FROM delivery_observations o2 WHERE o2.event_id={ev})) "
         "OR (d.family='outbox' AND d.row_id IN (SELECT b2.outbox_id "
-        f"FROM delivery_outbox b2 WHERE b2.event_id={ev})) "
-        f"OR (d.family='ingress' AND d.row_id={ev}))",
-        # Radio recovery plans riding the event's outbox generations.
+        "FROM delivery_outbox b2 WHERE b2.event_id={ev})) "
+        "OR (d.family='ingress' AND d.row_id={ev}))",
+    ),
+    # Radio recovery plans riding the event's outbox generations.
+    (
+        "radio_attempt_progress",
         "EXISTS (SELECT 1 FROM radio_attempt_progress p "  # nosec B608 - closed module-owned fragment; event reference is a bind parameter or correlated column
-        f"JOIN delivery_outbox o ON o.outbox_id=p.outbox_id WHERE o.event_id={ev})",
-        # Frozen dispatch snapshots riding the event's outbox generations.
+        "JOIN delivery_outbox o ON o.outbox_id=p.outbox_id WHERE o.event_id={ev})",
+    ),
+    # Frozen dispatch snapshots riding the event's outbox generations.
+    (
+        "delivery_outbox_snapshots",
         "EXISTS (SELECT 1 FROM delivery_outbox_snapshots s "  # nosec B608 - closed module-owned fragment; event reference is a bind parameter or correlated column
-        f"JOIN delivery_outbox o ON o.outbox_id=s.outbox_id WHERE o.event_id={ev})",
-        # Attachment associations: the only authority for loading retained bytes.
-        f"EXISTS (SELECT 1 FROM event_attachment_associations a WHERE a.event_id={ev})",  # nosec B608 - closed module-owned fragment; event reference is a bind parameter or correlated column
+        "JOIN delivery_outbox o ON o.outbox_id=s.outbox_id WHERE o.event_id={ev})",
+    ),
+    # Attachment associations: the only authority for loading retained bytes.
+    (
+        "event_attachment_associations",
+        "EXISTS (SELECT 1 FROM event_attachment_associations a WHERE a.event_id={ev})",  # nosec B608 - closed module-owned fragment; event reference is a bind parameter or correlated column
+    ),
+)
+
+#: Count-query transformation over the battery table: every fragment has the
+#: exact ``EXISTS (SELECT 1 FROM <inner>)`` shape, so stripping the wrapper
+#: yields the row-countable inner select for the operator audit. A fragment
+#: that does not match is a programming error in this closed table.
+_BATTERY_FRAGMENT_PREFIX = "EXISTS (SELECT 1 FROM "
+
+
+def _residual_fragments(event_ref: str) -> tuple[str, ...]:
+    """Build the residual battery for one event-reference spelling.
+
+    Substitution is a plain token replace, never ``str.format``: the
+    predicates contain literal ``'{}'`` JSON-value comparisons that a
+    format pass would misread as positional fields.
+    """
+    return tuple(
+        predicate.replace("{ev}", event_ref) for _, predicate in _RESIDUAL_BATTERY
     )
+
+
+def _residual_store_counts(db: sqlite3.Connection, event_id: str) -> dict[str, int]:
+    """Count residual content-potential rows per census store for one event.
+
+    Runs one ``SELECT COUNT(*)`` per battery store from the same predicate
+    table the verification battery uses, bound to the event ID as a
+    parameter exactly like the per-event battery. Only stores holding at
+    least one residual content-potential row are reported; the census store
+    label is the identity, and no content value is ever read.
+    """
+    counts: dict[str, int] = {}
+    for label, template in _RESIDUAL_BATTERY:
+        if not (
+            template.startswith(_BATTERY_FRAGMENT_PREFIX) and template.endswith(")")
+        ):
+            raise StorageError(
+                "Residual battery fragment is not row-countable: " + label
+            )
+        inner = template[len(_BATTERY_FRAGMENT_PREFIX) : -1].replace("{ev}", ":ev")
+        sql = f"SELECT COUNT(*) FROM {inner}"  # nosec B608 - closed module-owned fragment; event reference is a bind parameter
+        rows = int(db.execute(sql, {"ev": event_id}).fetchone()[0])
+        if rows:
+            counts[label] = rows
+    return counts
 
 
 #: One compound SELECT summing the battery for a bound event; zero means
@@ -576,6 +671,206 @@ def sync_enforce_content_ceilings(
             raise
 
 
+#: Single-event audit projection: the event's immutable ceiling, whether it
+#: has elapsed against the caller's observation, and whether an enforcement
+#: receipt exists. The elapsed comparison is the same stored-UTC text
+#: comparison the candidate discovery uses, evaluated inside the read
+#: snapshot.
+_CEILING_EVENT_STATE_SQL = """
+    SELECT p.event_id, p.hard_ceiling,
+           (p.hard_ceiling <= :observed) AS elapsed,
+           EXISTS (
+               SELECT 1 FROM event_content_ceiling_log l
+                WHERE l.event_id=p.event_id
+           ) AS enforced
+      FROM event_content_access_policies AS p
+     WHERE p.event_id=:ev
+"""  # nosec B608 - static SQL fragments and parameter placeholders only
+
+
+def sync_audit_content_ceilings(
+    db: sqlite3.Connection,
+    lock: threading.Lock,
+    observed: str | None,
+    limit: int,
+    event_id: str | None,
+) -> dict[str, Any]:
+    """Read-only audit of the ceiling residual battery; it purges nothing.
+
+    One deferred read transaction observes, for content whose ceiling has
+    elapsed, exactly what the guarded enforcement would remove: the
+    per-store residual counts from the same battery table enforcement
+    verifies with. Elapsed ceilings without a receipt are reported as
+    ``elapsed_pending`` (the sweep's next candidates); enforced events that
+    regained content-potential values through writes authorized before
+    their ceiling are reported as ``residual_enforced`` (the spec's
+    documented late-write case, which the next sweep re-purges). Event
+    identifiers and census store labels are content-free identity; no
+    message text, excerpt, blob bytes, or other content value is read.
+    """
+    with lock:
+        try:
+            db.execute("BEGIN")
+            if observed is None:
+                observed = _utc_microseconds(
+                    datetime.now(timezone.utc).isoformat(), "Ceiling clock"
+                )
+            if event_id is not None:
+                return _audit_single_event(db, event_id, observed)
+
+            fetch = limit + 1
+            pending_rows = db.execute(
+                _CEILING_CANDIDATES_SQL, (observed, "", "", fetch)
+            ).fetchall()
+            pending = [
+                _audit_finding(db, str(row["event_id"]), str(row["hard_ceiling"]))
+                for row in pending_rows[:limit]
+            ]
+            residual_rows = db.execute(
+                _CEILING_RESIDUAL_CANDIDATES_SQL, (observed, fetch)
+            ).fetchall()
+            residual = [
+                _audit_finding(db, str(row["event_id"]), str(row["hard_ceiling"]))
+                for row in residual_rows[:limit]
+            ]
+            receipts = int(
+                db.execute("SELECT COUNT(*) FROM event_content_ceiling_log").fetchone()[
+                    0
+                ]
+            )
+            return {
+                "observed": observed,
+                "elapsed_pending": pending,
+                "residual_enforced": residual,
+                "receipts": receipts,
+                "elapsed_pending_has_more": len(pending_rows) > limit,
+                "residual_enforced_has_more": len(residual_rows) > limit,
+            }
+        finally:
+            db.rollback()
+
+
+def _audit_finding(
+    db: sqlite3.Connection, event_id: str, ceiling: str
+) -> dict[str, Any]:
+    """Build one audit finding: per-store residual counts for one event."""
+    stores = _residual_store_counts(db, event_id)
+    return {
+        "event_id": event_id,
+        "ceiling": ceiling,
+        "residual_stores": stores,
+        "residual_stores_total": len(stores),
+    }
+
+
+def _audit_single_event(
+    db: sqlite3.Connection, event_id: str, observed: str
+) -> dict[str, Any]:
+    """Audit exactly one event; every outcome is reported, fail-closed."""
+    row = db.execute(_CEILING_EVENT_STATE_SQL, {"ev": event_id, "observed": observed})
+    policy = row.fetchone()
+    if policy is None:
+        return {"event_id": event_id, "state": "unknown", "observed": observed}
+    ceiling = str(policy["hard_ceiling"])
+    receipt = db.execute(
+        "SELECT enforced_at, ceiling, rows_removed, logical_bytes_removed, "
+        "blobs_removed, blob_bytes_removed FROM event_content_ceiling_log "
+        "WHERE event_id=:ev",
+        {"ev": event_id},
+    ).fetchone()
+    elapsed = bool(policy["elapsed"])
+    enforced = bool(policy["enforced"])
+    finding = _audit_finding(db, event_id, ceiling)
+    if enforced:
+        state = "residual_enforced" if finding["residual_stores"] else "enforced_clean"
+    elif elapsed:
+        state = "elapsed_pending"
+    else:
+        state = "not_elapsed"
+    return {
+        "event_id": event_id,
+        "state": state,
+        "ceiling": ceiling,
+        "observed": observed,
+        "residual_stores": finding["residual_stores"],
+        "residual_stores_total": finding["residual_stores_total"],
+        "receipt": dict(receipt) if receipt is not None else None,
+    }
+
+
+#: Bounded receipt-verification window: most recent receipts first, so the
+#: operator's one-shot post-sweep proof reads the freshest enforcement
+#: facts. The battery re-runs against the current database, not the
+#: enforcement-time snapshot.
+_CEILING_RECEIPTS_SQL = """
+    SELECT event_id, enforced_at, ceiling, rows_removed, logical_bytes_removed,
+           blobs_removed, blob_bytes_removed
+      FROM event_content_ceiling_log
+"""  # nosec B608 - static SQL fragments and parameter placeholders only
+
+
+def sync_verify_content_ceiling_receipts(
+    db: sqlite3.Connection,
+    lock: threading.Lock,
+    limit: int,
+    event_id: str | None,
+) -> dict[str, Any]:
+    """Read-only one-shot proof: receipts re-checked against the live store.
+
+    Re-runs the residual battery — the same battery that gates the receipt
+    commit — against the current database for every enforcement receipt in
+    a bounded window, and reports pass/fail per receipt with the receipt's
+    recorded content-free counters. A receipt fails when its event holds
+    any residual content-potential value now (the documented late-write
+    case until the next sweep re-purges it); an explicitly requested event
+    without a receipt fails closed: absence of proof is not proof.
+    """
+    with lock:
+        try:
+            db.execute("BEGIN")
+            fetch = limit + 1
+            if event_id is not None:
+                rows = db.execute(
+                    _CEILING_RECEIPTS_SQL + " WHERE event_id=:ev",
+                    {"ev": event_id},
+                ).fetchall()
+                event_state = "receipt_verified" if rows else "no_receipt"
+            else:
+                rows = db.execute(
+                    _CEILING_RECEIPTS_SQL
+                    + " ORDER BY enforced_at DESC, event_id ASC LIMIT ?",
+                    (fetch,),
+                ).fetchall()
+                event_state = None
+            receipts: list[dict[str, Any]] = []
+            passed = 0
+            for row in rows[:limit]:
+                record = dict(row)
+                stores = _residual_store_counts(db, str(row["event_id"]))
+                record["residual_stores"] = stores
+                record["residual_stores_total"] = len(stores)
+                record["status"] = "failed" if stores else "passed"
+                passed += record["status"] == "passed"
+                receipts.append(record)
+            failed = len(receipts) - passed
+            verdict = "passed"
+            if failed or event_state == "no_receipt":
+                verdict = "failed"
+            result: dict[str, Any] = {
+                "verdict": verdict,
+                "receipts_examined": len(receipts),
+                "receipts_passed": passed,
+                "receipts_failed": failed,
+                "receipts_has_more": len(rows) > limit,
+                "receipts": receipts,
+            }
+            if event_state is not None:
+                result["event_state"] = event_state
+            return result
+        finally:
+            db.rollback()
+
+
 class _CeilingEnforcementMixin:
     """The guarded hard content-privacy ceiling enforcement for SQLiteStorage."""
 
@@ -642,3 +937,90 @@ class _CeilingEnforcementMixin:
             )
         except sqlite3.Error as exc:
             raise StorageError(f"Ceiling enforcement sweep failed: {exc}") from exc
+
+    async def audit_content_ceilings(
+        self,
+        *,
+        now: datetime | None = None,
+        limit: int = 25,
+        event_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Read-only audit: what the ceiling enforcement would remove, per store.
+
+        Authority: none — strictly a read snapshot; it purges nothing,
+        tombstones nothing, records nothing. Walks the residual battery
+        for content whose immutable ceiling has elapsed and reports
+        per-census-store residual row counts from the same battery table
+        enforcement verifies with. Elapsed ceilings without a receipt are
+        the sweep's next candidates (``elapsed_pending``); enforced events
+        that regained residual content-potential values through writes
+        authorized before their ceiling are the documented late-write case
+        (``residual_enforced``) and are flagged until the next sweep
+        re-purges them. Event identifiers and census store labels are
+        content-free identity; no content value is read. With *event_id*,
+        reports exactly one event's state (``unknown``, ``not_elapsed``,
+        ``elapsed_pending``, ``residual_enforced``, ``enforced_clean``)
+        with its receipt counters when present. Production omits *now* so
+        storage samples UTC; an explicit timezone-aware *now* is available
+        to trusted controlled-clock qualification. The report window is
+        bounded by *limit* (1–``max(25, limit)`` semantics of the sweep)
+        with explicit ``*_has_more`` truncation flags.
+        """
+        ceiling_observation = (
+            None if now is None else _utc_microseconds(now.isoformat(), "Ceiling clock")
+        )
+        if type(limit) is not int or not 1 <= limit <= _CEILING_SWEEP_MAX_LIMIT:
+            raise ValueError(
+                "The ceiling audit limit must be an integer between 1 and "
+                f"{_CEILING_SWEEP_MAX_LIMIT}"
+            )
+        if event_id is not None and (not isinstance(event_id, str) or not event_id):
+            raise ValueError("The ceiling audit event filter must be a nonempty string")
+        try:
+            return await self._run_in_thread(
+                sync_audit_content_ceilings,
+                self._require_db(),
+                self._lock,
+                ceiling_observation,
+                limit,
+                event_id,
+            )
+        except sqlite3.Error as exc:
+            raise StorageError(f"Ceiling audit failed: {exc}") from exc
+
+    async def verify_content_ceiling_receipts(
+        self,
+        *,
+        limit: int = 25,
+        event_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Read-only one-shot proof: re-run the battery over the receipts.
+
+        Reads the immutable enforcement receipts and re-runs the residual
+        battery — the same battery that gated each receipt's commit —
+        against the current database, reporting pass/fail per receipt with
+        the receipt's recorded content-free counters (rows, logical bytes,
+        blobs, blob bytes removed). A receipt fails when its event holds
+        residual content-potential values now; an explicitly requested
+        event without a receipt fails closed. Nothing is purged or
+        rewritten here: remediation belongs to the guarded sweep.
+        """
+        if type(limit) is not int or not 1 <= limit <= _CEILING_SWEEP_MAX_LIMIT:
+            raise ValueError(
+                "The ceiling receipt verification limit must be an integer "
+                f"between 1 and {_CEILING_SWEEP_MAX_LIMIT}"
+            )
+        if event_id is not None and (not isinstance(event_id, str) or not event_id):
+            raise ValueError(
+                "The ceiling verification event filter must be a nonempty string"
+            )
+        try:
+            return await self._run_in_thread(
+                sync_verify_content_ceiling_receipts,
+                self._require_db(),
+                self._lock,
+                limit,
+                event_id,
+            )
+        except sqlite3.Error as exc:
+            raise StorageError(f"Ceiling receipt verification failed: {exc}") from exc

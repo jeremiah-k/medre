@@ -534,7 +534,7 @@ class TestNestedCommandCoverage:
                 },
             ),
             ("trace", {"event", "replay"}),
-            ("storage", {"status", "collect", "reset", "retention"}),
+            ("storage", {"status", "collect", "reset", "retention", "ceiling"}),
             ("support", {"bundle"}),
         ],
     )
