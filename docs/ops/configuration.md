@@ -1559,6 +1559,21 @@ medre storage retention activate [--storage-path PATH] [--yes]
     requires --yes and is safe against a live database. `medre storage
     collect --apply` remains the stopped-storage maintenance path.
 
+medre storage ceiling audit [--storage-path PATH] [--limit N] [--event EVENT_ID]
+    Storage management (read-only). Reports what the hard content-privacy
+    ceiling enforcement would remove, per census store, for content whose
+    ceiling has elapsed, and flags residual writes that landed after a
+    prior sweep (the documented late-write case). Metadata only: event
+    identifiers and store labels are content-free identity; no message
+    text or bytes are read. See content-ceiling-audit.md.
+
+medre storage ceiling verify [--storage-path PATH] [--limit N] [--event EVENT_ID]
+    Storage management (read-only). Re-runs the ceiling residual battery
+    over the enforcement receipts and reports pass/fail per receipt with
+    the receipt's recorded counters — the one-shot post-sweep proof that
+    expired content is gone. Exits 1 when the verdict is failed. See
+    content-ceiling-audit.md.
+
 medre storage reset [--storage-path PATH]
     Storage management (destructive). Deletes the database; accepts
     --backup and --yes.
