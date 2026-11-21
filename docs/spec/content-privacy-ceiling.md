@@ -187,3 +187,42 @@ independently retained as documented by
 - Re-enforcement of residual values MUST NOT relax any guard: the
   fail-closed verification battery is the same battery that proves the
   first purge.
+
+## 7. Operator audit and receipt verification contract
+
+The audit surface is strictly read-only. It MUST NOT purge, tombstone,
+release, record, or rewrite anything, and it MUST NOT read content
+values: event identifiers and census store labels are content-free
+identity; message text, excerpts, blob bytes, and other content-potential
+values never appear in an audit report. Both modes MUST derive their
+probes from the same battery table the enforcement transition verifies
+with, so the audit cannot drift from what enforcement proves.
+
+1. **Audit** (`medre storage ceiling audit`, storage method
+   `audit_content_ceilings`). Walks the residual battery for content
+   whose ceiling has elapsed and reports, per census store, the residual
+   rows the next enforcement would remove (`elapsed_pending`), plus
+   enforced events that regained content-potential values through writes
+   authorized before their ceiling (`residual_enforced` — the documented
+   late-write case). Reports are bounded windows with explicit `*_has_more`
+   truncation flags; a single-event report states one of `unknown`,
+   `not_elapsed`, `elapsed_pending`, `residual_enforced`,
+   `enforced_clean`.
+2. **Verify** (`medre storage ceiling verify`, storage method
+   `verify_content_ceiling_receipts`). Re-runs the residual battery
+   against the current database for every enforcement receipt in a
+   bounded window and reports pass/fail per receipt with the receipt's
+   recorded content-free counters. A receipt fails exactly when its event
+   holds residual content-potential values at verification time; the
+   verdict is `passed` only when every examined receipt re-checks clean.
+   A receipt's recorded counters MUST NOT be read as claims about the
+   current state — the battery re-run is the only claim the verification
+   makes about now.
+
+An explicitly requested event without a receipt MUST fail closed: absence
+of proof is not proof. A failing verification reports the late-write
+boundary, not a broken receipt — remediation is the sweep re-purging the
+residual values, never an audit-side mutation, and the receipt stays
+immutable. The audit observes the same honest boundary as §5: it
+measures the logical census stores only, and receipt presence is not a
+physical-erasure certificate.
