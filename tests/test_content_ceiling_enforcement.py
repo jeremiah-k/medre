@@ -629,11 +629,9 @@ async def test_evidence_reads_hide_provider_values_at_expiry_without_receipt(
     temp_storage: SQLiteStorage,
     monkeypatch,
 ) -> None:
-    from medre.core.storage.sqlite import (
-        _evidence_diagnostics,
-        _native_ref,
-        _observation,
-    )
+    import medre.core.storage.sqlite._evidence_diagnostics as _evidence_diagnostics
+    import medre.core.storage.sqlite._native_ref as _native_ref
+    import medre.core.storage.sqlite._observation as _observation
 
     event_id = "ceiling-expiry-read"
     await _admit_with_ceiling(temp_storage, event_id)
