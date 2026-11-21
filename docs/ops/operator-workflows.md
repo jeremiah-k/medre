@@ -64,6 +64,13 @@ restore the pre-upgrade backup with a build that accepts its catalog.
 Keep the upgraded database separately if it contains work recorded since
 the backup.
 
+A backup is a point-in-time copy. A delivery that was pending when the
+backup was taken may have completed natively afterward; restoring that
+backup erases the completion record, so the restored build can send it
+again. Before resuming a restored database, reconcile the provider and
+radio effects that landed after the backup was taken, or prefer the
+upgraded database when it holds work recorded since the backup.
+
 ### How to tell if your database is stale
 
 Run `medre storage status --storage-path <path>` to assess the stored

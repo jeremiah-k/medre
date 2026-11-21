@@ -200,6 +200,7 @@ def test_all_scenarios_use_separate_work_directories(
         "DELETE FROM delivery_outbox",
         "UPDATE _medre_schema_meta SET value = '99'",
         "CREATE TABLE unexpected (id INTEGER)",
+        "CREATE INDEX unexpected_index ON delivery_outbox(outbox_id)",
         "ALTER TABLE delivery_handoff_settlements ADD COLUMN unexpected TEXT",
     ],
 )
@@ -228,10 +229,14 @@ def test_d0_expected_state_allows_only_the_empty_approved_tables(
             "radio_attempt_evidence_summaries",
             "delivery_observation_scopes",
         )
+        approved_indexes = {
+            "idx_ceiling_enforcement_order",
+            "idx_attachment_associations_content_ref",
+        }
         for kind, name, sql in expected["catalog"]:
             if kind == "table" and name in approved:
                 db.execute(sql)
-            elif kind == "index":
+            elif kind == "index" and name in approved_indexes:
                 db.execute(sql)
         assert driver._dump_state(path) == expected
         with db:

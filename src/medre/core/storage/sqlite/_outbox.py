@@ -1338,6 +1338,9 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                 "AND terminal.status='abandoned')) "
                 "OR NOT EXISTS (SELECT 1 FROM delivery_receipts accepted "
                 "WHERE accepted.outbox_id=delivery_outbox.outbox_id "
+                "AND accepted.attempt_number = "
+                "COALESCE(delivery_outbox.active_attempt, "
+                "delivery_outbox.attempt_number) "
                 "AND accepted.status IN ('sent', 'queued')))"
             )
             params.extend((receipt_id, receipt_id))
@@ -1372,11 +1375,27 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                 )
             )
         # An explicitly changed failure detail supersedes an older typed
-        # uncertainty fact in the observation/read guards. Retain the typed
-        # row as historical closed evidence; do not delete ledger facts.
+        # uncertainty fact. Record that supersession in the content-free
+        # ledger, not only in the free-form diagnostic: the ceiling purge
+        # deletes diagnostic text, and a stale ``uncertain`` state would
+        # otherwise become the only surviving (and wrongly reviving) fact.
         # Terminal settlement retains historical attempt facts; they cannot
         # reopen the terminal row. A newer reservation changes the attempt
         # identity and cannot consume an older fact.
+        failure_detail = diagnostics.get("failure_kind_detail")
+        if isinstance(failure_detail, str) and not (
+            failure_detail == "uncertain_native_handoff" and new_status == "retry_wait"
+        ):
+            follow_ups.append(
+                (
+                    "UPDATE delivery_handoff_uncertainty "
+                    "SET state='superseded_native_handoff' "
+                    "WHERE outbox_id=? AND attempt_number="
+                    "(SELECT attempt_number FROM delivery_outbox "
+                    "WHERE outbox_id=?)",
+                    (outbox_id, outbox_id),
+                )
+            )
         if new_status == "sent" and clear_receipt_id and receipt_id is None:
             # Capture receipt append order under the same write lock as the
             # successful evidence settlement. An outbox-less receipt's

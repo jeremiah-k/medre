@@ -438,6 +438,47 @@ async def test_claim_owner_identifier_is_full_uuid_hex(monkeypatch):
     assert claim.await_args.kwargs["worker_id"] == f"retry-worker-{owner.hex}"
 
 
+async def test_reconciled_acceptance_records_before_visible_receipt_guard():
+    """A committed reconciliation is accounted for even when its receipt is visible."""
+    item = _gated_item(metadata={})
+    storage = _retained_storage()
+    storage.read_event_for_outbox.return_value = SimpleNamespace(status="expired")
+    lifecycle = _lifecycle(None)
+    lifecycle.reconcile_retry_claim = AsyncMock(
+        return_value=RetryAttemptFinalization(
+            outcome="accepted",
+            receipt_id="rcpt-visible-acceptance",
+            failure_kind=None,
+            attempt_number=1,
+        )
+    )
+    lifecycle.list_attempt_receipts = AsyncMock(
+        return_value=[
+            DeliveryReceipt(
+                receipt_id="rcpt-visible-acceptance",
+                event_id=item.event_id,
+                delivery_plan_id=item.delivery_plan_id,
+                target_adapter=item.target_adapter,
+                outbox_id=item.outbox_id,
+                attempt_number=1,
+                status="sent",
+                source="retry",
+            )
+        ]
+    )
+    worker, pipeline = _worker(storage, lifecycle)
+
+    emit = await _run_with_emit(worker, item)
+
+    lifecycle.abandon_retry_outbox.assert_not_awaited()
+    pipeline.deliver_execution_to_target.assert_not_awaited()
+    assert worker.state.processed == 1
+    assert worker.state.succeeded == 1
+    emitted = {call.args[0]: call.args[1] for call in emit.call_args_list}
+    assert emitted["retry_succeeded"]["receipt_id"] == "rcpt-visible-acceptance"
+    assert emitted["retry_succeeded"]["reconciled"] is True
+
+
 async def test_expired_dispatch_context_fences_existing_failed_receipt():
     item = _gated_item(failure_kind_detail=None)
     storage = _retained_storage()

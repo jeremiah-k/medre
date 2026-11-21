@@ -107,6 +107,7 @@ def test_current_runtime_schema_adds_the_optional_ceiling_sweep() -> None:
             "retry"
         ]["properties"][key]
     expected["$defs"]["RouteEntry"] = current["$defs"]["RouteEntry"]
+    expected["properties"]["content_ceiling"] = current["properties"]["content_ceiling"]
     assert current == expected
     Draft202012Validator(current).validate(
         {"retry": {"ceiling_sweep": {"enabled": True}}}
@@ -126,6 +127,9 @@ def test_current_runtime_schema_adds_the_optional_ceiling_sweep() -> None:
         ({"retry": {"interval_seconds": 0}}, False),
         ({"retry": {"batch_size": 0}}, False),
         ({"retry": {"max_attempts": 0}}, False),
+        ({"content_ceiling": {"enabled": False, "max_age_seconds": None}}, True),
+        ({"content_ceiling": {"enabled": True, "max_age_seconds": None}}, False),
+        ({"content_ceiling": {"enabled": True, "max_age_seconds": 60}}, True),
     ],
 )
 def test_current_runtime_schema_checks_logging_and_retry_values(config, valid):

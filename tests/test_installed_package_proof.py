@@ -297,4 +297,7 @@ def test_unreadable_current_wheel_schema_reports_named_failure(
     with pytest.raises(SystemExit) as error:
         proof._verify_wheel_package_files(wheel)
     assert error.value.code == 1
-    assert "wheel schemas" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "wheel schemas" in err
+    assert "cannot read packaged current schema adapter-config.schema.json" in err
+    assert "BadZipFile" in err

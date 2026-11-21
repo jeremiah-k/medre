@@ -12,10 +12,17 @@ from medre.core.engine.pipeline.delivery_lifecycle import (
     RetryAttemptCommitRejected,
 )
 from medre.core.events import DeliveryReceipt, NativeMessageRef
+from medre.core.evidence.handoff_resolution import EvidenceBackedHandoffResolver
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.runtime.retry import RetryWorker
-from tests.helpers.ceiling_audit import _admit_with_ceiling
-from tests.helpers.handoff_resolution import _claimed_row, _seed_reserved_claim
+from tests.helpers.ceiling_audit import _admit_with_ceiling, _install_elapsed_policy
+from tests.helpers.handoff_resolution import (
+    _WORKER,
+    _claimed_row,
+    _observation,
+    _plan,
+    _seed_reserved_claim,
+)
 from tests.helpers.initial_outbox import _pipeline
 from tests.helpers.storage_outbox import append_receipt_with_parent
 
@@ -106,6 +113,8 @@ def test_ceiling_maintenance_wakes_before_long_retry_poll(temp_storage) -> None:
         ),
         initial_dispatch=False,
     )
+    worker._next_ceiling_sweep_at = None
+    assert worker._next_poll_timeout() == 0
     worker._next_ceiling_sweep_at = datetime.now(timezone.utc) + timedelta(seconds=60)
     assert 0 < worker._next_poll_timeout() <= 60
     worker._next_ceiling_sweep_at = datetime.now(timezone.utc) - timedelta(seconds=1)
@@ -151,3 +160,66 @@ async def test_nullable_native_identity_is_atomic_even_without_preflight_lookup(
         ("radio", "shared-native-id"),
     )
     assert [row["event_id"] for row in refs] == ["null-native-a"]
+
+
+async def test_historical_queued_receipt_does_not_block_newer_attempt_abandonment(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """Acceptance is attempt-scoped: attempt 1 cannot freeze attempt 2 forever."""
+    stored, provenance = await _seed_reserved_claim(temp_storage)
+    await append_receipt_with_parent(
+        temp_storage,
+        DeliveryReceipt(
+            receipt_id="historical-queued-attempt-1",
+            event_id=provenance.event_id,
+            delivery_plan_id=provenance.delivery_plan_id,
+            target_adapter=provenance.target_adapter,
+            target_channel=provenance.target_channel,
+            status="queued",
+            outbox_id=provenance.outbox_id,
+            attempt_number=1,
+            source="retry",
+        ),
+    )
+    # A stale-queue recovery reserved a later generation. Its outcome is
+    # independent of the already-consumed attempt-1 acceptance.
+    await temp_storage._write(
+        "UPDATE delivery_outbox SET attempt_number=1, active_attempt=2, "
+        "status='in_progress' WHERE outbox_id=?",
+        (stored.outbox_id,),
+    )
+    assert await temp_storage.mark_outbox_abandoned(
+        stored.outbox_id,
+        error_summary="suppressed",
+        attempt_number=2,
+        expected_receipt_count=0,
+    )
+    row = await temp_storage.get_outbox_item(stored.outbox_id)
+    assert row is not None
+    assert row.status == "abandoned"
+    assert row.attempt_number == 2
+
+
+async def test_unreadable_checkpoint_blocks_message_level_settlement_after_purge(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """An undecodable grant must not become 'no checkpoint' after erasure."""
+    stored, provenance = await _seed_reserved_claim(temp_storage)
+    assert await temp_storage.bind_radio_attempt(provenance, _WORKER, _plan())
+    await temp_storage._write(
+        "UPDATE radio_attempt_progress SET plan_json=? WHERE outbox_id=?",
+        ('{"unreadable":true}', stored.outbox_id),
+    )
+    now = await _install_elapsed_policy(temp_storage, provenance.event_id)
+    await temp_storage.enforce_content_ceilings(now=now)
+    assert await temp_storage.get_radio_attempt(stored.outbox_id, 1) is None
+    summary = await temp_storage.get_radio_attempt_evidence(stored.outbox_id, 1)
+    assert summary is not None
+    assert summary.parts[0].state == "accepted"
+    assert summary.parts[0].handoff_id == "{}"
+    assert await temp_storage.append_delivery_observation(
+        _observation("whole-message-after-unreadable-checkpoint", provenance)
+    )
+    verdict = await EvidenceBackedHandoffResolver(temp_storage).resolve(stored, 1)
+    assert verdict.verdict == "unresolved"
+    assert verdict.reasons == ("unreadable_handoff_reference",)

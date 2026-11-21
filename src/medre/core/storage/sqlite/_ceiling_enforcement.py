@@ -61,6 +61,7 @@ from typing import TYPE_CHECKING, Any
 
 import msgspec
 
+from medre.core.events.delivery import DeliveryAttemptProvenance
 from medre.core.storage.backend import StorageError
 from medre.core.storage.radio_handoff import RadioLocalHandoff
 from medre.core.storage.sqlite._content_identity import _utc_microseconds
@@ -367,6 +368,77 @@ def _purge_own_and_incoming_excerpts(db: sqlite3.Connection, event_id: str) -> N
     )
 
 
+#: A valid summary row that records the existence of undecodable radio
+#: evidence without retaining any wire plan. ``handoff_id="{}"`` can never
+#: decode into a handoff reference, so settlement stays unresolved instead
+#: of falling through to whole-message observations as if no checkpoint
+#: existed. One part with an ``accepted`` state produces the revision-2
+#: summary the typed evidence reader accepts.
+_UNREADABLE_RADIO_PARTS = '[{"ordinal":1,"state":"accepted","handoff_id":"{}"}]'
+
+
+def _radio_summary_provenance(
+    db: sqlite3.Connection, outbox_id: str, attempt_number: int
+) -> DeliveryAttemptProvenance:
+    """Rebuild the closed attempt identity for an undecodable checkpoint.
+
+    The outbox row is schema-owned identity; no plan, part, provider metadata,
+    or diagnostic text from the unreadable checkpoint is copied.
+    """
+    outbox = db.execute(
+        "SELECT event_id, delivery_plan_id, target_adapter, target_channel, "
+        "dispatch_source, replay_run_id FROM delivery_outbox WHERE outbox_id=?",
+        (outbox_id,),
+    ).fetchone()
+    if outbox is None:
+        raise StorageError("Unreadable radio evidence lost its outbox identity")
+    try:
+        return DeliveryAttemptProvenance(
+            event_id=str(outbox["event_id"]),
+            delivery_plan_id=str(outbox["delivery_plan_id"]),
+            target_adapter=str(outbox["target_adapter"]),
+            target_channel=outbox["target_channel"],
+            outbox_id=outbox_id,
+            attempt_number=attempt_number,
+            source=outbox["dispatch_source"],
+            replay_run_id=outbox["replay_run_id"],
+        )
+    except (TypeError, ValueError) as exc:
+        raise StorageError(
+            "Unreadable radio evidence has invalid outbox identity"
+        ) from exc
+
+
+def _retain_radio_evidence_summary(
+    db: sqlite3.Connection,
+    provenance: DeliveryAttemptProvenance,
+    parts: list[dict[str, Any]],
+    revision: int,
+) -> None:
+    """Upsert the content-free evidence summary without regressing revision.
+
+    An equal-revision write wins so a newly observed unreadable checkpoint can
+    replace an older summary with the same transition count. A strictly older
+    checkpoint never overwrites newer retained evidence.
+    """
+    db.execute(
+        "INSERT INTO radio_attempt_evidence_summaries "
+        "(outbox_id, attempt_number, provenance_json, parts_json, revision) "
+        "VALUES (?, ?, ?, ?, ?) "
+        "ON CONFLICT(outbox_id, attempt_number) DO UPDATE SET "
+        "provenance_json=excluded.provenance_json, "
+        "parts_json=excluded.parts_json, revision=excluded.revision "
+        "WHERE excluded.revision >= radio_attempt_evidence_summaries.revision",
+        (
+            provenance.outbox_id,
+            provenance.attempt_number,
+            msgspec.json.encode(provenance).decode(),
+            json.dumps(parts, separators=(",", ":")),
+            revision,
+        ),
+    )
+
+
 def _measure_and_purge(
     db: sqlite3.Connection, event_id: str
 ) -> tuple[int, int, int, int]:
@@ -518,17 +590,27 @@ def _measure_and_purge(
     # The diagnostic string is content-potential, but its closed handoff state
     # is authority-neutral evidence admission for the original attempt.
     db.execute(
-        "INSERT INTO delivery_handoff_uncertainty "
-        "(outbox_id, attempt_number, state) "
-        "SELECT o.outbox_id, o.attempt_number, 'uncertain_native_handoff' "
-        "FROM delivery_outbox o WHERE o.event_id=? "
-        "AND o.status='retry_wait' AND o.active_attempt IS NULL "
-        "AND (SELECT d.diagnostic FROM delivery_evidence_diagnostics d "
-        "WHERE d.family='outbox' AND d.row_id=o.outbox_id "
-        "AND d.attempt=o.attempt_number AND d.field='failure_kind_detail' "
-        "ORDER BY d.diag_id DESC LIMIT 1)='uncertain_native_handoff' "
-        "ON CONFLICT(outbox_id) DO UPDATE SET "
-        "attempt_number=excluded.attempt_number, state=excluded.state",
+        """
+        WITH latest AS (
+            SELECT o.outbox_id, o.attempt_number, o.status, o.active_attempt,
+                   (SELECT d.diagnostic FROM delivery_evidence_diagnostics d
+                    WHERE d.family='outbox' AND d.row_id=o.outbox_id
+                      AND d.attempt=o.attempt_number
+                      AND d.field='failure_kind_detail'
+                    ORDER BY d.diag_id DESC LIMIT 1) AS diagnostic
+            FROM delivery_outbox o WHERE o.event_id=?
+        )
+        INSERT INTO delivery_handoff_uncertainty (outbox_id, attempt_number, state)
+        SELECT outbox_id, attempt_number,
+               CASE WHEN status='retry_wait' AND active_attempt IS NULL
+                         AND diagnostic='uncertain_native_handoff'
+                    THEN 'uncertain_native_handoff'
+                    ELSE 'superseded_native_handoff' END
+        FROM latest
+        WHERE diagnostic IS NOT NULL
+        ON CONFLICT(outbox_id) DO UPDATE SET
+            attempt_number=excluded.attempt_number, state=excluded.state
+        """,
         (event_id,),
     )
     _purge_diagnostics(db, event_id)
@@ -554,8 +636,20 @@ def _measure_and_purge(
         try:
             saved = _decode(checkpoint_row)
         except (StorageError, ValueError, TypeError):
-            # Invalid wire plans must still be erased. They confer no valid
-            # packet acceptance and therefore produce no retained facts.
+            # Invalid wire plans must still be erased, but their existence
+            # must survive. Without a retained blocker, a later whole-message
+            # observation could settle through the no-checkpoint path as if
+            # no native grant had ever been issued.
+            _retain_radio_evidence_summary(
+                db,
+                _radio_summary_provenance(
+                    db,
+                    str(checkpoint_row["outbox_id"]),
+                    int(checkpoint_row["attempt_number"]),
+                ),
+                json.loads(_UNREADABLE_RADIO_PARTS),
+                2,
+            )
             continue
         evidence_parts: list[dict[str, Any]] = []
         for part in saved.progress.parts:
@@ -603,17 +697,8 @@ def _measure_and_purge(
                     ),
                 )
         if evidence_parts:
-            db.execute(
-                "INSERT INTO radio_attempt_evidence_summaries "
-                "(outbox_id, attempt_number, provenance_json, parts_json, revision) "
-                "VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
-                (
-                    saved.provenance.outbox_id,
-                    saved.provenance.attempt_number,
-                    msgspec.json.encode(saved.provenance).decode(),
-                    json.dumps(evidence_parts, separators=(",", ":")),
-                    saved.revision,
-                ),
+            _retain_radio_evidence_summary(
+                db, saved.provenance, evidence_parts, saved.revision
             )
     db.execute(
         "DELETE FROM radio_attempt_progress WHERE outbox_id IN "
@@ -1015,7 +1100,13 @@ def sync_audit_content_ceilings(
 def _audit_finding(
     db: sqlite3.Connection, event_id: str, ceiling: str
 ) -> dict[str, Any]:
-    """Build one audit finding: per-store residual counts for one event."""
+    """Build one audit finding: per-store residual counts for one event.
+
+    The counts describe this event in the caller's snapshot. They are not
+    additive across events and do not forecast a sweep: a shared attachment
+    blob is ``last_reference`` only for the event that currently owns its
+    final association.
+    """
     stores = _residual_store_counts(db, event_id)
     return {
         "event_id": event_id,

@@ -204,28 +204,61 @@ class _EvidenceDiagnosticsReadMixin:
         for start in range(0, len(identities), _LOOKUP_CHUNK_SIZE):
             chunk = identities[start : start + _LOOKUP_CHUNK_SIZE]
             placeholders = ",".join("?" for _ in chunk)
-            fetched.extend(
-                await self._read_all(
-                    "SELECT d.diag_id, d.row_id, d.field, d.attempt, "  # nosec B608 - closed SQL and bound identities
-                    f"CASE WHEN NOT {denied} THEN d.diagnostic "  # nosec B608 - closed SQL and bound identities
-                    "WHEN d.family='outbox' AND d.field='failure_kind_detail' "
-                    "AND d.diagnostic='uncertain_native_handoff' "
-                    "THEN 'uncertain_native_handoff' END AS diagnostic "
-                    "FROM delivery_evidence_diagnostics d "
-                    f"WHERE d.family = ? AND d.row_id IN ({placeholders}) "
-                    "ORDER BY d.diag_id ASC",  # nosec B608 - closed SQL and bound identities
-                    (observed, family, *chunk),
-                )
+            sql = (
+                "SELECT 0 AS source_order, d.diag_id, d.row_id, d.field, d.attempt, "  # nosec B608 - closed SQL and bound identities
+                f"CASE WHEN NOT {denied} THEN d.diagnostic "  # nosec B608 - closed SQL and bound identities
+                "WHEN d.family='outbox' AND d.field='failure_kind_detail' "
+                "AND d.diagnostic='uncertain_native_handoff' "
+                "THEN 'uncertain_native_handoff' END AS diagnostic "
+                "FROM delivery_evidence_diagnostics d "
+                f"WHERE d.family = ? AND d.row_id IN ({placeholders})"  # nosec B608 - closed SQL and bound identities
             )
-        # Preserve the global append order when the IDs span multiple chunks.
-        fetched.sort(key=lambda row: int(row["diag_id"]))
+            params: tuple[Any, ...] = (observed, family, *chunk)
+            if family == "outbox":
+                # Resolve the typed fallback in the same statement snapshot:
+                # a separate read could miss an uncertainty row that lands
+                # between the diagnostic lookup and the fallback lookup.
+                sql += (  # nosec B608 - closed SQL and bound identities
+                    " UNION ALL "  # nosec B608 - closed SQL and bound identities
+                    "SELECT 1 AS source_order, NULL AS diag_id, "
+                    "u.outbox_id AS row_id, 'failure_kind_detail' AS field, "
+                    "u.attempt_number AS attempt, u.state AS diagnostic "
+                    "FROM delivery_handoff_uncertainty u "
+                    "JOIN delivery_outbox o ON o.outbox_id=u.outbox_id "
+                    f"WHERE u.outbox_id IN ({placeholders}) "
+                    "AND u.state='uncertain_native_handoff' "
+                    "AND o.status IN ('retry_wait', 'in_progress') "
+                    "AND NOT EXISTS (SELECT 1 FROM delivery_evidence_diagnostics d "
+                    "WHERE d.family='outbox' AND d.row_id=u.outbox_id "
+                    "AND d.attempt=u.attempt_number "
+                    "AND d.field='failure_kind_detail')"
+                )
+                params += tuple(chunk)
+            fetched.extend(await self._read_all(sql, params))
+        # Preserve global append order across chunks, then apply typed facts
+        # after the diagnostic text they may fall back from.
+        fetched.sort(
+            key=lambda row: (
+                int(row.get("source_order") or 0),
+                int(row["diag_id"]) if row["diag_id"] is not None else 0,
+            )
+        )
         attempt_column = _DIAGNOSTIC_ATTEMPT_COLUMNS.get(family)
         latest_scoped: dict[tuple[str, str, int], str] = {}
         latest_unscoped: dict[tuple[str, str], str] = {}
+        typed_uncertainty: dict[tuple[str, int], str] = {}
         for diagnostic_row in fetched:
             row_id = str(diagnostic_row["row_id"])
             field = str(diagnostic_row["field"])
             diagnostic = diagnostic_row["diagnostic"] or ""
+            if int(diagnostic_row.get("source_order") or 0) == 1:
+                # Typed uncertainty is a fallback for a row with no
+                # failure_kind_detail diagnostic; it is not itself a
+                # diagnostic for terminal rows.
+                typed_uncertainty[(row_id, int(diagnostic_row["attempt"]))] = str(
+                    diagnostic
+                )
+                continue
             if attempt_column is None:
                 latest_unscoped[(row_id, field)] = str(diagnostic)
             else:
@@ -245,34 +278,18 @@ class _EvidenceDiagnosticsReadMixin:
                         (row_id, field, int(row.get(attempt_column) or 0))
                     )
                 row[field] = value if value else None
-        # Once a hard ceiling deletes free-form diagnostic text, the closed
-        # uncertainty state is still needed to qualify late acceptance and
-        # recheck a finalized attempt. Never project other diagnostic values.
         if family == "outbox":
-            candidate_rows = [
-                row
-                for row in rows
-                if row.get("failure_kind_detail") is None
-                and row.get("status") in {"retry_wait", "in_progress"}
-            ]
-            for start in range(0, len(candidate_rows), _LOOKUP_CHUNK_SIZE):
-                fact_chunk = candidate_rows[start : start + _LOOKUP_CHUNK_SIZE]
-                placeholders = ",".join("?" for _ in fact_chunk)
-                typed_rows = await self._read_all(
-                    "SELECT outbox_id, attempt_number, state "
-                    "FROM delivery_handoff_uncertainty u "
-                    f"WHERE u.outbox_id IN ({placeholders}) "
-                    "AND NOT EXISTS (SELECT 1 FROM delivery_evidence_diagnostics d "
-                    "WHERE d.family='outbox' AND d.row_id=u.outbox_id "
-                    "AND d.attempt=u.attempt_number "
-                    "AND d.field='failure_kind_detail')",  # nosec B608 - generated placeholders only; identities are bound values
-                    tuple(str(row[identity_column]) for row in fact_chunk),
+            for row in rows:
+                if row.get("failure_kind_detail") is not None or row.get(
+                    "status"
+                ) not in {"retry_wait", "in_progress"}:
+                    continue
+                typed = typed_uncertainty.get(
+                    (
+                        str(row[identity_column]),
+                        int(row.get("attempt_number") or 0),
+                    )
                 )
-                by_id = {str(fact["outbox_id"]): fact for fact in typed_rows}
-                for row in fact_chunk:
-                    typed_fact = by_id.get(str(row[identity_column]))
-                    if typed_fact is not None and int(
-                        typed_fact["attempt_number"]
-                    ) == int(row.get("attempt_number") or 0):
-                        row["failure_kind_detail"] = typed_fact["state"]
+                if typed is not None:
+                    row["failure_kind_detail"] = typed
         return rows

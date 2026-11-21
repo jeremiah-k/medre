@@ -364,11 +364,14 @@ CREATE TABLE IF NOT EXISTS delivery_handoff_settlements (
 
 -- Content-free exact-attempt uncertainty evidence. The free-form diagnostic
 -- can be purged at the hard ceiling without losing late-ACK correlation.
--- This state never grants another transport dispatch.
+-- An explicit non-uncertain failure classification durably transitions the
+-- same attempt to ``superseded_native_handoff`` so a later purge of the
+-- diagnostic cannot revive closed uncertainty. Neither state grants another
+-- transport dispatch.
 CREATE TABLE IF NOT EXISTS delivery_handoff_uncertainty (
     outbox_id TEXT NOT NULL PRIMARY KEY REFERENCES delivery_outbox(outbox_id),
     attempt_number INTEGER NOT NULL CHECK (attempt_number >= 1),
-    state TEXT NOT NULL CHECK (state = 'uncertain_native_handoff')
+    state TEXT NOT NULL CHECK (state IN ('uncertain_native_handoff', 'superseded_native_handoff'))
 );
 
 -- Acceptance facts survive deletion of radio wire plans at the ceiling.

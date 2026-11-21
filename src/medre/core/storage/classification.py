@@ -332,12 +332,16 @@ STORAGE_COLUMN_CLASSES: dict[str, dict[str, ColumnClass]] = {
         "attempt_number": ColumnClass.IMMUTABLE_IDENTITY,
         "state": ColumnClass.OPERATIONAL_AUTHORITY,
     },
+    # Content-free post-ceiling evidence. Provenance is write-once identity;
+    # the part projection and its CAS revision advance through guarded
+    # transitions, so they are operational authority rather than immutable
+    # identity. None of these columns carries wire text.
     "radio_attempt_evidence_summaries": {
         "outbox_id": ColumnClass.IMMUTABLE_IDENTITY,
         "attempt_number": ColumnClass.IMMUTABLE_IDENTITY,
         "provenance_json": ColumnClass.IMMUTABLE_IDENTITY,
-        "parts_json": ColumnClass.IMMUTABLE_IDENTITY,
-        "revision": ColumnClass.IMMUTABLE_IDENTITY,
+        "parts_json": ColumnClass.OPERATIONAL_AUTHORITY,
+        "revision": ColumnClass.OPERATIONAL_AUTHORITY,
     },
     "delivery_observation_scopes": {
         "observation_id": ColumnClass.IMMUTABLE_IDENTITY,

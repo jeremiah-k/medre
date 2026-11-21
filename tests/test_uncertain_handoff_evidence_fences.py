@@ -25,6 +25,7 @@ from medre.core.evidence.handoff_resolution import (
 from medre.core.planning.delivery_plan import RetryPolicy
 from medre.core.storage.backend import StorageError
 from medre.core.storage.sqlite.storage import SQLiteStorage
+from tests.helpers.ceiling_audit import _install_elapsed_policy
 from tests.helpers.handoff_resolution import (
     _WORKER,
     _bind_and_progress,
@@ -779,6 +780,8 @@ async def test_complete_radio_handoff_still_settles_after_wire_plan_erasure(
     )
     assert retained is not None
     assert fingerprint not in repr(retained)
+    # The retained projection is identity-only: no wire text from the plan.
+    assert "café α" not in repr(retained)
 
     claimed = await _claimed_row(temp_storage, stored.outbox_id, "reclaimer")
     verdict = await DeliveryLifecycleService().reconcile_retry_claim(
@@ -887,7 +890,10 @@ async def test_malformed_accepted_reference_does_not_disappear_at_ceiling(temp_s
     assert verdict.reasons == ("unreadable_handoff_reference",)
 
 
-async def test_explicit_new_retry_failure_retires_stale_uncertainty_fact(temp_storage):
+async def test_explicit_new_retry_failure_supersedes_stale_uncertainty_fact(
+    temp_storage,
+):
+    """Supersession must be durable, not only a newer diagnostic row."""
     stored, provenance = await _seed_reserved_claim(temp_storage)
     await temp_storage._write(
         "INSERT INTO delivery_handoff_uncertainty "
@@ -909,11 +915,35 @@ async def test_explicit_new_retry_failure_retires_stale_uncertainty_fact(temp_st
         "WHERE outbox_id=?",
         (stored.outbox_id,),
     )
-    assert historical == {"attempt_number": 1, "state": "uncertain_native_handoff"}
+    assert historical == {"attempt_number": 1, "state": "superseded_native_handoff"}
     row = await temp_storage.get_outbox_item(stored.outbox_id)
     assert row is not None and row.failure_kind_detail == "adapter_transient"
     assert not await temp_storage.append_delivery_observation(
         _observation("late-not-uncertain", provenance)
+    )
+
+    # The ceiling deletes the free-form override. The supersession must
+    # remain the only surviving fact and must not revive uncertainty.
+    now = await _install_elapsed_policy(temp_storage, provenance.event_id)
+    await temp_storage.enforce_content_ceilings(now=now)
+    surviving = await temp_storage._read_one(
+        "SELECT attempt_number, state FROM delivery_handoff_uncertainty "
+        "WHERE outbox_id=?",
+        (stored.outbox_id,),
+    )
+    assert surviving == {"attempt_number": 1, "state": "superseded_native_handoff"}
+    assert (
+        await temp_storage._read_one(
+            "SELECT 1 FROM delivery_evidence_diagnostics "
+            "WHERE family='outbox' AND row_id=?",
+            (stored.outbox_id,),
+        )
+        is None
+    )
+    purged = await temp_storage.get_outbox_item(stored.outbox_id)
+    assert purged is not None and purged.failure_kind_detail is None
+    assert not await temp_storage.append_delivery_observation(
+        _observation("late-after-purge", provenance)
     )
 
 

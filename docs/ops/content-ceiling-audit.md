@@ -38,9 +38,10 @@ medre storage ceiling audit --storage-path /path/to/state/medre.sqlite
 medre storage ceiling verify --storage-path /path/to/state/medre.sqlite
 ```
 
-**Audit** — what would be purged. Walks the residual battery for content
-whose ceiling has elapsed and reports, per census store, the residual rows
-the next sweep would remove (`elapsed_pending`). It also flags the
+**Audit** — what each elapsed event currently holds. Walks the residual
+battery for content whose ceiling has elapsed and reports, per census store,
+the residual rows observed for each event in this snapshot
+(`elapsed_pending`). It also flags the
 documented late-write case: enforced events that regained content-potential
 values through writes authorized before their ceiling
 (`residual_enforced`). Nothing is removed.
@@ -93,7 +94,9 @@ stored values and returns counts and identifiers. The reports contain no
 message text, excerpts, blob bytes, or other content values.
 
 - `elapsed_pending` — elapsed ceilings without a receipt: the sweep's next
-  candidates, with the per-store residual counts that would be purged.
+  candidates, with the per-store residual counts observed for each event in
+  this snapshot. A sweep can remove additional shared rows, such as a shared
+  blob once its last remaining association is gone.
 - `residual_enforced` — enforced events still carrying residual values:
   the honest boundary between "gone by enforcement" and writes already
   authorized before the instant. Read mediation keeps such content
@@ -105,6 +108,13 @@ message text, excerpts, blob bytes, or other content values.
   the ceiling, the recorded counters, and `status` plus `residual_stores`
   when the battery observes residuals now.
 
+Each audit finding describes one event in the snapshot the invocation
+observed. The per-store counts are not additive across events and do not
+predict a sweep: two elapsed events can share one attachment blob, so neither
+reports `attachment_blobs:last_reference` until the purge that removes its
+association makes the other the sole owner. Only a finding for the event that
+is already the blob's sole owner predicts that deletion.
+
 A failing verification means content-potential values exist now for an
 enforced event. It does not mean the receipt was wrong: the receipt
 records what its transaction removed and verified. Enable
@@ -112,12 +122,15 @@ records what its transaction removed and verified. Enable
 run MEDRE in live mode, and re-run verification after the sweep reaches
 the receipt's page. A passing window covers only its examined receipts.
 Check `receipts_examined` for an empty window and audit separately for
-elapsed ceilings awaiting enforcement. If a receipt is absent (`event_state=no_receipt`),
-there is no purge proof: verify the event exists and its ceiling has elapsed
-before asking enforcement to create a receipt. An unknown event cannot be
-fixed by sweeping. If a receipt exists but residual stores remain after its
-page was processed, stop and investigate — that is a loud inconsistency,
-not a normal state.
+elapsed ceilings awaiting enforcement. A failed single-event verdict
+distinguishes `event_state=no_receipt` from `event_state=receipt_failed`.
+With no receipt there is no purge proof: verify the event exists and its
+ceiling has elapsed before asking enforcement to create a receipt. An
+unknown event cannot be fixed by sweeping. `receipt_failed` means proof
+exists but residual content remains: enable the sweep and re-verify after
+it revisits the receipt. If residual stores remain after that page was
+processed, stop and investigate — that is a loud inconsistency, not a
+normal state.
 
 ## Safety and boundaries
 

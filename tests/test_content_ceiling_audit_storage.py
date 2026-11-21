@@ -271,7 +271,13 @@ async def test_late_write_flagged_by_audit_then_cleared_by_next_sweep(
     )
     assert receipt_before is not None
 
-    await _seed_late_write(temp_storage, event_id, outbox_id)
+    late_id = await _seed_late_write(temp_storage, event_id, outbox_id)
+
+    # Read mediation hides the late metadata and diagnostic before repair.
+    observed = await temp_storage.list_delivery_observations_for_event(event_id)
+    late = next(item for item in observed if item.observation_id == late_id)
+    assert late.metadata == {}
+    assert late.error is None
 
     # The audit flags the residual on the already-enforced event, per store.
     flagged = await temp_storage.audit_content_ceilings(
@@ -333,7 +339,8 @@ async def test_late_write_flagged_by_audit_then_cleared_by_next_sweep(
         == 1
     )
     row = await temp_storage._read_one(
-        "SELECT metadata FROM delivery_observations WHERE observation_id='obs-late'"
+        "SELECT metadata FROM delivery_observations WHERE observation_id=?",
+        (late_id,),
     )
     assert row is not None and row["metadata"] == "{}"
 

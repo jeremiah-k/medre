@@ -502,10 +502,17 @@ def sync_finalize_deferred_handoff(
 
             if native_identity is not None and existing_event_id is None:
                 assert native_insert_params is not None
-                db.execute(
+                cursor = db.execute(
                     _INSERT_NATIVE_REF_STRICT,
                     _bind_execution_clock(native_insert_params),
                 )
+                # The strict finalizer must prove it owns the native identity.
+                # A zero-row INSERT means another writer claimed the tuple
+                # between the preflight resolve and this statement; committing
+                # would report a settled handoff with no mapping.
+                if int(cursor.rowcount) != 1:
+                    db.rollback()
+                    return False, None
             db.execute(_INSERT_RECEIPT, receipt_insert_params)
             for diagnostic_sql, diagnostic_params in receipt_diagnostic_ops or []:
                 db.execute(diagnostic_sql, diagnostic_params)

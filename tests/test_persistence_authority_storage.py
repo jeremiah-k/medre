@@ -548,19 +548,26 @@ class TestNoDeleteInStorageModule:
                 stripped = line.lstrip()
                 if stripped.startswith("#") or not delete_pattern.search(line):
                     continue
-                if py_file.name == "_collection.py":
-                    matches = {table for table in permitted if table in line}
-                    if len(matches) == 1:
-                        found.update(matches)
-                        continue
-                # The ceiling-enforcement purge targets the row's DELETE
-                # destination exactly; subqueries may name surviving
-                # linkage tables.
-                if py_file.name == "_ceiling_enforcement.py":
-                    target = target_pattern.search(line)
-                    if target is not None and target.group(1) in ceiling_permitted:
-                        ceiling_found.add(target.group(1))
-                        continue
+                targets = [match.group(1) for match in target_pattern.finditer(line)]
+                if not targets:
+                    violations.append(
+                        f"{py_file.name}:{line_no}: unparseable DELETE target: "
+                        f"{line.strip()}"
+                    )
+                    continue
+                if py_file.name == "_collection.py" and all(
+                    table in permitted for table in targets
+                ):
+                    found.update(targets)
+                    continue
+                # The ceiling-enforcement purge targets every DELETE
+                # destination on the line exactly; subqueries may name
+                # surviving linkage tables.
+                if py_file.name == "_ceiling_enforcement.py" and all(
+                    table in ceiling_permitted for table in targets
+                ):
+                    ceiling_found.update(targets)
+                    continue
                 # Frozen work context is an owned, transient projection, not
                 # durable delivery evidence. Its one exact-table DELETE is
                 # guarded by a terminal transition in the same transaction.

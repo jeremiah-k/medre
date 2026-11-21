@@ -67,6 +67,27 @@ async def _read_ceiling(store: SQLiteStorage, event_id: str) -> datetime:
     return datetime.fromisoformat(str(row["hard_ceiling"]))
 
 
+async def _install_elapsed_policy(store: SQLiteStorage, event_id: str) -> datetime:
+    """Install one already-elapsed ceiling for a seeded test event.
+
+    Test setup only: this writes the immutable policy row directly when the
+    scenario needs an event whose admission did not carry a ceiling.
+    """
+    now = datetime.now(timezone.utc)
+    await store._write(
+        "INSERT INTO event_content_access_policies "
+        "(event_id, version, hard_ceiling, allowed_consumers, "
+        "max_optional_hold_microseconds, created_at) "
+        "VALUES (?, 1, ?, '[]', 1, ?)",
+        (
+            event_id,
+            (now - timedelta(seconds=1)).isoformat(timespec="microseconds"),
+            now.isoformat(timespec="microseconds"),
+        ),
+    )
+    return now
+
+
 async def _seed_every_copy(store: SQLiteStorage, event_id: str) -> str:
     """Seed one content-potential value in every enumerated store.
 
@@ -194,22 +215,35 @@ async def _seed_incoming_excerpt(store: SQLiteStorage, event_id: str) -> None:
     )
 
 
-async def _seed_late_write(store: SQLiteStorage, event_id: str, outbox_id: str) -> None:
-    """A late completion write for the in-flight generation."""
+async def _seed_late_write(store: SQLiteStorage, event_id: str, outbox_id: str) -> str:
+    """A late completion write for the in-flight generation.
+
+    The observation identity is derived from the outbox generation so a
+    multi-generation test can seed two distinct residual findings.
+    """
+    observation_id = f"obs-late-{outbox_id}"
     now = datetime.now(timezone.utc).isoformat(timespec="microseconds")
     await store._write(
         "INSERT INTO delivery_observations (observation_id, event_id, "
         "delivery_plan_id, target_adapter, outbox_id, attempt_number, state, "
-        "metadata, observed_at) VALUES ('obs-late', ?, ?, 'radio', ?, 1, "
+        "metadata, observed_at) VALUES (?, ?, ?, 'radio', ?, 1, "
         "'delivered', ?, ?)",
-        (event_id, f"plan-{event_id}", outbox_id, '{"provider":"late"}', now),
+        (
+            observation_id,
+            event_id,
+            f"plan-{event_id}",
+            outbox_id,
+            '{"provider":"late"}',
+            now,
+        ),
     )
     await store._write(
         "INSERT INTO delivery_evidence_diagnostics (family, row_id, attempt, "
-        "field, diagnostic, created_at) VALUES ('observation', 'obs-late', 1, "
+        "field, diagnostic, created_at) VALUES ('observation', ?, 1, "
         "'error', ?, ?)",
-        (f"late {MARKER}", now),
+        (observation_id, f"late {MARKER}", now),
     )
+    return observation_id
 
 
 async def _count(store: SQLiteStorage, sql: str, params: tuple = ()) -> int:

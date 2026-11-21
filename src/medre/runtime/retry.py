@@ -1154,8 +1154,14 @@ class RetryWorker:
             ),
             (self._deadline_sweep_enabled, self._deadline_sweep, self._next_sweep_at),
         ):
-            if enabled and operation is not None and due is not None:
-                timeout = min(timeout, max(0.0, (due - now).total_seconds()))
+            if enabled and operation is not None:
+                # An unarmed maintenance deadline is due now. Otherwise a
+                # worker whose retry interval is longer than the maintenance
+                # cadence would sleep through its first configured sweep.
+                if due is None:
+                    timeout = 0.0
+                else:
+                    timeout = min(timeout, max(0.0, (due - now).total_seconds()))
         return timeout
 
     async def _process_due(
@@ -1336,9 +1342,13 @@ class RetryWorker:
         ):
             return
         # Cadence is committed before the await so a slow sweep cannot
-        # re-arm itself on every wake while it is still running.
+        # re-arm itself on every wake while it is still running. Schedule
+        # from the fresh start instant, not the pre-deadline-sweep clock:
+        # a long deadline cleanup must not shorten the minimum interval
+        # between ceiling-enforcement starts.
+        started_at = max(now, datetime.now(timezone.utc))
         try:
-            self._next_ceiling_sweep_at = now + timedelta(
+            self._next_ceiling_sweep_at = started_at + timedelta(
                 seconds=self._ceiling_sweep_interval
             )
             enforced = await sweep(limit=self._ceiling_sweep_limit)
@@ -1509,6 +1519,14 @@ class RetryWorker:
                             attempt_number=item.active_attempt or item.attempt_number,
                         )
                         return
+                    if isinstance(resolved, RetryAttemptFinalization):
+                        # A reconciled acceptance is committed evidence even
+                        # when its receipt is visible in ``current_receipts``.
+                        # Record the finalization before the receipt guard so
+                        # the worker accounts for the success it just settled.
+                        self.state.processed += 1
+                        self._record_retry_finalization(item, resolved, reconciled=True)
+                        return
                     if any(r.status in {"sent", "queued"} for r in current_receipts):
                         # If reconciliation did not settle this acceptance,
                         # leave the claim for a fresh pass. Terminal denial
@@ -1532,13 +1550,6 @@ class RetryWorker:
                                 "RetryWorker: conflicting receipt and native acceptance "
                                 "for outbox %s; leaving claim for conservative recovery",
                                 item.outbox_id,
-                            )
-                            return
-                    else:
-                        if resolved is not None:
-                            self.state.processed += 1
-                            self._record_retry_finalization(
-                                item, resolved, reconciled=True
                             )
                             return
                     self.state.processed += 1

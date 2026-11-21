@@ -1188,7 +1188,9 @@ async def test_native_reference_read_uses_clock_after_sqlite_lock_wait(
     temp_storage._lock.acquire()
     try:
         task = asyncio.create_task(temp_storage.list_native_refs_for_event(event_id))
-        assert await asyncio.wait_for(asyncio.to_thread(entered.wait), timeout=5)
+        # Bound the thread itself, not only the awaiting coroutine: a failed
+        # read task would otherwise leave ``entered.wait`` blocked forever.
+        assert await asyncio.to_thread(entered.wait, 5)
         assert not task.done()
         clock["now"] = ceiling + timedelta(seconds=1)
     finally:
