@@ -1114,6 +1114,71 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
         help="Confirm opening a new retention epoch",
     )
 
+    storage_ceiling_p = storage_sub.add_parser(
+        "ceiling",
+        help=(
+            "Audit the hard content-privacy ceiling battery or verify "
+            "enforcement receipts (both read-only)"
+        ),
+    )
+    ceiling_sub = storage_ceiling_p.add_subparsers(
+        dest="ceiling_command", required=True
+    )
+
+    ceiling_audit_p = ceiling_sub.add_parser(
+        "audit",
+        help=(
+            "Report per-store residuals for elapsed ceilings — what the "
+            "enforcement would remove (read-only, content-free)"
+        ),
+    )
+    ceiling_audit_p.add_argument(
+        "--storage-path",
+        required=False,
+        default=None,
+        metavar="PATH",
+        help="Path to SQLite database (default: standard database path)",
+    )
+    ceiling_audit_p.add_argument(
+        "--limit",
+        type=int,
+        default=25,
+        help="Bounded report window size (1-100)",
+    )
+    ceiling_audit_p.add_argument(
+        "--event",
+        default=None,
+        metavar="EVENT_ID",
+        help="Audit exactly one event instead of the bounded window",
+    )
+
+    ceiling_verify_p = ceiling_sub.add_parser(
+        "verify",
+        help=(
+            "Re-run the residual battery over enforcement receipts — "
+            "one-shot post-sweep proof (read-only, content-free)"
+        ),
+    )
+    ceiling_verify_p.add_argument(
+        "--storage-path",
+        required=False,
+        default=None,
+        metavar="PATH",
+        help="Path to SQLite database (default: standard database path)",
+    )
+    ceiling_verify_p.add_argument(
+        "--limit",
+        type=int,
+        default=25,
+        help="Bounded receipt window size (1-100)",
+    )
+    ceiling_verify_p.add_argument(
+        "--event",
+        default=None,
+        metavar="EVENT_ID",
+        help="Verify exactly one event's receipt instead of the window",
+    )
+
     # Adapter/plugin contributed commands (adapter, plugin namespaces)
     parser.set_defaults(_adapter_cli_failures=())
     if include_adapter_cli:
@@ -1570,6 +1635,21 @@ def main(argv: list[str] | None = None) -> None:
                 asyncio.run(_storage_retention_status(path))
             elif args.retention_command == "activate":
                 asyncio.run(_storage_retention_activate(path, yes=args.yes))
+        elif args.storage_command == "ceiling":
+            from .ceiling_commands import (
+                _storage_ceiling_audit,
+                _storage_ceiling_verify,
+            )
+
+            path = args.storage_path or str(resolve_paths().database_path)
+            if args.ceiling_command == "audit":
+                asyncio.run(
+                    _storage_ceiling_audit(path, limit=args.limit, event_id=args.event)
+                )
+            elif args.ceiling_command == "verify":
+                asyncio.run(
+                    _storage_ceiling_verify(path, limit=args.limit, event_id=args.event)
+                )
         elif args.storage_command == "reset":
             path = args.storage_path or str(resolve_paths().database_path)
             asyncio.run(
