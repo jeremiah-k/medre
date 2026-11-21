@@ -1,5 +1,5 @@
 # medre-test-tier: compatibility
-"""Freeze the exact published 0.1.0 schema artifacts before the first tag."""
+"""Preserve the exact schema artifacts published in the 0.1.0 wheel."""
 
 from __future__ import annotations
 
@@ -10,7 +10,12 @@ from pathlib import Path
 import pytest
 
 SCHEMA_DIR = Path(__file__).resolve().parents[1] / "docs" / "schemas"
-FROZEN = json.loads((SCHEMA_DIR / "v0.1.0.freeze.json").read_text(encoding="utf-8"))
+FREEZE_MANIFEST = SCHEMA_DIR / "v0.1.0.freeze.json"
+FROZEN = json.loads(FREEZE_MANIFEST.read_text(encoding="utf-8"))
+# Manifest bytes from the digest-verified medre-0.1.0-py3-none-any.whl.
+RELEASED_MANIFEST_SHA256 = (
+    "0c24b0c70e3ef7884def1ea73d04f97a8ce213a816717f4656f97f081d29a6ed"
+)
 
 #: Schemas exported after the 0.1.0 freeze. Each entry is a deliberate,
 #: reviewed addition (the work-status report shipped with the read-only
@@ -27,6 +32,12 @@ POST_RELEASE_SCHEMA_FILES: dict[str, str] = {
         "06b171e89749e49673351fe6040c670a5756ce1a71a672a3483c561a205463a3"
     ),
 }
+
+
+def test_first_release_manifest_matches_published_wheel() -> None:
+    assert hashlib.sha256(FREEZE_MANIFEST.read_bytes()).hexdigest() == (
+        RELEASED_MANIFEST_SHA256
+    )
 
 
 def test_first_release_schema_file_set_is_frozen() -> None:
