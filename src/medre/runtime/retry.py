@@ -45,6 +45,7 @@ if TYPE_CHECKING:
     )
     from medre.core.events.canonical import CanonicalEvent, DeliveryReceipt
     from medre.core.evidence.handoff_resolution import HandoffEvidenceStore
+    from medre.core.storage.sqlite._ceiling_enforcement import CeilingEnforcement
     from medre.core.storage.sqlite._deadline_cleanup import DeadlineRetirement
     from medre.core.supervision.capacity import CapacityController
     from medre.runtime.events import EventBuffer
@@ -159,6 +160,35 @@ if TYPE_CHECKING:
         """
 
 
+class CeilingEnforcementStorage(Protocol):
+    """Optional bounded hard-ceiling enforcement surface some backends provide.
+
+    The guarded transition purges and verifies every enumerated content
+    store for events whose immutable hard ceiling has elapsed, then records
+    a content-free receipt. Backends without the transition simply never
+    expose the attribute; the worker resolves it by name at construction
+    and leaves the sweep dormant when it is absent.
+    """
+
+    async def enforce_content_ceilings(
+        self,
+        *,
+        now: datetime | None = None,
+        limit: int = 50,
+    ) -> list["CeilingEnforcement"]: ...
+
+
+class _CeilingSweepStep(Protocol):
+    """The resolved, backend-bound ceiling-enforcement callable."""
+
+    async def __call__(
+        self,
+        *,
+        now: datetime | None = None,
+        limit: int = 50,
+    ) -> list["CeilingEnforcement"]: ...
+
+
 class DeadlineSweepStorage(Protocol):
     """Optional bounded deadline-cleanup surface some backends provide.
 
@@ -239,6 +269,9 @@ class RetryWorkerState:
     deadline_sweep_runs: int = 0
     deadline_sweep_errors: int = 0
     deadline_retired: int = 0
+    ceiling_sweep_runs: int = 0
+    ceiling_sweep_errors: int = 0
+    ceiling_enforced: int = 0
 
 
 class RetryWorker:
@@ -311,6 +344,19 @@ class RetryWorker:
             storage, "retire_expired_unstarted_outbox", None
         )
         self._next_sweep_at: datetime | None = None
+        # Ceiling-enforcement policy: default-off like the deadline sweep, so
+        # an omitted declaration means the poll cycle never purges content
+        # and prior storage behavior is unchanged. The guarded transition is
+        # a backend-specific surface; backends without it leave the sweep
+        # dormant even when the policy is enabled.
+        ceiling_policy = config.ceiling_sweep
+        self._ceiling_sweep_enabled = ceiling_policy.enabled
+        self._ceiling_sweep_limit = ceiling_policy.limit
+        self._ceiling_sweep_interval = ceiling_policy.interval_seconds
+        self._ceiling_sweep: _CeilingSweepStep | None = getattr(
+            storage, "enforce_content_ceilings", None
+        )
+        self._next_ceiling_sweep_at: datetime | None = None
         # Uncertain-native-handoff remediation: claim reconciliation resolves
         # an ambiguous reserved dispatch from evidence the backend already
         # holds (retained radio checkpoints and append-only delivery
@@ -1105,6 +1151,7 @@ class RetryWorker:
         No row is claimed to wait behind an active send for the same adapter.
         """
         await self._run_deadline_sweep(now)
+        await self._run_ceiling_sweep(now)
         for adapter, task in tuple(self._active.items()):
             if task.done():
                 del self._active[adapter]
@@ -1242,6 +1289,50 @@ class RetryWorker:
             )
         else:
             _logger.debug("Outbox dispatch: deadline sweep retired nothing")
+
+    async def _run_ceiling_sweep(self, now: datetime) -> None:
+        """Run one bounded hard-ceiling enforcement step when the policy is due.
+
+        Enabled only by the operator's ``ceiling_sweep`` declaration; the
+        sweep rides this poll cycle after the deadline sweep so
+        ceiling-expired content is purged and verified across every
+        enumerated store. A sweep failure is contained here so the delivery
+        claim in the same cycle still runs. The guarded storage transition
+        alone decides eligibility and verifies its own completeness; the
+        worker only reports what the transition committed.
+        """
+        sweep = self._ceiling_sweep
+        if not self._ceiling_sweep_enabled or sweep is None:
+            return
+        if (
+            self._next_ceiling_sweep_at is not None
+            and now < self._next_ceiling_sweep_at
+        ):
+            return
+        # Cadence is committed before the await so a slow sweep cannot
+        # re-arm itself on every wake while it is still running.
+        try:
+            self._next_ceiling_sweep_at = now + timedelta(
+                seconds=self._ceiling_sweep_interval
+            )
+            enforced = await sweep(limit=self._ceiling_sweep_limit)
+        except Exception:
+            # A sweep failure must never take the worker or the delivery
+            # poll down: elapsed ceilings stay durable and the next due
+            # sweep step retries them.
+            self.state.ceiling_sweep_errors += 1
+            _logger.exception("Outbox dispatch: ceiling enforcement sweep failed")
+            return
+        self.state.ceiling_sweep_runs += 1
+        if enforced:
+            self.state.ceiling_enforced += len(enforced)
+            _logger.info(
+                "Outbox dispatch: ceiling enforcement purged %d expired "
+                "content event(s)",
+                len(enforced),
+            )
+        else:
+            _logger.debug("Outbox dispatch: ceiling enforcement purged nothing")
 
     async def _release_unstarted_claims(self, items: list[DeliveryOutboxItem]) -> None:
         """Return only never-reserved claims skipped during shutdown.
