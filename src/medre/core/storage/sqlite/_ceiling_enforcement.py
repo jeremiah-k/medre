@@ -291,7 +291,6 @@ _CEILING_RESIDUAL_PAGE_SQL = """
 """
 
 
-
 @dataclass(frozen=True, slots=True)
 class CeilingEnforcement:
     """Metadata-only summary of one event's ceiling enforcement."""
@@ -595,14 +594,22 @@ def sync_enforce_content_ceilings(
                 if str(row["hard_ceiling"]) > observed:
                     continue
                 if (
-                    int(db.execute(_CEILING_RESIDUAL_SQL, {"ev": event_id}).fetchone()[0])
+                    int(
+                        db.execute(_CEILING_RESIDUAL_SQL, {"ev": event_id}).fetchone()[
+                            0
+                        ]
+                    )
                     == 0
                 ):
                     continue
-                (rows, logical, blobs, blob_bytes) = _measure_and_purge(db, event_id)
+                rows, logical, blobs, blob_bytes = _measure_and_purge(db, event_id)
                 _release_authority(db, event_id, observed)
                 if (
-                    int(db.execute(_CEILING_RESIDUAL_SQL, {"ev": event_id}).fetchone()[0])
+                    int(
+                        db.execute(_CEILING_RESIDUAL_SQL, {"ev": event_id}).fetchone()[
+                            0
+                        ]
+                    )
                     != 0
                 ):
                     raise StorageError(
@@ -1007,7 +1014,9 @@ class _CeilingEnforcementMixin:
         error, cancelled = await self._await_deferring_cancel(operation)
         if error is not None:
             if isinstance(error, sqlite3.Error):
-                raise StorageError(f"Ceiling enforcement sweep failed: {error}") from error
+                raise StorageError(
+                    f"Ceiling enforcement sweep failed: {error}"
+                ) from error
             raise error
         if cancelled is not None:
             raise cancelled

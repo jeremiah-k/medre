@@ -446,9 +446,7 @@ async def test_shared_blob_survives_other_event_reference(
         )
     ceiling_a = await _read_ceiling(temp_storage, owner_a)
     ceiling_b = await _read_ceiling(temp_storage, owner_b)
-    await temp_storage.enforce_content_ceilings(
-        now=ceiling_a + timedelta(seconds=1)
-    )
+    await temp_storage.enforce_content_ceilings(now=ceiling_a + timedelta(seconds=1))
     # One live referent must retain its association and bytes.
     still_shared = await _count(
         temp_storage,
@@ -456,14 +454,15 @@ async def test_shared_blob_survives_other_event_reference(
         (_BLOB_REF,),
     )
     assert still_shared == 1
-    assert await _count(
-        temp_storage,
-        "SELECT COUNT(*) FROM attachment_blobs WHERE content_ref=?",
-        (_BLOB_REF,),
-    ) == 1
-    await temp_storage.enforce_content_ceilings(
-        now=ceiling_b + timedelta(seconds=1)
+    assert (
+        await _count(
+            temp_storage,
+            "SELECT COUNT(*) FROM attachment_blobs WHERE content_ref=?",
+            (_BLOB_REF,),
+        )
+        == 1
     )
+    await temp_storage.enforce_content_ceilings(now=ceiling_b + timedelta(seconds=1))
     # Both associations gone; the shared bytes went with the last one.
     assert (
         await _count(
@@ -586,6 +585,7 @@ async def test_additive_predecessor_gains_ceiling_objects(
 
 # -- Adversarial review: pending/repaired progress and late-write denial --
 
+
 async def test_pending_event_is_not_starved_by_residual_repair(
     temp_storage: SQLiteStorage,
 ) -> None:
@@ -606,7 +606,8 @@ async def test_pending_event_is_not_starved_by_residual_repair(
         now=max(first_ceiling, pending_ceiling) + timedelta(seconds=2), limit=1
     )
     assert {(r.event_id, r.residual_pass) for r in repaired} == {
-        (first, True), (pending, False)
+        (first, True),
+        (pending, False),
     }
     residual = next(r for r in repaired if r.residual_pass)
     assert residual.logical_bytes_removed == len(b'{"late":"synthetic"}')
@@ -647,9 +648,10 @@ async def test_native_only_incoming_quote_without_reference_is_purged(
     )
     assert before["residual_stores"]["event_relation_excerpts:incoming"] == 1
     await temp_storage.enforce_content_ceilings(now=ceiling + timedelta(seconds=1))
-    assert await temp_storage._read_one(
-        "SELECT excerpt FROM event_relation_excerpts"
-    ) is None
+    assert (
+        await temp_storage._read_one("SELECT excerpt FROM event_relation_excerpts")
+        is None
+    )
 
 
 async def test_late_observation_values_are_masked_before_read(
@@ -667,8 +669,14 @@ async def test_late_observation_values_are_masked_before_read(
         "delivery_plan_id, target_adapter, outbox_id, attempt_number, state, "
         "metadata, observed_at) VALUES (?, ?, ?, 'radio', ?, 1, "
         "'delivered', ?, ?)",
-        (f"late-{event_id}", event_id, f"plan-{event_id}", outbox_id,
-         '{"provider":"late"}', now),
+        (
+            f"late-{event_id}",
+            event_id,
+            f"plan-{event_id}",
+            outbox_id,
+            '{"provider":"late"}',
+            now,
+        ),
     )
     await temp_storage._write(
         "INSERT INTO delivery_evidence_diagnostics (family, row_id, attempt, "
@@ -684,11 +692,14 @@ async def test_late_observation_values_are_masked_before_read(
         assert read
         assert all(not observation.metadata for observation in read)
         assert all(not observation.error for observation in read)
-    assert await temp_storage._read_one(
-        "SELECT metadata FROM delivery_observations WHERE event_id=? "
-        "AND metadata<>'{}'",
-        (event_id,),
-    ) is not None  # The race is real until the next sweep.
+    assert (
+        await temp_storage._read_one(
+            "SELECT metadata FROM delivery_observations WHERE event_id=? "
+            "AND metadata<>'{}'",
+            (event_id,),
+        )
+        is not None
+    )  # The race is real until the next sweep.
 
 
 async def test_audit_counts_sole_referent_blob_and_failed_receipt(
