@@ -1442,4 +1442,5 @@ async def test_retry_worker_abandons_outbox_when_content_authority_is_denied(
     abandon.assert_awaited_once()
     assert worker.state.processed == 2
     assert worker.state.succeeded == 0
-    assert worker.state.failed == 2
+    # A rejected terminal CAS is not a second committed failure.
+    assert worker.state.failed == 1

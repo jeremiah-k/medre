@@ -237,6 +237,7 @@ class LoggingConfig:
 #: cycle, so a single call must stay bounded; larger declarations are
 #: refused at load time.
 DEADLINE_SWEEP_MAX_LIMIT = 500
+CEILING_SWEEP_MAX_LIMIT = 500
 
 #: Default per-sweep retirement cap. The storage sweep examines at most
 #: ``max(25, limit)`` candidates per call, so the default keeps one sweep
@@ -369,10 +370,10 @@ class CeilingSweepConfig:
                 "ceiling_sweep.limit must be an integer, got "
                 f"{type(self.limit).__name__}"
             )
-        if not 1 <= self.limit <= DEADLINE_SWEEP_MAX_LIMIT:
+        if not 1 <= self.limit <= CEILING_SWEEP_MAX_LIMIT:
             raise ConfigValidationError(
                 "ceiling_sweep.limit must be between 1 and "
-                f"{DEADLINE_SWEEP_MAX_LIMIT}, got {self.limit}"
+                f"{CEILING_SWEEP_MAX_LIMIT}, got {self.limit}"
             )
         interval = self.interval_seconds
         if isinstance(interval, bool) or not isinstance(interval, (int, float)):

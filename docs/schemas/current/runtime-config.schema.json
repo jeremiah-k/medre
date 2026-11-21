@@ -94,6 +94,7 @@
         },
         "overrides": {
           "type": "object",
+          "propertyNames": {"minLength": 1},
           "additionalProperties": {
             "type": "string"
           },
@@ -148,7 +149,7 @@
           "description": "Maximum total delivery attempts before dead-lettering."
         },
         "deadline_sweep": {
-          "type": "object",
+          "type": ["object", "null"],
           "description": "Opt-in bounded retirement of deadline-expired unstarted outbox work; disabled by default.",
           "additionalProperties": false,
           "properties": {

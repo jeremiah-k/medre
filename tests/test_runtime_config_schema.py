@@ -57,7 +57,7 @@ def test_current_runtime_schema_adds_the_optional_ceiling_sweep() -> None:
 
     from medre.config.model import (
         CEILING_SWEEP_MAX_INTERVAL_SECONDS,
-        DEADLINE_SWEEP_MAX_LIMIT,
+        CEILING_SWEEP_MAX_LIMIT,
         CeilingSweepConfig,
     )
 
@@ -79,7 +79,7 @@ def test_current_runtime_schema_adds_the_optional_ceiling_sweep() -> None:
         "limit": {
             "type": "integer",
             "minimum": 1,
-            "maximum": DEADLINE_SWEEP_MAX_LIMIT,
+            "maximum": CEILING_SWEEP_MAX_LIMIT,
             "default": defaults.limit,
         },
         "interval_seconds": {
@@ -90,6 +90,12 @@ def test_current_runtime_schema_adds_the_optional_ceiling_sweep() -> None:
         },
     }
     expected["properties"]["retry"]["properties"]["ceiling_sweep"] = sweep
+    expected["properties"]["retry"]["properties"]["deadline_sweep"] = current[
+        "properties"
+    ]["retry"]["properties"]["deadline_sweep"]
+    expected["properties"]["logging"]["properties"]["overrides"] = current[
+        "properties"
+    ]["logging"]["properties"]["overrides"]
     # Current-schema validation tracks loader coercions; the published export
     # stays byte-for-byte unchanged.
     for key in ("level", "format"):

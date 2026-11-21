@@ -1137,14 +1137,26 @@ class RetryWorker:
                 try:
                     await asyncio.wait_for(
                         self._dispatch_wake.wait(),
-                        timeout=(
-                            min(self._interval, 0.5)
-                            if self._initial_dispatch
-                            else self._interval
-                        ),
+                        timeout=self._next_poll_timeout(),
                     )
                 except TimeoutError:
                     pass
+
+    def _next_poll_timeout(self) -> float:
+        """Wake for the next configured maintenance deadline, not only retry."""
+        timeout = min(self._interval, 0.5) if self._initial_dispatch else self._interval
+        now = datetime.now(timezone.utc)
+        for enabled, operation, due in (
+            (
+                self._ceiling_sweep_enabled,
+                self._ceiling_sweep,
+                self._next_ceiling_sweep_at,
+            ),
+            (self._deadline_sweep_enabled, self._deadline_sweep, self._next_sweep_at),
+        ):
+            if enabled and operation is not None and due is not None:
+                timeout = min(timeout, max(0.0, (due - now).total_seconds()))
+        return timeout
 
     async def _process_due(
         self, now: datetime, *, group: asyncio.TaskGroup | None = None
@@ -1161,7 +1173,6 @@ class RetryWorker:
         # period; the claim lease needs a fresh clock, not the pre-sweep
         # instant. Scheduling bookkeeping keeps the supplied clock so
         # controlled cadences stay exact.
-        claim_now = max(now, datetime.now(timezone.utc))
         for adapter, task in tuple(self._active.items()):
             if task.done():
                 del self._active[adapter]
@@ -1184,6 +1195,9 @@ class RetryWorker:
             )
             if retry_scan and group is not None:
                 self._next_retry_scan = now + timedelta(seconds=self._interval)
+            # The health exclusion read above can itself take longer than
+            # a lease. Timestamp the claim only after that final await.
+            claim_now = max(now, datetime.now(timezone.utc))
             items = await self._storage.claim_due_outbox_items(
                 now=claim_now.isoformat(),
                 worker_id=f"retry-worker-{uuid.uuid4().hex}",
@@ -1456,6 +1470,9 @@ class RetryWorker:
                         resolved: (
                             RetryAttemptFinalization | UncertainHandoffResolution | None
                         )
+                        # Capture the receipt set that reconciliation will see.
+                        # A later acceptance must invalidate, not silently
+                        # update, the terminal abandonment evidence fence.
                         # Even unreserved claims can have a newer committed
                         # receipt. Reconcile them before considering terminal
                         # content denial, never repeatedly finalize queued.
@@ -1490,6 +1507,12 @@ class RetryWorker:
                             attempt_number=item.active_attempt or item.attempt_number,
                         )
                         return
+                    if any(r.status in {"sent", "queued"} for r in current_receipts):
+                        # If reconciliation did not settle this acceptance,
+                        # leave the claim for a fresh pass. Terminal denial
+                        # must never overwrite persisted native acceptance.
+                        self.state.processed += 1
+                        return
                     evidence_count: int | None = None
                     checkpoint_revision: int | None = None
                     if isinstance(resolved, UncertainHandoffResolution):
@@ -1517,7 +1540,6 @@ class RetryWorker:
                             )
                             return
                     self.state.processed += 1
-                    self.state.failed += 1
                     try:
                         await self._lifecycle.abandon_retry_outbox(
                             self._lifecycle_storage,
@@ -1527,6 +1549,7 @@ class RetryWorker:
                             expected_checkpoint_revision=checkpoint_revision,
                             expected_receipt_count=len(current_receipts),
                         )
+                        self.state.failed += 1
                     except RetryAttemptCommitRejected as stale:
                         self._log_superseded_transition(item, stale)
                     except Exception as lifecycle_exc:
@@ -1734,9 +1757,9 @@ class RetryWorker:
                         attempt_number=item.active_attempt or item.attempt_number,
                     )
                     return
-            # The receipt fence must reflect the set actually inspected,
-            # including a previous failed receipt; assuming zero prevents
-            # terminal cleanup of otherwise eligible expired claims.
+            # Count the current attempt receipts; the terminal write has an
+            # independent atomic acceptance fence, so a late `sent` or
+            # `queued` receipt cannot be mistaken for evaluated evidence.
             try:
                 denied_receipts = (
                     await self._lifecycle.list_attempt_receipts(
@@ -1756,7 +1779,6 @@ class RetryWorker:
                 )
                 return
             self.state.processed += 1
-            self.state.failed += 1
             try:
                 await self._lifecycle.abandon_retry_outbox(
                     self._lifecycle_storage,
@@ -1770,6 +1792,7 @@ class RetryWorker:
                         else None
                     ),
                 )
+                self.state.failed += 1
             except RetryAttemptCommitRejected as stale:
                 self._log_superseded_transition(item, stale)
             return
