@@ -50,6 +50,50 @@ def _load_schema() -> dict[str, Any]:
     return json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
 
 
+def test_current_runtime_schema_adds_the_optional_ceiling_sweep() -> None:
+    from jsonschema import Draft202012Validator
+
+    from medre.config.model import (
+        CEILING_SWEEP_MAX_INTERVAL_SECONDS,
+        DEADLINE_SWEEP_MAX_LIMIT,
+        CeilingSweepConfig,
+    )
+
+    current = json.loads(
+        (_SCHEMAS_DIR / "current" / _SCHEMA_PATH.name).read_text(encoding="utf-8")
+    )
+    Draft202012Validator.check_schema(current)
+    expected = _load_schema()
+    expected["$id"] = expected["$id"].replace(
+        "/schemas/runtime-config", "/schemas/current/runtime-config"
+    )
+    sweep = current["properties"]["retry"]["properties"]["ceiling_sweep"]
+    defaults = CeilingSweepConfig()
+    assert sweep["type"] == "object"
+    assert sweep["additionalProperties"] is False
+    assert sweep.get("required", []) == []
+    assert sweep["properties"] == {
+        "enabled": {"type": "boolean", "default": defaults.enabled},
+        "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": DEADLINE_SWEEP_MAX_LIMIT,
+            "default": defaults.limit,
+        },
+        "interval_seconds": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": CEILING_SWEEP_MAX_INTERVAL_SECONDS,
+            "default": defaults.interval_seconds,
+        },
+    }
+    expected["properties"]["retry"]["properties"]["ceiling_sweep"] = sweep
+    assert current == expected
+    Draft202012Validator(current).validate(
+        {"retry": {"ceiling_sweep": {"enabled": True}}}
+    )
+
+
 def _load_yaml(path: Path) -> dict[str, Any]:
     """Load and parse a YAML config file as a Python dict."""
     import yaml

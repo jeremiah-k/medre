@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/runtime-config-ceiling-sweep.schema.json",
-  "title": "RuntimeConfig (post-v0.1.0 ceiling-sweep extension)",
+  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/current/runtime-config.schema.json",
+  "title": "RuntimeConfig",
   "description": "Full MEDRE runtime configuration structure. Adapter transport names are extensible; installed adapter configuration models validate their fields. medre config check is the authoritative validator, including installed-provider availability, cross-adapter identifiers, and route semantics.",
   "type": "object",
   "additionalProperties": false,
