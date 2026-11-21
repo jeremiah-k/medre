@@ -1353,9 +1353,21 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                     (outbox_id,),
                 )
             )
-        # Do not delete the closed original-attempt fact on terminal or
-        # operational deferral. Its attempt number and the parent's status
-        # prevent stale admission, while future audits can still trace it.
+        elif new_status == "retry_wait" and failure_kind_detail is not None:
+            # A new, explicit failure classification for this attempt retires
+            # the previous uncertainty fact. An operational deferral omits
+            # the detail and must not erase a genuine uncertain handoff.
+            follow_ups.append(
+                (
+                    "DELETE FROM delivery_handoff_uncertainty "
+                    "WHERE outbox_id=? AND attempt_number=("
+                    "SELECT attempt_number FROM delivery_outbox WHERE outbox_id=?)",
+                    (outbox_id, outbox_id),
+                )
+            )
+        # Terminal settlement retains historical attempt facts; they cannot
+        # reopen the terminal row. A newer reservation changes the attempt
+        # identity and cannot consume an older fact.
         if new_status == "sent" and clear_receipt_id and receipt_id is None:
             # Capture receipt append order under the same write lock as the
             # successful evidence settlement. An outbox-less receipt's

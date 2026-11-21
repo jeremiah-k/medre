@@ -65,7 +65,7 @@ from medre.core.storage.backend import StorageError
 from medre.core.storage.radio_handoff import RadioLocalHandoff
 from medre.core.storage.sqlite._content_identity import _utc_microseconds
 from medre.core.storage.sqlite._handoff_facts import observation_scope
-from medre.core.storage.sqlite._radio import _decode
+from medre.core.storage.sqlite._radio import _closed_handoff, _decode
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -100,6 +100,11 @@ _INCOMING_EXCERPT_RELATION_IDS = (
     "AND r.target_native_channel_id IS c.source_native_channel_id "
     "AND r.target_native_message_id=c.source_native_message_id "
     "WHERE c.event_id={ev} AND r.event_id<>{ev} "
+    "AND NOT EXISTS (SELECT 1 FROM native_message_refs owner "
+    "WHERE owner.adapter=c.source_native_adapter "
+    "AND owner.native_channel_id IS c.source_native_channel_id "
+    "AND owner.native_message_id=c.source_native_message_id "
+    "AND owner.event_id<>c.event_id) "
     "AND r.target_event_id IS NULL AND r.target_native_adapter IS NOT NULL "
     "AND r.target_native_message_id IS NOT NULL "
     "UNION "
@@ -273,11 +278,12 @@ _CEILING_RESIDUAL_SQL = "SELECT " + " + ".join(
 #: the policies visited under the writer lock, even in a mostly clean store.
 _CEILING_POLICY_PAGE_SQL = """
     SELECT p.event_id, p.hard_ceiling,
-           EXISTS (
-               SELECT 1 FROM event_content_ceiling_log l WHERE l.event_id=p.event_id
-           ) AS enforced
+           0 AS enforced
       FROM event_content_access_policies AS p
      WHERE p.hard_ceiling <= ?
+       AND NOT EXISTS (
+           SELECT 1 FROM event_content_ceiling_log l WHERE l.event_id=p.event_id
+       )
        AND (p.hard_ceiling, p.event_id) > (?, ?)
        AND (p.hard_ceiling, p.event_id) <= (?, ?)
      ORDER BY p.hard_ceiling ASC, p.event_id ASC
@@ -301,7 +307,7 @@ _CEILING_AUDIT_PENDING_SQL = """
 _CEILING_RESIDUAL_CANDIDATES_SQL = (
     "SELECT p.event_id, p.hard_ceiling\n"  # nosec B608 - static SQL fragments and parameter placeholders only
     "  FROM event_content_access_policies AS p\n"
-    " WHERE p.hard_ceiling <= ? AND p.event_id > ?\n"
+    " WHERE p.event_id > ?\n"
     "   AND EXISTS (\n"
     "       SELECT 1 FROM event_content_ceiling_log l WHERE l.event_id=p.event_id\n"
     "   )\n"
@@ -563,24 +569,27 @@ def _measure_and_purge(
             try:
                 fact = RadioLocalHandoff.from_part(part, saved.provenance)
             except (ValueError, TypeError, msgspec.DecodeError):
-                # An invalid native reference cannot prove acceptance.
-                # Still remove its content-bearing wire plan below.
-                evidence_parts = []
-                break
-            # The content hash may disclose short messages by dictionary
-            # attack. It is stripped even from the evidence-only summary.
-            fact = msgspec.structs.replace(fact, payload_fingerprint=None)
+                # Never erase the *existence* of unreadable radio evidence:
+                # otherwise later message observations could settle by the
+                # no-checkpoint path. The sentinel contains no provider data.
+                evidence_parts.append(
+                    {"ordinal": part.ordinal, "state": "accepted", "handoff_id": "{}"}
+                )
+                continue
+            # The compact projection strips payload fingerprints and a
+            # redundant origin, preserving only closed native identity.
+            original_attempt = fact.origin is not None and (
+                fact.origin.outbox_id == saved.provenance.outbox_id
+                and fact.origin.attempt_number == saved.provenance.attempt_number
+            )
             evidence_parts.append(
                 {
                     "ordinal": part.ordinal,
                     "state": part.state,
-                    "handoff_id": fact.encode(),
+                    "handoff_id": _closed_handoff(part, saved.provenance),
                 }
             )
-            if fact.origin is None or (
-                fact.origin.outbox_id != saved.provenance.outbox_id
-                or fact.origin.attempt_number != saved.provenance.attempt_number
-            ):
+            if not original_attempt or fact.origin is None:
                 continue  # A continuation cannot create original acceptance.
             if fact.native_message_id:
                 db.execute(
@@ -744,8 +753,6 @@ def sync_enforce_content_ceilings(
             for row in residual_rows:
                 event_id = str(row["event_id"])
                 residual_cursor = event_id
-                if str(row["hard_ceiling"]) > observed:
-                    continue
                 if (
                     int(
                         db.execute(_CEILING_RESIDUAL_SQL, {"ev": event_id}).fetchone()[
@@ -972,7 +979,7 @@ def sync_audit_content_ceilings(
                 for row in pending_rows[:limit]
             ]
             residual_rows = db.execute(
-                _CEILING_RESIDUAL_CANDIDATES_SQL, (observed, after_event or "", fetch)
+                _CEILING_RESIDUAL_CANDIDATES_SQL, (after_event or "", fetch)
             ).fetchall()
             residual = [
                 _audit_finding(db, str(row["event_id"]), str(row["hard_ceiling"]))

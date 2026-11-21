@@ -541,7 +541,26 @@ async def test_unstarted_outbox_survives_enforcement_for_deadline_cleanup(
     available to the guarded deadline retirement transition."""
     event_id = "ceiling-outbox"
     await _admit_with_ceiling(temp_storage, event_id)
-    outbox_id = await _seed_every_copy(temp_storage, event_id)
+    staged = await temp_storage.create_outbox_item(
+        make_outbox_item(
+            delivery_plan_id=f"plan-{event_id}",
+            event_id=event_id,
+            target_adapter="radio",
+        ),
+        dispatch_snapshot=_snapshot({"deadline": _future(7200).isoformat()}),
+    )
+    outbox_id = staged.outbox_id
+    assert staged.active_attempt is None and staged.status == "pending"
+    for table in (
+        "delivery_receipts",
+        "delivery_observations",
+        "radio_attempt_progress",
+    ):
+        row = await temp_storage._read_one(
+            f"SELECT 1 FROM {table} WHERE outbox_id=? LIMIT 1",  # nosec B608 - closed literal table list
+            (outbox_id,),
+        )
+        assert row is None
     ceiling = await _read_ceiling(temp_storage, event_id)
     await temp_storage.enforce_content_ceilings(now=ceiling + timedelta(seconds=1))
     row = await temp_storage._read_one(
@@ -572,6 +591,13 @@ async def test_additive_predecessor_gains_ceiling_objects(
     raw.close()
     reopened = SQLiteStorage(db_path)
     await reopened.initialize()
+    try:
+        await _check_additive_ceiling_reopen(reopened)
+    finally:
+        await reopened.close()
+
+
+async def _check_additive_ceiling_reopen(reopened: SQLiteStorage) -> None:
     names = {
         str(row["name"])
         for row in await reopened._read_all(
@@ -581,7 +607,6 @@ async def test_additive_predecessor_gains_ceiling_objects(
     }
     assert names == {"event_content_ceiling_log", "idx_ceiling_enforcement_order"}
     assert await reopened.enforce_content_ceilings(now=datetime.now(timezone.utc)) == []
-    await reopened.close()
 
 
 # -- Adversarial review: pending/repaired progress and late-write denial --
@@ -601,9 +626,9 @@ async def test_first_time_enforcement_advances_across_a_page_of_receipts(
     pending = "ceiling-pending"
     await _admit_with_ceiling(temp_storage, pending)
     later = await _read_ceiling(temp_storage, pending) + timedelta(seconds=1)
-    assert await temp_storage.enforce_content_ceilings(now=later, limit=1) == []
     enforced = await temp_storage.enforce_content_ceilings(now=later, limit=1)
     assert [item.event_id for item in enforced] == [pending]
+    assert await temp_storage.enforce_content_ceilings(now=later, limit=1) == []
 
 
 async def test_receipt_cursor_preserves_unexamined_short_page(
@@ -619,30 +644,27 @@ async def test_receipt_cursor_preserves_unexamined_short_page(
     for event_id in pending:
         await _admit_with_ceiling(temp_storage, event_id)
     now = await _read_ceiling(temp_storage, pending[-1]) + timedelta(seconds=1)
-    assert await temp_storage.enforce_content_ceilings(now=now, limit=1) == []
     for event_id in pending:
         outcomes = await temp_storage.enforce_content_ceilings(now=now, limit=1)
         assert [outcome.event_id for outcome in outcomes] == [event_id]
+    assert await temp_storage.enforce_content_ceilings(now=now, limit=1) == []
 
 
 async def test_evidence_reads_hide_provider_values_at_expiry_without_receipt(
     temp_storage: SQLiteStorage,
     monkeypatch,
 ) -> None:
-    import medre.core.storage.sqlite._evidence_diagnostics as _evidence_diagnostics
-    import medre.core.storage.sqlite._native_ref as _native_ref
-    import medre.core.storage.sqlite._observation as _observation
+    import medre.core.storage.sqlite.connection as connection
 
     event_id = "ceiling-expiry-read"
     await _admit_with_ceiling(temp_storage, event_id)
     outbox_id = await _seed_every_copy(temp_storage, event_id)
     ceiling = await _read_ceiling(temp_storage, event_id)
-    for module in (_evidence_diagnostics, _native_ref, _observation):
-        monkeypatch.setattr(
-            module,
-            "ceiling_read_time",
-            lambda: ceiling.isoformat(timespec="microseconds"),
-        )
+    monkeypatch.setattr(
+        connection,
+        "ceiling_read_time",
+        lambda: ceiling.isoformat(timespec="microseconds"),
+    )
 
     refs = await temp_storage.list_native_refs_for_event(event_id)
     assert refs and all(not ref.metadata for ref in refs)
@@ -1038,3 +1060,85 @@ async def test_ceiling_tombstones_the_same_live_optional_grant(
     assert after is not None
     assert after["consumer"] == before["consumer"]
     assert after["expired_at"] is not None
+
+
+async def test_native_reference_owner_takes_precedence_over_canonical_alias(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """A's expired source alias must not purge B's resolved native quote."""
+    from medre.core.events import EventRelation, NativeRef
+
+    await _admit_with_ceiling(temp_storage, "alias-a", seconds=3600)
+    await _admit_with_ceiling(temp_storage, "owner-b", seconds=7200)
+    await _admit_plain(temp_storage, "quoting-c")
+    await temp_storage._write(
+        "UPDATE canonical_events SET source_native_adapter='radio', "
+        "source_native_channel_id='wire', source_native_message_id='same' "
+        "WHERE event_id='alias-a'"
+    )
+    await temp_storage._write(
+        "INSERT INTO native_message_refs "
+        "(id, event_id, adapter, native_channel_id, native_message_id, "
+        "direction, created_at) VALUES "
+        "('alias-owner', 'owner-b', 'radio', 'wire', 'same', 'inbound', ?)",
+        (datetime.now(timezone.utc).isoformat(),),
+    )
+    await temp_storage.store_relation(
+        "quoting-c",
+        EventRelation(
+            relation_type="reply",
+            target_event_id=None,
+            target_native_ref=NativeRef("radio", "wire", "same"),
+            key=None,
+            fallback_text="B-only synthetic quote",
+        ),
+    )
+    assert await temp_storage.resolve_native_ref("radio", "wire", "same") == "owner-b"
+    a_ceiling = await _read_ceiling(temp_storage, "alias-a")
+    a = await temp_storage.audit_content_ceilings(
+        now=a_ceiling + timedelta(seconds=1), event_id="alias-a"
+    )
+    b = await temp_storage.audit_content_ceilings(
+        now=a_ceiling + timedelta(seconds=1), event_id="owner-b"
+    )
+    assert a["residual_stores"].get("event_relation_excerpts:incoming") is None
+    assert b["residual_stores"]["event_relation_excerpts:incoming"] == 1
+    await temp_storage.enforce_content_ceilings(now=a_ceiling + timedelta(seconds=1))
+    excerpt = await temp_storage._read_one(
+        "SELECT excerpt FROM event_relation_excerpts"
+    )
+    assert excerpt is not None and excerpt["excerpt"] == "B-only synthetic quote"
+
+
+async def test_native_reference_read_uses_clock_after_sqlite_lock_wait(
+    temp_storage: SQLiteStorage, monkeypatch
+) -> None:
+    """A queued read must not release provider metadata after ceiling expiry."""
+    import asyncio
+
+    from medre.core.storage.sqlite import connection
+
+    event_id = "ceiling-queued-native-read"
+    await _admit_with_ceiling(temp_storage, event_id)
+    ceiling = await _read_ceiling(temp_storage, event_id)
+    await temp_storage._write(
+        "INSERT INTO native_message_refs "
+        "(id, event_id, adapter, native_message_id, direction, metadata, created_at) "
+        "VALUES (?, ?, 'radio', 'native-1', 'outbound', ?, ?)",
+        ("queued-nref", event_id, '{"provider":"private"}', _future(0).isoformat()),
+    )
+    clock = {"now": ceiling - timedelta(seconds=1)}
+    monkeypatch.setattr(
+        connection, "ceiling_read_time", lambda: clock["now"].isoformat()
+    )
+    temp_storage._lock.acquire()
+    try:
+        task = asyncio.create_task(temp_storage.list_native_refs_for_event(event_id))
+        await asyncio.sleep(0.01)
+        assert not task.done()
+        clock["now"] = ceiling + timedelta(seconds=1)
+    finally:
+        temp_storage._lock.release()
+    refs = await task
+    assert len(refs) == 1
+    assert refs[0].metadata == {}

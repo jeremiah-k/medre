@@ -53,6 +53,20 @@ def _provenance(value: DeliveryAttemptProvenance) -> str:
     return _json(msgspec.to_builtins(value))
 
 
+def _closed_handoff(
+    part: RadioPartProgress, provenance: DeliveryAttemptProvenance
+) -> str:
+    """Project an accepted part into a bounded, non-authorizing evidence ref."""
+    fact = RadioLocalHandoff.from_part(part, provenance)
+    fact = msgspec.structs.replace(fact, payload_fingerprint=None)
+    if fact.origin is not None and (
+        fact.origin.outbox_id == provenance.outbox_id
+        and fact.origin.attempt_number == provenance.attempt_number
+    ):
+        fact = msgspec.structs.replace(fact, origin=None)
+    return fact.encode()
+
+
 def _delivery_identity(claim: DeliveryAttemptProvenance) -> tuple[str, str, str, str]:
     """Compare delivery scope across retries while preserving attempt-local lineage."""
     return (
@@ -429,7 +443,121 @@ class _RadioMixin:
                 "SELECT * FROM radio_attempt_progress WHERE outbox_id=? AND attempt_number=?",
                 (claim.outbox_id, claim.attempt_number),
             ).fetchone()
-            if row is None or _decode(row) != expected:
+            if row is None:
+                # The privacy sweep may have erased the wire plan after a
+                # native start was already granted. Completion of that
+                # in-flight call remains evidence, not a new send grant.
+                if native_start:
+                    return None
+                retained = db.execute(
+                    "SELECT * FROM radio_attempt_evidence_summaries "
+                    "WHERE outbox_id=? AND attempt_number=?",
+                    (claim.outbox_id, claim.attempt_number),
+                ).fetchone()
+                if retained is None or int(retained["revision"]) != expected.revision:
+                    return None
+                try:
+                    retained_provenance = msgspec.json.decode(
+                        retained["provenance_json"], type=DeliveryAttemptProvenance
+                    )
+                    retained_parts = tuple(
+                        RadioPartProgress(**part)
+                        for part in json.loads(retained["parts_json"])
+                    )
+                    if retained_provenance != claim or len(retained_parts) != len(
+                        expected.progress.parts
+                    ):
+                        return None
+                    changed = [
+                        index
+                        for index, (old, new) in enumerate(
+                            zip(expected.progress.parts, updated.parts, strict=True)
+                        )
+                        if old != new
+                    ]
+                    if len(changed) != 1:
+                        return None
+                    index = changed[0]
+                    old, new = expected.progress.parts[index], updated.parts[index]
+                    if old.state != "submitting" or new.state not in {
+                        "accepted",
+                        "unknown",
+                    }:
+                        return None
+                    if any(
+                        a.state != b.state or a.ordinal != b.ordinal
+                        for a, b in zip(
+                            expected.progress.parts, retained_parts, strict=True
+                        )
+                    ):
+                        return None
+                    # All earlier accepted facts must agree with the compact
+                    # summary; a forged caller snapshot cannot change them.
+                    for old_part, retained_part in zip(
+                        expected.progress.parts, retained_parts, strict=True
+                    ):
+                        if old_part.state == "accepted" and (
+                            _closed_handoff(old_part, claim) != retained_part.handoff_id
+                        ):
+                            return None
+                    compact = (
+                        RadioPartProgress(
+                            new.ordinal, "accepted", _closed_handoff(new, claim)
+                        )
+                        if new.state == "accepted"
+                        else RadioPartProgress(new.ordinal, "unknown")
+                    )
+                    parts = list(retained_parts)
+                    parts[index] = compact
+                    revision = expected.revision + 1
+                    written = db.execute(
+                        "UPDATE radio_attempt_evidence_summaries "
+                        "SET parts_json=?, revision=? WHERE outbox_id=? "
+                        "AND attempt_number=? AND revision=?",
+                        (
+                            _json(
+                                [
+                                    {
+                                        "ordinal": part.ordinal,
+                                        "state": part.state,
+                                        "handoff_id": part.handoff_id,
+                                    }
+                                    for part in parts
+                                ]
+                            ),
+                            revision,
+                            claim.outbox_id,
+                            claim.attempt_number,
+                            expected.revision,
+                        ),
+                    ).rowcount
+                    if written != 1:
+                        return None
+                    if new.state == "accepted":
+                        fact = RadioLocalHandoff.from_part(new, claim)
+                        if (
+                            fact.origin is not None
+                            and fact.origin.outbox_id == claim.outbox_id
+                            and fact.origin.attempt_number == claim.attempt_number
+                            and fact.native_message_id
+                        ):
+                            db.execute(
+                                "INSERT INTO radio_accepted_part_facts "
+                                "(outbox_id, attempt_number, ordinal, "
+                                "native_channel_id, native_message_id) "
+                                "VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
+                                (
+                                    claim.outbox_id,
+                                    claim.attempt_number,
+                                    new.ordinal,
+                                    fact.native_channel_id,
+                                    fact.native_message_id,
+                                ),
+                            )
+                    return StoredRadioAttempt(claim, updated, revision)
+                except (ValueError, TypeError, KeyError, msgspec.DecodeError):
+                    return None
+            if _decode(row) != expected:
                 return None
             result = StoredRadioAttempt(claim, updated, expected.revision + 1)
             count = db.execute(

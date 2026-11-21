@@ -759,3 +759,103 @@ async def test_staged_abandonment_cannot_consume_a_newer_active_attempt(temp_sto
             expected_receipt_count=0,
         )
     assert (await temp_storage.get_outbox_item(stored.outbox_id)) == active
+
+
+async def test_in_flight_native_completion_survives_wire_plan_erasure(temp_storage):
+    """An already-granted call can finish, but erasure cannot start another call."""
+    from medre.core.storage.radio_handoff import RadioLocalHandoff
+
+    stored, provenance = await _seed_reserved_claim(temp_storage)
+    bound = await temp_storage.bind_radio_attempt(provenance, _WORKER, _plan())
+    assert bound is not None
+    started = await temp_storage.begin_radio_part(bound, _WORKER, 1)
+    assert started is not None
+    now = await _install_elapsed_ceiling_for_handoff(temp_storage, provenance.event_id)
+    await temp_storage.enforce_content_ceilings(now=now)
+    assert await temp_storage.get_radio_attempt(stored.outbox_id, 1) is None
+    handoff = RadioLocalHandoff(1, "native-after-erasure", "ch-0", "local_transport")
+    finished = await temp_storage.observe_radio_part(
+        started, _WORKER, 1, handoff_id=handoff.encode()
+    )
+    assert finished is not None
+    summary = await temp_storage.get_radio_attempt_evidence(stored.outbox_id, 1)
+    assert summary is not None
+    assert summary.parts[0].state == "accepted"
+    assert summary.revision == 2
+    assert await temp_storage.begin_radio_part(finished, _WORKER, 2) is None
+    assert await temp_storage.append_radio_packet_observation(
+        _observation(
+            "packet-after-erasure",
+            provenance,
+            adapter_message_id="native-after-erasure",
+            radio_packet={
+                "ordinal": 1,
+                "origin_attempt_number": 1,
+                "origin_outbox_id": stored.outbox_id,
+            },
+        )
+    )
+    assert (
+        await temp_storage.observe_radio_part(
+            started, _WORKER, 1, handoff_id=handoff.encode()
+        )
+        is None
+    )
+
+
+async def test_malformed_accepted_reference_does_not_disappear_at_ceiling(temp_storage):
+    """A corrupt handoff never becomes message-only proof after erasure."""
+    import json
+
+    stored, provenance = await _seed_reserved_claim(temp_storage)
+    await _bind_and_progress(temp_storage, provenance, ["accepted"] * 3)
+    raw = await temp_storage._read_one(
+        "SELECT parts_json FROM radio_attempt_progress WHERE outbox_id=?",
+        (stored.outbox_id,),
+    )
+    assert raw is not None
+    parts = json.loads(raw["parts_json"])
+    parts[0]["handoff_id"] = "{not-a-valid-reference}"
+    await temp_storage._write(
+        "UPDATE radio_attempt_progress SET parts_json=? WHERE outbox_id=?",
+        (json.dumps(parts), stored.outbox_id),
+    )
+    now = await _install_elapsed_ceiling_for_handoff(temp_storage, provenance.event_id)
+    await temp_storage.enforce_content_ceilings(now=now)
+    assert await temp_storage.append_delivery_observation(
+        _observation("whole-message-after-invalid-part", provenance)
+    )
+    verdict = await EvidenceBackedHandoffResolver(temp_storage).resolve(stored, 1)
+    assert verdict.verdict == "unresolved"
+    assert verdict.reasons == ("unreadable_handoff_reference",)
+
+
+async def test_explicit_new_retry_failure_retires_stale_uncertainty_fact(temp_storage):
+    stored, provenance = await _seed_reserved_claim(temp_storage)
+    await temp_storage._write(
+        "INSERT INTO delivery_handoff_uncertainty "
+        "(outbox_id, attempt_number, state) "
+        "VALUES (?, 1, 'uncertain_native_handoff')",
+        (stored.outbox_id,),
+    )
+    assert await temp_storage.mark_outbox_retry_wait(
+        stored.outbox_id,
+        next_attempt_at=(
+            datetime.now(timezone.utc) + timedelta(seconds=60)
+        ).isoformat(),
+        attempt_number=1,
+        expected_worker_id=_WORKER,
+        failure_kind_detail="adapter_transient",
+    )
+    assert (
+        await temp_storage._read_one(
+            "SELECT 1 FROM delivery_handoff_uncertainty WHERE outbox_id=?",
+            (stored.outbox_id,),
+        )
+        is None
+    )
+    row = await temp_storage.get_outbox_item(stored.outbox_id)
+    assert row is not None and row.failure_kind_detail == "adapter_transient"
+    assert not await temp_storage.append_delivery_observation(
+        _observation("late-not-uncertain", provenance)
+    )
