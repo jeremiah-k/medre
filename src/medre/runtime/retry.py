@@ -1472,7 +1472,10 @@ class RetryWorker:
                                     self._lifecycle_storage,
                                     item,
                                     RetryPolicy(max_attempts=self._max_attempts),
-                                    error=RuntimeError("Dispatch context unavailable"),
+                                    error=RuntimeError(
+                                        "content_authority_denied under a "
+                                        "committed receipt"
+                                    ),
                                     attempt_number=attempt,
                                 )
                             )
