@@ -123,6 +123,11 @@ The guarded ceiling-enforcement transition is a single mutation boundary:
 - Candidate discovery MUST be bounded per invocation with a durable keyset
   cursor that wraps at queue end, so backdated admissions are still
   enforced and one event can never starve others.
+- Each sweep MUST reserve a distinct bounded budget for unenforced ceilings,
+  independent of the bounded residual-repair policy page; residual repairs MUST
+  NOT starve newly elapsed events. The residual cursor MUST wrap to detect
+  late writes behind its prior position. Each audit finding MUST distinguish
+  sole-owner attachment blobs from shared associations.
 - For each elapsed ceiling without a receipt it MUST: measure the values
   it removes; purge per the census classes; tombstone every live optional
   grant and release every unsettled dependency (the ceiling supersedes
@@ -144,10 +149,12 @@ The guarded ceiling-enforcement transition is a single mutation boundary:
   boundary between "gone by enforcement" and writes already authorized
   before the instant.
 
-Runtime invocation rides the retry poll cycle behind the default-off
-`retry.ceiling_sweep` declaration, bounded and failure-isolated like the
-deadline sweep. Storage-level invocation remains available to trusted
-operator tooling.
+Runtime invocation rides the existing LIVE-mode outbox poll cycle behind
+an independent, default-off `retry.ceiling_sweep` declaration, bounded and
+failure-isolated like the deadline sweep. It remains available even when
+`retry.enabled=false`: LIVE startup constructs an initial-dispatch worker,
+and a maintenance-only worker also runs when the sweep is enabled.
+Storage-level invocation remains available to trusted operator tooling.
 
 ## 5. SQLite-level guarantee and the explicit erasure requirement
 
@@ -160,11 +167,18 @@ enforcement alone.
 
 An operator who requires byte-level erasure MUST, after enforcement:
 
-1. run `PRAGMA wal_checkpoint(TRUNCATE)` against the live database (or
-   stop the runtime), and
-2. run `VACUUM` on the database file (which rewrites the database image
-   without freed content pages), or enable `PRAGMA secure_delete=ON`
-   before enforcement so freed pages are zero-filled at delete time.
+1. quiesce all runtime and other SQLite writers and readers (including any
+   open transaction or connection that can block a checkpoint),
+2. run `VACUUM` on the database file to rebuild it without deleted content
+   pages, **then** run `PRAGMA wal_checkpoint(TRUNCATE)` on a connection
+   outside any transaction, and verify its result has a zero busy indicator
+   and the WAL is truncated before claiming this operation completed.
+
+`PRAGMA secure_delete=ON` enabled **before** enforcement can zero freed
+pages but does **not** remove content-bearing WAL frames. Even with that
+setting, a successful `wal_checkpoint(TRUNCATE)` is required; secure delete
+is not an alternative to WAL cleanup. Neither method erases backups, earlier
+file snapshots, or provider-owned copies.
 
 Until that step, the honest statement is exactly the standing
 `sqlite_free_pages_and_wal` unmeasured scope: expired content is

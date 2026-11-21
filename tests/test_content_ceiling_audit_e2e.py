@@ -615,6 +615,9 @@ async def _prepare_database(db_path: str, *, with_late_write: bool = False) -> s
     try:
         event_id = "ceiling-cli-full"
         await _admit_with_ceiling(storage, event_id)
+        outbox_id = await _seed_every_copy(storage, event_id)
+        # Staging requires live content authority. Model elapsed time only
+        # after all sample writes; otherwise the test cannot prove a sweep.
         await storage._write(
             "UPDATE event_content_access_policies SET hard_ceiling=? "
             "WHERE event_id=?",
@@ -625,7 +628,6 @@ async def _prepare_database(db_path: str, *, with_late_write: bool = False) -> s
                 event_id,
             ),
         )
-        outbox_id = await _seed_every_copy(storage, event_id)
         # One unshared attachment so the receipt carries blob counters.
         await _insert_blob(storage, _BLOB_REF)
         await _associate_blob(storage, event_id, _BLOB_REF)
