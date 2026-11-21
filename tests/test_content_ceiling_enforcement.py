@@ -1140,9 +1140,17 @@ async def test_native_reference_read_uses_clock_after_sqlite_lock_wait(
 ) -> None:
     """A queued read must not release provider metadata after ceiling expiry."""
     import asyncio
+    import threading
 
-    from medre.core.storage.sqlite import connection
+    from medre.core.storage.sqlite import connection, storage as storage_module
 
+    entered = threading.Event()
+
+    def signaled_read(db, lock, sql, params=()):
+        entered.set()
+        return connection.sync_read_all(db, lock, sql, params)
+
+    monkeypatch.setattr(storage_module, "sync_read_all", signaled_read)
     event_id = "ceiling-queued-native-read"
     await _admit_with_ceiling(temp_storage, event_id)
     ceiling = await _read_ceiling(temp_storage, event_id)
@@ -1159,7 +1167,7 @@ async def test_native_reference_read_uses_clock_after_sqlite_lock_wait(
     temp_storage._lock.acquire()
     try:
         task = asyncio.create_task(temp_storage.list_native_refs_for_event(event_id))
-        await asyncio.sleep(0.01)
+        assert await asyncio.wait_for(asyncio.to_thread(entered.wait), timeout=5)
         assert not task.done()
         clock["now"] = ceiling + timedelta(seconds=1)
     finally:
