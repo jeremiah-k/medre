@@ -51,6 +51,7 @@ as the purge verification, so the audit cannot drift from enforcement.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import sqlite3
 import threading
@@ -72,6 +73,7 @@ if TYPE_CHECKING:
 #: holding the write lock unconditionally.
 _CEILING_SWEEP_MAX_LIMIT = 500
 _CEILING_SWEEP_CURSOR_KEY = "content_ceiling_enforcement_cursor"
+_CEILING_RESIDUAL_CURSOR_KEY = "content_ceiling_residual_cursor"
 
 #: Predicates for content-potential values attributable to one event on
 #: stores that survive enforcement. Every purge target has exactly one
@@ -80,11 +82,17 @@ _CEILING_SWEEP_CURSOR_KEY = "content_ceiling_enforcement_cursor"
 #: *event_ref* is either the ``:ev`` bind parameter (per-event battery) or
 #: a correlated outer column reference (candidate discovery).
 _INCOMING_EXCERPTS_PREDICATE = (
-    "r.event_id<>{ev} AND (r.target_event_id={ev} OR EXISTS ("
+    "r.event_id<>{ev} AND (r.target_event_id={ev} OR ("
+    "r.target_native_adapter IS NOT NULL AND "
+    "r.target_native_message_id IS NOT NULL AND (EXISTS ("
     "SELECT 1 FROM native_message_refs n WHERE n.event_id={ev} "
     "AND n.adapter=r.target_native_adapter "
     "AND n.native_channel_id IS r.target_native_channel_id "
-    "AND n.native_message_id=r.target_native_message_id))"
+    "AND n.native_message_id=r.target_native_message_id) OR EXISTS ("
+    "SELECT 1 FROM canonical_events c WHERE c.event_id={ev} "
+    "AND c.source_native_adapter=r.target_native_adapter "
+    "AND c.source_native_channel_id IS r.target_native_channel_id "
+    "AND c.source_native_message_id=r.target_native_message_id))))"
 )
 
 
@@ -177,6 +185,16 @@ _RESIDUAL_BATTERY: tuple[tuple[str, str], ...] = (
         "event_attachment_associations",
         "EXISTS (SELECT 1 FROM event_attachment_associations a WHERE a.event_id={ev})",  # nosec B608 - closed module-owned fragment; event reference is a bind parameter or correlated column
     ),
+    # Deleting this event's sole remaining attachment association also deletes
+    # the corresponding blob, even though the blob has no event_id column.
+    (
+        "attachment_blobs:last_reference",
+        "EXISTS (SELECT 1 FROM attachment_blobs b WHERE EXISTS ("  # nosec B608 - closed module-owned fragment
+        "SELECT 1 FROM event_attachment_associations a "
+        "WHERE a.event_id={ev} AND a.content_ref=b.content_ref) "
+        "AND NOT EXISTS (SELECT 1 FROM event_attachment_associations other "
+        "WHERE other.content_ref=b.content_ref AND other.event_id<>{ev}))",
+    ),
 )
 
 #: Count-query transformation over the battery table: every fragment has the
@@ -247,11 +265,7 @@ _CEILING_CANDIDATES_SQL = """
      LIMIT ?
 """  # nosec B608 - static SQL fragments and parameter placeholders only
 
-#: Residual re-enforcement candidates: enforced events that regained
-#: content-potential values through writes authorized before the ceiling.
-#: The residual battery is OR-joined, correlated to the policy row, so
-#: only events that still carry content-potential values are returned,
-#: bounded by the caller's limit.
+#: Read-only audit may filter for residual matches; no write lock is held.
 _CEILING_RESIDUAL_CANDIDATES_SQL = (
     "SELECT p.event_id, p.hard_ceiling\n"  # nosec B608 - static SQL fragments and parameter placeholders only
     "  FROM event_content_access_policies AS p\n"
@@ -264,6 +278,18 @@ _CEILING_RESIDUAL_CANDIDATES_SQL = (
     " ORDER BY p.hard_ceiling ASC, p.event_id ASC\n"
     " LIMIT ?\n"
 )
+
+#: The mutation path walks the *receipt* primary key, not policies with
+#: a receipt EXISTS filter. Each keyset page visits at most the bound number
+#: of receipt rows, even if millions of other policies have never expired.
+_CEILING_RESIDUAL_PAGE_SQL = """
+    SELECT event_id, ceiling AS hard_ceiling
+      FROM event_content_ceiling_log
+     WHERE event_id > ?
+     ORDER BY event_id
+     LIMIT ?
+"""
+
 
 
 @dataclass(frozen=True, slots=True)
@@ -351,7 +377,9 @@ def _measure_and_purge(
 
     # Opaque envelope values on the canonical row (identity row survives).
     envelope = db.execute(
-        "SELECT length(CAST(payload AS BLOB)), length(CAST(metadata AS BLOB)) "
+        "SELECT CASE WHEN payload<>'{}' THEN length(CAST(payload AS BLOB)) "
+        "ELSE 0 END, CASE WHEN metadata<>'{}' "
+        "THEN length(CAST(metadata AS BLOB)) ELSE 0 END "
         "FROM canonical_events WHERE event_id=? "
         "AND (payload<>'{}' OR metadata<>'{}')",
         (event_id,),
@@ -367,7 +395,9 @@ def _measure_and_purge(
     # Content-potential values on the event's own relation rows.
     relation_values = db.execute(
         "SELECT COALESCE(SUM(length(CAST(key AS BLOB))), 0), "
-        "COALESCE(SUM(length(CAST(metadata AS BLOB))), 0) FROM event_relations "
+        "COALESCE(SUM(CASE WHEN metadata<>'{}' "
+        "THEN length(CAST(metadata AS BLOB)) ELSE 0 END), 0) "
+        "FROM event_relations "
         "WHERE event_id=? AND (key IS NOT NULL OR metadata<>'{}')",
         (event_id,),
     ).fetchone()
@@ -476,17 +506,16 @@ def _measure_and_purge(
             (event_id,),
         ).fetchall()
     ]
-    blobs_removed, blob_bytes = 0, 0
-    if refs:
-        placeholders = ",".join("?" for _ in refs)
-        blobs = db.execute(
-            "SELECT COUNT(*), COALESCE(SUM(b.size_bytes), 0) FROM attachment_blobs b "
-            f"WHERE b.content_ref IN ({placeholders}) AND NOT EXISTS ("  # nosec B608 - placeholders only; refs are bound values
-            "SELECT 1 FROM event_attachment_associations a2 "
-            "WHERE a2.content_ref=b.content_ref AND a2.event_id<>?)",
-            (*refs, event_id),
-        ).fetchone()
-        blobs_removed, blob_bytes = int(blobs[0]), int(blobs[1])
+    blobs = db.execute(
+        "SELECT COUNT(*), COALESCE(SUM(b.size_bytes), 0) "
+        "FROM attachment_blobs b WHERE EXISTS ("
+        "SELECT 1 FROM event_attachment_associations a "
+        "WHERE a.content_ref=b.content_ref AND a.event_id=?) "
+        "AND NOT EXISTS (SELECT 1 FROM event_attachment_associations other "
+        "WHERE other.content_ref=b.content_ref AND other.event_id<>?)",
+        (event_id, event_id),
+    ).fetchone()
+    blobs_removed, blob_bytes = int(blobs[0]), int(blobs[1])
     rows_removed += int(associations[0])
     db.execute(
         "DELETE FROM event_attachment_associations WHERE event_id=?", (event_id,)
@@ -545,21 +574,37 @@ def sync_enforce_content_ceilings(
                 )
             enforced: list[CeilingEnforcement] = []
 
-            # Residual re-enforcement first: enforced events that regained
-            # content-potential values through writes authorized before
-            # their ceiling. The candidate query itself carries the residual
-            # battery and the caller's bound, so only events that still
-            # hold content-potential values are re-purged.
+            # Residual discovery walks one bounded *receipt* page on every
+            # invocation, including when that page is clean. Primary-key
+            # traversal avoids touching an unbounded number of pending
+            # policies. Progress is durable and wraps for late writes.
+            residual_budget = max(25, limit)
+            progress = db.execute(
+                "SELECT value FROM _medre_schema_meta WHERE key=?",
+                (_CEILING_RESIDUAL_CURSOR_KEY,),
+            ).fetchone()
+            residual_cursor = json.loads(progress[0]) if progress is not None else ""
+            if not isinstance(residual_cursor, str):
+                raise StorageError("Invalid ceiling residual cursor")
             residual_rows = db.execute(
-                _CEILING_RESIDUAL_CANDIDATES_SQL, (observed, max(25, limit))
+                _CEILING_RESIDUAL_PAGE_SQL, (residual_cursor, residual_budget)
             ).fetchall()
             for row in residual_rows:
                 event_id = str(row["event_id"])
-                ceiling = str(row["hard_ceiling"])
-                _measure_and_purge(db, event_id)
+                residual_cursor = event_id
+                if str(row["hard_ceiling"]) > observed:
+                    continue
+                if (
+                    int(db.execute(_CEILING_RESIDUAL_SQL, {"ev": event_id}).fetchone()[0])
+                    == 0
+                ):
+                    continue
+                (rows, logical, blobs, blob_bytes) = _measure_and_purge(db, event_id)
                 _release_authority(db, event_id, observed)
-                residual = db.execute(_CEILING_RESIDUAL_SQL, {"ev": event_id})
-                if int(residual.fetchone()[0]) != 0:
+                if (
+                    int(db.execute(_CEILING_RESIDUAL_SQL, {"ev": event_id}).fetchone()[0])
+                    != 0
+                ):
                     raise StorageError(
                         "Ceiling enforcement left residual content for an "
                         "enforced event"
@@ -567,15 +612,22 @@ def sync_enforce_content_ceilings(
                 enforced.append(
                     CeilingEnforcement(
                         event_id=event_id,
-                        ceiling=ceiling,
+                        ceiling=str(row["hard_ceiling"]),
                         enforced_at=observed,
-                        rows_removed=0,
-                        logical_bytes_removed=0,
-                        blobs_removed=0,
-                        blob_bytes_removed=0,
+                        rows_removed=rows,
+                        logical_bytes_removed=logical,
+                        blobs_removed=blobs,
+                        blob_bytes_removed=blob_bytes,
                         residual_pass=True,
                     )
                 )
+            if len(residual_rows) < residual_budget:
+                residual_cursor = ""
+            db.execute(
+                "INSERT INTO _medre_schema_meta(key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (_CEILING_RESIDUAL_CURSOR_KEY, json.dumps(residual_cursor)),
+            )
 
             # Main pass: unenforced elapsed ceilings in keyset order, with
             # durable progress persisted in the same transaction.
@@ -593,7 +645,8 @@ def sync_enforce_content_ceilings(
             last_ceiling, last_event_id = cursor
             budget = max(25, limit)
             examined = 0
-            while len(enforced) < limit and examined < budget:
+            first_time = 0
+            while first_time < limit and examined < budget:
                 page_size = min(100, budget - examined)
                 page = db.execute(
                     _CEILING_CANDIDATES_SQL,
@@ -651,7 +704,8 @@ def sync_enforce_content_ceilings(
                             residual_pass=False,
                         )
                     )
-                    if len(enforced) >= limit:
+                    first_time += 1
+                    if first_time >= limit:
                         break
                 if len(page) < page_size and last_event_id == str(page[-1]["event_id"]):
                     last_ceiling = last_event_id = ""
@@ -834,7 +888,7 @@ def sync_verify_content_ceiling_receipts(
                     _CEILING_RECEIPTS_SQL + " WHERE event_id=:ev",
                     {"ev": event_id},
                 ).fetchall()
-                event_state = "receipt_verified" if rows else "no_receipt"
+                event_state = "receipt_present" if rows else "no_receipt"
             else:
                 rows = db.execute(
                     _CEILING_RECEIPTS_SQL
@@ -865,7 +919,12 @@ def sync_verify_content_ceiling_receipts(
                 "receipts": receipts,
             }
             if event_state is not None:
-                result["event_state"] = event_state
+                if event_state == "no_receipt":
+                    result["event_state"] = "no_receipt"
+                elif verdict == "passed":
+                    result["event_state"] = "receipt_verified"
+                else:
+                    result["event_state"] = "receipt_failed"
             return result
         finally:
             db.rollback()
@@ -882,6 +941,10 @@ class _CeilingEnforcementMixin:
         async def _run_in_thread(
             self, func: Callable[_P, _T], *args: _P.args, **kwargs: _P.kwargs
         ) -> _T: ...
+
+        async def _await_deferring_cancel(
+            self, future: asyncio.Future[Any]
+        ) -> tuple[BaseException | None, asyncio.CancelledError | None]: ...
 
     async def enforce_content_ceilings(
         self,
@@ -903,7 +966,7 @@ class _CeilingEnforcementMixin:
         blobs), every live optional grant is tombstoned, every unsettled
         content dependency is released, and the residual battery must
         observe zero content-potential values before the immutable
-        content-free receipt commits. Already-enforced events regain-ing
+        content-free receipt commits. Already-enforced events regaining
         residual values through writes authorized before the ceiling are
         re-purged without a second receipt. Delivery identity and evidence
         rows (receipts, observations, outbox generations, native
@@ -914,9 +977,10 @@ class _CeilingEnforcementMixin:
         SQLite transaction; an explicit *now* is available to trusted
         controlled-clock qualification and must be timezone-aware. Returns
         metadata-only summaries; each call re-enforces at most
-        ``max(25, limit)`` residual events and enforces at most *limit*
-        new events, examining at most ``max(25, limit)`` candidates. A
-        durable keyset cursor in internal metadata advances in the same
+        ``max(25, limit)`` receipt rows and enforces at most
+        *limit* new events, examining at most ``max(25, limit)`` candidates
+        per queue. Pending work has its own capacity, never consumed by a
+        residual repair. A durable keyset cursor in internal metadata advances in the same
         transaction and wraps at queue end.
         """
         ceiling_observation = (
@@ -927,16 +991,27 @@ class _CeilingEnforcementMixin:
                 "The ceiling enforcement limit must be an integer between 1 and "
                 f"{_CEILING_SWEEP_MAX_LIMIT}"
             )
-        try:
-            return await self._run_in_thread(
+        # Do not let a forced RetryWorker cancellation outlive a committing
+        # SQLite transaction while its stop() reports a clean teardown. The
+        # storage executor's private connection remains owned until the
+        # transaction finishes (or rolls back), even if the caller is cancelled.
+        operation = asyncio.create_task(
+            self._run_in_thread(
                 sync_enforce_content_ceilings,
                 self._require_db(),
                 self._lock,
                 ceiling_observation,
                 limit,
             )
-        except sqlite3.Error as exc:
-            raise StorageError(f"Ceiling enforcement sweep failed: {exc}") from exc
+        )
+        error, cancelled = await self._await_deferring_cancel(operation)
+        if error is not None:
+            if isinstance(error, sqlite3.Error):
+                raise StorageError(f"Ceiling enforcement sweep failed: {error}") from error
+            raise error
+        if cancelled is not None:
+            raise cancelled
+        return operation.result()
 
     async def audit_content_ceilings(
         self,

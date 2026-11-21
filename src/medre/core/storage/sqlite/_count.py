@@ -47,8 +47,10 @@ _EVENT_COPY_PROBES: dict[str, str] = {
         "WHERE l.event_id=e.event_id) "
         "AND NOT EXISTS (SELECT 1 FROM event_content_ceiling_log cl "
         "WHERE cl.event_id=e.event_id)))) "
-        "OR (EXISTS (SELECT 1 FROM event_content_collection_log l "
-        "WHERE l.event_id=e.event_id) AND ("
+        "OR ((EXISTS (SELECT 1 FROM event_content_collection_log l "
+        "WHERE l.event_id=e.event_id) OR EXISTS ("
+        "SELECT 1 FROM event_content_ceiling_log cl "
+        "WHERE cl.event_id=e.event_id)) AND ("
         "EXISTS (SELECT 1 FROM event_body_content b WHERE b.event_id=e.event_id) "
         "OR EXISTS (SELECT 1 FROM event_relation_excerpts x "
         "JOIN event_relations r ON r.id=x.relation_id WHERE r.event_id=e.event_id))) "
@@ -63,7 +65,14 @@ _EVENT_COPY_PROBES: dict[str, str] = {
         "WHERE n.event_id=e.event_id "
         "AND n.adapter=r.target_native_adapter "
         "AND n.native_channel_id IS r.target_native_channel_id "
-        "AND n.native_message_id=r.target_native_message_id))"
+        "AND n.native_message_id=r.target_native_message_id) "
+        "OR EXISTS (SELECT 1 FROM canonical_events c "
+        "WHERE c.event_id=e.event_id "
+        "AND r.target_native_adapter IS NOT NULL "
+        "AND r.target_native_message_id IS NOT NULL "
+        "AND c.source_native_adapter=r.target_native_adapter "
+        "AND c.source_native_channel_id IS r.target_native_channel_id "
+        "AND c.source_native_message_id=r.target_native_message_id))"
     ),
     "opaque_envelope": "SELECT COUNT(*) FROM canonical_events c WHERE c.event_id=e.event_id AND (c.payload<>'{}' OR c.metadata<>'{}')",
     "relation_records": "SELECT COUNT(*) FROM event_relations r WHERE r.event_id=e.event_id",

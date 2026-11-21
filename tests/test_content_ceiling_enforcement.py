@@ -44,7 +44,9 @@ def _snapshot(context: dict) -> OutboxDispatchSnapshotWrite:
     )
 
 
-async def _admit_with_ceiling(store: SQLiteStorage, event_id: str) -> None:
+async def _admit_with_ceiling(
+    store: SQLiteStorage, event_id: str, *, seconds: int = 3600
+) -> None:
     """Admit one event with a body through the real ceiling producer.
 
     ``admit_ingress`` with a content deadline installs the mandatory
@@ -54,7 +56,7 @@ async def _admit_with_ceiling(store: SQLiteStorage, event_id: str) -> None:
         make_storage_event(event_id=event_id, payload={"body": MARKER}),
         None,
         "live",
-        content_deadline=_future(3600),
+        content_deadline=_future(seconds),
     )
 
 
@@ -429,7 +431,7 @@ async def test_shared_blob_survives_other_event_reference(
     owner_a = "ceiling-share-a"
     owner_b = "ceiling-share-b"
     await _admit_with_ceiling(temp_storage, owner_a)
-    await _admit_with_ceiling(temp_storage, owner_b)
+    await _admit_with_ceiling(temp_storage, owner_b, seconds=86400)
     now = datetime.now(timezone.utc).isoformat(timespec="microseconds")
     await temp_storage._write(
         "INSERT INTO attachment_blobs (content_ref, size_bytes, media_kind, "
@@ -445,7 +447,22 @@ async def test_shared_blob_survives_other_event_reference(
     ceiling_a = await _read_ceiling(temp_storage, owner_a)
     ceiling_b = await _read_ceiling(temp_storage, owner_b)
     await temp_storage.enforce_content_ceilings(
-        now=max(ceiling_a, ceiling_b) + timedelta(seconds=1)
+        now=ceiling_a + timedelta(seconds=1)
+    )
+    # One live referent must retain its association and bytes.
+    still_shared = await _count(
+        temp_storage,
+        "SELECT COUNT(*) FROM event_attachment_associations WHERE content_ref=?",
+        (_BLOB_REF,),
+    )
+    assert still_shared == 1
+    assert await _count(
+        temp_storage,
+        "SELECT COUNT(*) FROM attachment_blobs WHERE content_ref=?",
+        (_BLOB_REF,),
+    ) == 1
+    await temp_storage.enforce_content_ceilings(
+        now=ceiling_b + timedelta(seconds=1)
     )
     # Both associations gone; the shared bytes went with the last one.
     assert (
@@ -532,8 +549,10 @@ async def test_unstarted_outbox_survives_enforcement_for_deadline_cleanup(
     )
     assert row["status"] == "pending"
     # The deadline cleanup can still retire the provably unstarted row.
+    # The seeded plan's deadline is 7200s after admission and the content
+    # ceiling is 3600s later: choose a time after both durable deadlines.
     retired = await temp_storage.retire_expired_unstarted_outbox(
-        now=ceiling + timedelta(seconds=2)
+        now=ceiling + timedelta(seconds=7201)
     )
     assert [item.outbox_id for item in retired] == [outbox_id]
 
@@ -563,3 +582,144 @@ async def test_additive_predecessor_gains_ceiling_objects(
     assert names == {"event_content_ceiling_log", "idx_ceiling_enforcement_order"}
     assert await reopened.enforce_content_ceilings(now=datetime.now(timezone.utc)) == []
     await reopened.close()
+
+
+# -- Adversarial review: pending/repaired progress and late-write denial --
+
+async def test_pending_event_is_not_starved_by_residual_repair(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """Both queues make progress with limit=1 and retain exact residual counts."""
+    first, pending = "ceiling-repair-prior", "ceiling-repair-pending"
+    await _admit_with_ceiling(temp_storage, first)
+    first_ceiling = await _read_ceiling(temp_storage, first)
+    await temp_storage.enforce_content_ceilings(
+        now=first_ceiling + timedelta(seconds=1), limit=1
+    )
+    await temp_storage._write(
+        "UPDATE canonical_events SET metadata=? WHERE event_id=?",
+        ('{"late":"synthetic"}', first),
+    )
+    await _admit_with_ceiling(temp_storage, pending)
+    pending_ceiling = await _read_ceiling(temp_storage, pending)
+    repaired = await temp_storage.enforce_content_ceilings(
+        now=max(first_ceiling, pending_ceiling) + timedelta(seconds=2), limit=1
+    )
+    assert {(r.event_id, r.residual_pass) for r in repaired} == {
+        (first, True), (pending, False)
+    }
+    residual = next(r for r in repaired if r.residual_pass)
+    assert residual.logical_bytes_removed == len(b'{"late":"synthetic"}')
+    verification = await temp_storage.verify_content_ceiling_receipts()
+    assert verification["verdict"] == "passed"
+    assert verification["receipts_examined"] == 2
+
+
+async def test_native_only_incoming_quote_without_reference_is_purged(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """Canonical source-native identity also owns quotes before ref publication."""
+    owner, neighbor = "ceiling-native-source", "ceiling-native-quote"
+    await _admit_with_ceiling(temp_storage, owner)
+    await _admit_plain(temp_storage, neighbor)
+    now = datetime.now(timezone.utc).isoformat()
+    await temp_storage._write(
+        "UPDATE canonical_events SET source_native_adapter='matrix', "
+        "source_native_channel_id='room', source_native_message_id='message' "
+        "WHERE event_id=?",
+        (owner,),
+    )
+    await temp_storage._write(
+        "INSERT INTO event_relations (event_id, relation_type, "
+        "target_native_adapter, target_native_channel_id, "
+        "target_native_message_id, metadata, created_at) "
+        "VALUES (?, 'reply', 'matrix', 'room', 'message', '{}', ?)",
+        (neighbor, now),
+    )
+    await temp_storage._write(
+        "INSERT INTO event_relation_excerpts(relation_id, excerpt) "
+        "SELECT id, 'sensitive quote' FROM event_relations WHERE event_id=?",
+        (neighbor,),
+    )
+    ceiling = await _read_ceiling(temp_storage, owner)
+    before = await temp_storage.audit_content_ceilings(
+        now=ceiling + timedelta(seconds=1), event_id=owner
+    )
+    assert before["residual_stores"]["event_relation_excerpts:incoming"] == 1
+    await temp_storage.enforce_content_ceilings(now=ceiling + timedelta(seconds=1))
+    assert await temp_storage._read_one(
+        "SELECT excerpt FROM event_relation_excerpts"
+    ) is None
+
+
+async def test_late_observation_values_are_masked_before_read(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """Retained evidence facts remain readable, provider text cannot reappear."""
+    event_id = "ceiling-late-observation-read"
+    await _admit_with_ceiling(temp_storage, event_id)
+    outbox_id = await _seed_every_copy(temp_storage, event_id)
+    ceiling = await _read_ceiling(temp_storage, event_id)
+    await temp_storage.enforce_content_ceilings(now=ceiling + timedelta(seconds=1))
+    now = datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    await temp_storage._write(
+        "INSERT INTO delivery_observations (observation_id, event_id, "
+        "delivery_plan_id, target_adapter, outbox_id, attempt_number, state, "
+        "metadata, observed_at) VALUES (?, ?, ?, 'radio', ?, 1, "
+        "'delivered', ?, ?)",
+        (f"late-{event_id}", event_id, f"plan-{event_id}", outbox_id,
+         '{"provider":"late"}', now),
+    )
+    await temp_storage._write(
+        "INSERT INTO delivery_evidence_diagnostics (family, row_id, attempt, "
+        "field, diagnostic, created_at) VALUES "
+        "('observation', ?, 1, 'error', ?, ?)",
+        (f"late-{event_id}", "synthetic late failure", now),
+    )
+    for read in (
+        await temp_storage.list_delivery_observations_for_event(event_id),
+        await temp_storage.list_delivery_observations_for_outbox(outbox_id),
+        await temp_storage.list_delivery_observations_for_attempt(outbox_id, 1),
+    ):
+        assert read
+        assert all(not observation.metadata for observation in read)
+        assert all(not observation.error for observation in read)
+    assert await temp_storage._read_one(
+        "SELECT metadata FROM delivery_observations WHERE event_id=? "
+        "AND metadata<>'{}'",
+        (event_id,),
+    ) is not None  # The race is real until the next sweep.
+
+
+async def test_audit_counts_sole_referent_blob_and_failed_receipt(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """An audit describes the bytes it would actually delete, not just refs."""
+    event_id = "ceiling-audit-sole-owner"
+    blob = "sha256:" + "e" * 64
+    await _admit_with_ceiling(temp_storage, event_id)
+    now = datetime.now(timezone.utc).isoformat()
+    await temp_storage._write(
+        "INSERT INTO attachment_blobs(content_ref, size_bytes, media_kind, "
+        "mime_type, created_at, data) VALUES (?, 4, 'image', 'image/png', ?, ?)",
+        (blob, now, b"data"),
+    )
+    await temp_storage._write(
+        "INSERT INTO event_attachment_associations(event_id, content_ref, "
+        "created_at) VALUES (?, ?, ?)",
+        (event_id, blob, now),
+    )
+    ceiling = await _read_ceiling(temp_storage, event_id)
+    audit = await temp_storage.audit_content_ceilings(
+        now=ceiling + timedelta(seconds=1), event_id=event_id
+    )
+    assert audit["residual_stores"]["event_attachment_associations"] == 1
+    assert audit["residual_stores"]["attachment_blobs:last_reference"] == 1
+    await temp_storage.enforce_content_ceilings(now=ceiling + timedelta(seconds=1))
+    await temp_storage._write(
+        "UPDATE canonical_events SET metadata=? WHERE event_id=?",
+        ('{"late":"synthetic"}', event_id),
+    )
+    failed = await temp_storage.verify_content_ceiling_receipts(event_id=event_id)
+    assert failed["verdict"] == "failed"
+    assert failed["event_state"] == "receipt_failed"

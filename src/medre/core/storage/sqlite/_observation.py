@@ -70,17 +70,31 @@ WHERE o.outbox_id = ?
 ON CONFLICT(observation_id) DO NOTHING
 """
 
-_SELECT_OBSERVATIONS_FOR_EVENT = """
-SELECT * FROM delivery_observations
-WHERE event_id = ?
-ORDER BY sequence ASC
+#: Keep the typed observation fields and exact attempt identity; mask only
+#: content-potential metadata before values cross the SQLite read boundary.
+#: SELECT * is intentionally the outer projection so inspection_sql can
+#: apply its separate metadata_only field allowlist without changing callers.
+_OBSERVATION_CONTENT_SAFE_FROM = """
+FROM (SELECT
+    CASE WHEN EXISTS (
+        SELECT 1 FROM event_content_ceiling_log l WHERE l.event_id=o.event_id
+    ) THEN '{}' ELSE o.metadata END AS metadata,
+    o.sequence, o.observation_id, o.event_id, o.delivery_plan_id,
+    o.target_adapter, o.target_channel, o.native_channel_id, o.outbox_id,
+    o.attempt_number, o.adapter_message_id, o.state, o.confirmation_level,
+    o.observed_at
+FROM delivery_observations o) AS observed
 """
 
-_SELECT_OBSERVATIONS_FOR_OUTBOX = """
-SELECT * FROM delivery_observations
-WHERE outbox_id = ?
-ORDER BY sequence ASC
-"""
+_SELECT_OBSERVATIONS_FOR_EVENT = (
+    "SELECT * " + _OBSERVATION_CONTENT_SAFE_FROM
+    + "WHERE event_id = ? ORDER BY sequence ASC"
+)
+
+_SELECT_OBSERVATIONS_FOR_OUTBOX = (
+    "SELECT * " + _OBSERVATION_CONTENT_SAFE_FROM
+    + "WHERE outbox_id = ? ORDER BY sequence ASC"
+)
 
 
 def _observation_insert_params(observation: DeliveryObservation) -> tuple[object, ...]:
@@ -331,8 +345,8 @@ class _ObservationMixin(_EvidenceDiagnosticsReadMixin):
     ) -> list[DeliveryObservation]:
         """Read one attempt before decoding, independently of older evidence."""
         rows = await self._read_all(
-            "SELECT * FROM delivery_observations "
-            "WHERE outbox_id = ? AND attempt_number = ? ORDER BY sequence ASC",
+            "SELECT * " + _OBSERVATION_CONTENT_SAFE_FROM
+            + "WHERE outbox_id = ? AND attempt_number = ? ORDER BY sequence ASC",
             (outbox_id, attempt_number),
         )
         return [_row_to_delivery_observation(row) for row in rows]
