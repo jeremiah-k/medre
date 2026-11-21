@@ -21,12 +21,12 @@ from typing import Any
 
 import pytest
 
+import medre.core.storage.sqlite.schema_validation as schema_validation
 from medre.core.storage.backend import (
     PreReleaseSchemaConstraintMismatchError,
     PreReleaseSchemaMismatchError,
     StorageInitializationError,
 )
-from medre.core.storage.sqlite import schema_validation
 from medre.core.storage.sqlite.catalog_assessment import (
     CatalogCompatibility,
     assess_storage_catalog,
