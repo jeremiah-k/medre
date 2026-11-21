@@ -153,16 +153,6 @@
             "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 50},
             "interval_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 86400, "default": 60.0}
           }
-        },
-        "ceiling_sweep": {
-          "type": "object",
-          "description": "Opt-in bounded enforcement of elapsed hard content ceilings: purge and verify every enumerated content store per expired event, then record the immutable receipt; disabled by default.",
-          "additionalProperties": false,
-          "properties": {
-            "enabled": {"type": "boolean", "default": false},
-            "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 50},
-            "interval_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 86400, "default": 60.0}
-          }
         }
       }
     },

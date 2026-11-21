@@ -6,7 +6,7 @@
 -- resurrected for it. It does not claim physical erasure of SQLite free
 -- pages, WAL, provider copies, or backups.
 CREATE TABLE IF NOT EXISTS event_content_ceiling_log (
-    event_id TEXT PRIMARY KEY REFERENCES canonical_events(event_id),
+    event_id TEXT NOT NULL PRIMARY KEY REFERENCES canonical_events(event_id),
     enforced_at TEXT NOT NULL,
     ceiling TEXT NOT NULL,
     rows_removed INTEGER NOT NULL CHECK (rows_removed >= 0),
