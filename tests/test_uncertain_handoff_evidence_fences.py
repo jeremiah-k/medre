@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import replace as dataclass_replace
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from msgspec.structs import force_setattr, replace
@@ -14,6 +14,7 @@ from medre.core.delivery_authority import dispatch_source_matches_attempt
 from medre.core.engine.pipeline.delivery_lifecycle import (
     DeliveryLifecycleService,
     RetryAttemptCommitRejected,
+    RetryAttemptFinalization,
 )
 from medre.core.events import DeliveryReceipt
 from medre.core.evidence.handoff_resolution import (
@@ -23,7 +24,7 @@ from medre.core.evidence.handoff_resolution import (
     resolve_uncertain_handoff,
 )
 from medre.core.planning.delivery_plan import RetryPolicy
-from medre.core.storage.backend import StorageError
+from medre.core.storage.backend import DeliveryOutboxItem, StorageError
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.ceiling_audit import _install_elapsed_policy
 from tests.helpers.handoff_resolution import (
@@ -1015,3 +1016,136 @@ async def test_in_flight_completion_with_prior_unreadable_handoff_stays_recordab
     verdict = await EvidenceBackedHandoffResolver(temp_storage).resolve(stored, 1)
     assert verdict.verdict == "unresolved"
     assert verdict.reasons == ("unreadable_handoff_reference",)
+
+
+class _FixedResolutionResolver:
+    """Return one prepared resolution and record the requested attempt."""
+
+    def __init__(self, resolution):
+        self.resolution = resolution
+        self.calls: list[int] = []
+
+    async def resolve(self, item, attempt_number):
+        self.calls.append(attempt_number)
+        return self.resolution
+
+
+def _denied_item(**overrides) -> DeliveryOutboxItem:
+    fields = {
+        "outbox_id": "obox-content-denied",
+        "event_id": "evt-content-denied",
+        "route_id": "route-content-denied",
+        "delivery_plan_id": "plan-content-denied",
+        "target_adapter": "radio",
+        "target_channel": "ch-0",
+        "attempt_number": 1,
+        "status": "retry_wait",
+    }
+    fields.update(overrides)
+    return DeliveryOutboxItem(**fields)
+
+
+async def test_content_denied_handoff_skips_an_unstarted_generation() -> None:
+    lifecycle = DeliveryLifecycleService()
+    resolver = _FixedResolutionResolver(None)
+    item = _denied_item(attempt_number=0)
+    assert (
+        await lifecycle.reconcile_content_denied_handoff(
+            MagicMock(), item, resolver, existing_receipt_count=0
+        )
+        is None
+    )
+    assert resolver.calls == []
+
+
+async def test_content_denied_handoff_returns_unreadable_evidence() -> None:
+    lifecycle = DeliveryLifecycleService()
+    resolution = UncertainHandoffResolution(
+        verdict="unresolved",
+        attempt_number=1,
+        uncertain=True,
+        reasons=("resolution_evidence_unavailable",),
+        has_checkpoint=False,
+    )
+    resolver = _FixedResolutionResolver(resolution)
+    result = await lifecycle.reconcile_content_denied_handoff(
+        MagicMock(), _denied_item(), resolver, existing_receipt_count=0
+    )
+    assert result is resolution
+    assert resolver.calls == [1]
+
+
+async def test_content_denied_handoff_settles_only_without_a_receipt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lifecycle = DeliveryLifecycleService()
+    resolution = UncertainHandoffResolution(
+        verdict="delivered_with_evidence",
+        attempt_number=1,
+        uncertain=False,
+        reasons=("radio_handoff_complete",),
+        has_checkpoint=True,
+        accepted_parts=1,
+        uncertain_parts=0,
+        unsent_parts=0,
+        observation_count=0,
+        checkpoint_revision=2,
+    )
+    finalization = RetryAttemptFinalization(
+        outcome="accepted",
+        receipt_id="rcpt-content-denied",
+        failure_kind=None,
+        attempt_number=1,
+    )
+    settle = AsyncMock(return_value=finalization)
+    monkeypatch.setattr(lifecycle, "_settle_resolved_handoff", settle)
+    resolver = _FixedResolutionResolver(resolution)
+    item = _denied_item()
+
+    assert (
+        await lifecycle.reconcile_content_denied_handoff(
+            MagicMock(), item, resolver, existing_receipt_count=0
+        )
+        is finalization
+    )
+    settle.assert_awaited_once()
+    assert settle.await_args.args[1:] == (item, 1, resolution)
+
+    settle.reset_mock()
+    assert (
+        await lifecycle.reconcile_content_denied_handoff(
+            MagicMock(), item, resolver, existing_receipt_count=1
+        )
+        is resolution
+    )
+    settle.assert_not_awaited()
+
+
+async def test_attempt_receipt_list_is_scoped_to_one_generation() -> None:
+    receipts = [
+        DeliveryReceipt(
+            receipt_id="rcpt-attempt-1",
+            event_id="evt-content-denied",
+            delivery_plan_id="plan-content-denied",
+            target_adapter="radio",
+            outbox_id="obox-content-denied",
+            attempt_number=1,
+            status="failed",
+        ),
+        DeliveryReceipt(
+            receipt_id="rcpt-attempt-2",
+            event_id="evt-content-denied",
+            delivery_plan_id="plan-content-denied",
+            target_adapter="radio",
+            outbox_id="obox-content-denied",
+            attempt_number=2,
+            status="failed",
+        ),
+    ]
+    storage = MagicMock()
+    storage.list_receipts_for_outbox = AsyncMock(return_value=receipts)
+    listed = await DeliveryLifecycleService().list_attempt_receipts(
+        storage, "obox-content-denied", 1
+    )
+    assert [receipt.receipt_id for receipt in listed] == ["rcpt-attempt-1"]
+    storage.list_receipts_for_outbox.assert_awaited_once_with("obox-content-denied")
