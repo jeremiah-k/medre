@@ -1265,17 +1265,23 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                 "OR active_attempt = ?)"
             )
             params.extend((attempt_number, attempt_number))
-        if expected_observation_count is not None:
-            if (
-                attempt_number is None
-                or attempt_number < 1
-                or expected_observation_count < 0
-            ):
-                raise ValueError(
-                    "An observation guard requires an exact attempt and count"
-                )
+        if any(
+            value is not None
+            for value in (
+                expected_observation_count,
+                expected_receipt_count,
+                expected_checkpoint_revision,
+            )
+        ):
+            if attempt_number is None or attempt_number < 0:
+                raise ValueError("An evidence guard requires an exact attempt")
             where_clauses.append("COALESCE(active_attempt, attempt_number) = ?")
             params.append(attempt_number)
+        if expected_observation_count is not None:
+            if expected_observation_count < 0 or (
+                attempt_number == 0 and expected_observation_count
+            ):
+                raise ValueError("An observation guard requires a valid count")
             # A concurrent callback can append evidence without changing the
             # claim. Fence the exact attempt's append-only set in this write.
             where_clauses.append(
@@ -1284,12 +1290,10 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
             )
             params.extend((outbox_id, attempt_number, expected_observation_count))
         if expected_receipt_count is not None:
-            if (
-                attempt_number is None
-                or attempt_number < 1
-                or expected_receipt_count < 0
+            if expected_receipt_count < 0 or (
+                attempt_number == 0 and expected_receipt_count
             ):
-                raise ValueError("A receipt guard requires an exact attempt and count")
+                raise ValueError("A receipt guard requires a valid count")
             where_clauses.append(
                 "(SELECT COUNT(*) FROM delivery_receipts "
                 "WHERE outbox_id = ? AND attempt_number = ?) = ?"
@@ -1304,22 +1308,21 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                 raise ValueError(
                     "A checkpoint guard requires an exact attempt and revision"
                 )
-            if expected_checkpoint_revision == -1:
-                where_clauses.append(
-                    "NOT EXISTS (SELECT 1 FROM radio_attempt_progress "
-                    "WHERE outbox_id = ? AND attempt_number = ?)"
+            where_clauses.append(
+                "COALESCE((SELECT revision FROM radio_attempt_progress "
+                "WHERE outbox_id=? AND attempt_number=?), "
+                "(SELECT revision FROM radio_attempt_evidence_summaries "
+                "WHERE outbox_id=? AND attempt_number=?), -1)=?"
+            )
+            params.extend(
+                (
+                    outbox_id,
+                    attempt_number,
+                    outbox_id,
+                    attempt_number,
+                    expected_checkpoint_revision,
                 )
-                params.extend((outbox_id, attempt_number))
-            else:
-                where_clauses.append(
-                    "(EXISTS (SELECT 1 FROM radio_attempt_progress "
-                    "WHERE outbox_id = ? AND attempt_number = ? AND revision = ?) "
-                    "OR EXISTS (SELECT 1 FROM radio_attempt_evidence_summaries "
-                    "WHERE outbox_id = ? AND attempt_number = ? AND revision = ?))"
-                )
-                params.extend(
-                    (outbox_id, attempt_number, expected_checkpoint_revision) * 2
-                )
+            )
         if expected_worker_id is not None:
             where_clauses.append("worker_id = ?")
             params.append(expected_worker_id)

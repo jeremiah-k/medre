@@ -27,6 +27,7 @@ from medre.core.engine.pipeline.delivery_lifecycle import (
     RetryAttemptFinalization,
 )
 from medre.core.engine.pipeline.retry_plan import ReconstructedRetryPlan
+from medre.core.events import DeliveryReceipt
 from medre.core.evidence.handoff_resolution import (
     UNCERTAIN_NATIVE_HANDOFF_DETAIL,
     EvidenceBackedHandoffResolver,
@@ -72,6 +73,7 @@ def _retained_storage(
             "get",
             "delivery_status",
             "get_outbox_dispatch_context",
+            "list_receipts_for_outbox",
             "read_event_for_outbox",
             *evidence_methods,
         ]
@@ -432,3 +434,36 @@ async def test_claim_owner_identifier_is_full_uuid_hex(monkeypatch):
     await worker._process_due(datetime.now(timezone.utc))
 
     assert claim.await_args.kwargs["worker_id"] == f"retry-worker-{owner.hex}"
+
+
+async def test_expired_dispatch_context_fences_existing_failed_receipt():
+    item = _gated_item(failure_kind_detail=None)
+    storage = _retained_storage()
+    storage.read_event_for_outbox.return_value = SimpleNamespace(status="expired")
+    storage.list_receipts_for_outbox = AsyncMock(
+        return_value=[
+            DeliveryReceipt(
+                receipt_id="failed-before-expiry",
+                event_id=item.event_id,
+                delivery_plan_id=item.delivery_plan_id,
+                target_adapter=item.target_adapter,
+                outbox_id=item.outbox_id,
+                attempt_number=item.attempt_number,
+                status="failed",
+            )
+        ]
+    )
+    lifecycle = _lifecycle(recheck_result=None)
+    worker, pipeline = _worker(storage, lifecycle)
+
+    await worker._retry_outbox_item(item)
+
+    lifecycle.abandon_retry_outbox.assert_awaited_once_with(
+        storage,
+        item,
+        error_summary="content_authority_denied",
+        expected_observation_count=None,
+        expected_checkpoint_revision=None,
+        expected_receipt_count=1,
+    )
+    pipeline.deliver_execution_to_target.assert_not_awaited()

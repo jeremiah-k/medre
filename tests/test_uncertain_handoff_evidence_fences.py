@@ -743,3 +743,19 @@ async def test_expired_attempt_cannot_rebind_erased_wire_plan(temp_storage):
     await temp_storage.enforce_content_ceilings(now=now)
     assert await temp_storage.bind_radio_attempt(provenance, _WORKER, _plan()) is None
     assert await temp_storage.get_radio_attempt(stored.outbox_id, 1) is None
+
+
+async def test_staged_abandonment_cannot_consume_a_newer_active_attempt(temp_storage):
+    stored, _ = await _seed_reserved_claim(temp_storage)
+    active = await temp_storage.get_outbox_item(stored.outbox_id)
+    assert active is not None and active.active_attempt == 1
+    stale = dataclass_replace(active, active_attempt=None, attempt_number=0)
+    with pytest.raises(RetryAttemptCommitRejected):
+        await DeliveryLifecycleService().abandon_retry_outbox(
+            temp_storage,
+            stale,
+            error_summary="content_authority_denied",
+            expected_observation_count=0,
+            expected_receipt_count=0,
+        )
+    assert (await temp_storage.get_outbox_item(stored.outbox_id)) == active

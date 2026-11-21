@@ -1443,6 +1443,19 @@ class RetryWorker:
                     # denial, even without a sent/queued receipt. A complete
                     # radio checkpoint or provider acceptance can still settle.
                     try:
+                        attempt = item.active_attempt or item.attempt_number
+                        receipts = (
+                            await self._lifecycle_storage.list_receipts_for_outbox(
+                                item.outbox_id
+                            )
+                            if attempt
+                            else []
+                        )
+                        current_receipts = [
+                            receipt
+                            for receipt in receipts
+                            if receipt.attempt_number == attempt
+                        ]
                         resolved: (
                             RetryAttemptFinalization | UncertainHandoffResolution | None
                         )
@@ -1453,9 +1466,23 @@ class RetryWorker:
                                 RetryPolicy(max_attempts=self._max_attempts),
                                 handoff_resolver=self._handoff_resolver,
                             )
+                        elif any(
+                            receipt.status in ("sent", "queued")
+                            for receipt in current_receipts
+                        ):
+                            resolved = (
+                                await self._lifecycle.finalize_retry_attempt_error(
+                                    self._lifecycle_storage,
+                                    item,
+                                    RetryPolicy(max_attempts=self._max_attempts),
+                                    error=RuntimeError("Dispatch context unavailable"),
+                                    attempt_number=attempt,
+                                )
+                            )
                         elif (
                             self._handoff_resolver is not None
-                            and item.attempt_number >= 1
+                            and attempt >= 1
+                            and not current_receipts
                             and item.failure_kind_detail
                             == UNCERTAIN_NATIVE_HANDOFF_DETAIL
                         ):
@@ -1505,11 +1532,7 @@ class RetryWorker:
                             error_summary="content_authority_denied",
                             expected_observation_count=evidence_count,
                             expected_checkpoint_revision=checkpoint_revision,
-                            expected_receipt_count=(
-                                0
-                                if (item.active_attempt or item.attempt_number) >= 1
-                                else None
-                            ),
+                            expected_receipt_count=len(current_receipts),
                         )
                     except RetryAttemptCommitRejected as stale:
                         self._log_superseded_transition(item, stale)

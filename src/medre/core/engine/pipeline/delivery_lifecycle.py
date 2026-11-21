@@ -1294,11 +1294,7 @@ class DeliveryLifecycleService:
             attempt_number=(
                 item.active_attempt
                 if item.active_attempt is not None
-                else (
-                    item.attempt_number
-                    if evidence_guard and item.attempt_number >= 1
-                    else None
-                )
+                else (item.attempt_number if evidence_guard else None)
             ),
             expected_worker_id=item.worker_id,
             **evidence_guard,
