@@ -14,6 +14,10 @@ from medre.core.storage.classification import (
     CONTENT_POTENTIAL_CLASSES,
     STORAGE_COLUMN_CLASSES,
 )
+from medre.core.storage.sqlite._ceiling_enforcement import (
+    _INCOMING_EXCERPTS_PREDICATE,
+    _residual_fragments,
+)
 from medre.core.storage.content import (
     CONTENT_SURFACES,
     UNMEASURED_CONTENT_SCOPES,
@@ -54,25 +58,15 @@ _EVENT_COPY_PROBES: dict[str, str] = {
         "EXISTS (SELECT 1 FROM event_body_content b WHERE b.event_id=e.event_id) "
         "OR EXISTS (SELECT 1 FROM event_relation_excerpts x "
         "JOIN event_relations r ON r.id=x.relation_id WHERE r.event_id=e.event_id))) "
-        "THEN 1 ELSE 0 END"
+        "OR (EXISTS (SELECT 1 FROM event_content_ceiling_log cl "
+        "WHERE cl.event_id=e.event_id) AND ("
+        + " OR ".join(_residual_fragments("e.event_id"))
+        + ")) THEN 1 ELSE 0 END"
     ),
     "relation_excerpts": "SELECT COUNT(*) FROM event_relation_excerpts x JOIN event_relations r ON r.id=x.relation_id WHERE r.event_id=e.event_id",
     "incoming_relation_excerpts": (
-        "SELECT COUNT(*) FROM event_relation_excerpts x "
-        "JOIN event_relations r ON r.id=x.relation_id "
-        "WHERE r.event_id<>e.event_id AND (r.target_event_id=e.event_id "
-        "OR EXISTS (SELECT 1 FROM native_message_refs n "
-        "WHERE n.event_id=e.event_id "
-        "AND n.adapter=r.target_native_adapter "
-        "AND n.native_channel_id IS r.target_native_channel_id "
-        "AND n.native_message_id=r.target_native_message_id) "
-        "OR EXISTS (SELECT 1 FROM canonical_events c "
-        "WHERE c.event_id=e.event_id "
-        "AND r.target_native_adapter IS NOT NULL "
-        "AND r.target_native_message_id IS NOT NULL "
-        "AND c.source_native_adapter=r.target_native_adapter "
-        "AND c.source_native_channel_id IS r.target_native_channel_id "
-        "AND c.source_native_message_id=r.target_native_message_id))"
+        "SELECT COUNT(*) FROM event_relation_excerpts x WHERE "
+        + _INCOMING_EXCERPTS_PREDICATE.format(ev="e.event_id")
     ),
     "opaque_envelope": "SELECT COUNT(*) FROM canonical_events c WHERE c.event_id=e.event_id AND (c.payload<>'{}' OR c.metadata<>'{}')",
     "relation_records": "SELECT COUNT(*) FROM event_relations r WHERE r.event_id=e.event_id",

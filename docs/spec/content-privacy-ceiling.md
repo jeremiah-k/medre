@@ -103,6 +103,7 @@ plus the SQLite-level remnants. Coverage classes:
 | `adapter_checkpoints`                                           | `cursor`, `metadata` — adapter-scoped, not event-scoped | unmeasured                | no event attribution exists; documented unmeasured scope                                                                                                                                                                  |
 | `plugin_state`                                                  | `value` — plugin-scoped, not event-scoped               | unmeasured                | no event attribution exists; documented unmeasured scope                                                                                                                                                                  |
 | `inbound_pressure_observations`, `inbound_pressure_outage_gaps` | none (counters only)                                    | retained-identity         | retained                                                                                                                                                                                                                  |
+| `delivery_handoff_uncertainty`, `radio_accepted_part_facts`      | exact attempt / accepted packet identity, no wire text  | retained-identity         | survives the ceiling to validate delayed evidence without authorizing sends                                                                                                                                              |
 | `delivery_status`                                               | view; classified through `delivery_receipts`            | retained-identity         | follows its base table                                                                                                                                                                                                    |
 | `_medre_schema_meta`                                            | none (sweep cursors, schema stamp)                      | retained-identity         | retained; cursor values are keyset positions, not content                                                                                                                                                                 |
 | SQLite free pages and WAL frames                                | former page images of any of the above                  | unmeasured                | explicit operator erasure step (§5)                                                                                                                                                                                       |
@@ -251,3 +252,14 @@ residual values, never an audit-side mutation, and the receipt stays
 immutable. The audit observes the same honest boundary as §5: it
 measures the logical census stores only, and receipt presence is not a
 physical-erasure certificate.
+
+### Closed acknowledgment evidence after enforcement
+
+The sweep preserves only exact-attempt uncertainty, read-only radio progress
+without any wire plan or payload-derived fingerprint, and previously accepted
+original radio packet identities in content-free tables. These facts allow
+authenticated delayed observations to be recorded during `retry_wait` after
+free-form failure diagnostics and radio wire plans are erased. They confer
+**no** packet submission authority. Packet observations retain only their
+closed ordinal/outbox/attempt scope; clearing provider metadata must not
+turn a packet ACK into whole-message acceptance.

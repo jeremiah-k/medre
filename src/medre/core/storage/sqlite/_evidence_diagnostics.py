@@ -184,9 +184,13 @@ class _EvidenceDiagnosticsReadMixin:
                     " FROM delivery_evidence_diagnostics d"
                     f" WHERE d.family = ? AND d.row_id IN ({placeholders})"
                     " AND NOT EXISTS (SELECT 1 FROM event_content_ceiling_log l "
-                    f"JOIN {parent_table} p ON p.{parent_id}=d.row_id "
-                    "WHERE l.event_id=p.event_id)"
-                    " ORDER BY d.diag_id ASC",  # nosec B608 - closed parent table and ID allowlist; bound identities only
+                    + (
+                        "WHERE l.event_id=d.row_id)"
+                        if family == "ingress"
+                        else f"WHERE EXISTS (SELECT 1 FROM {parent_table} p "
+                        f"WHERE p.{parent_id}=d.row_id AND p.event_id=l.event_id))"
+                    )
+                    + " ORDER BY d.diag_id ASC",  # nosec B608 - closed parent table and ID allowlist; bound identities only
                     (family, *chunk),
                 )
             )
@@ -217,4 +221,30 @@ class _EvidenceDiagnosticsReadMixin:
                         (row_id, field, int(row.get(attempt_column) or 0))
                     )
                 row[field] = value if value else None
+        # Once a hard ceiling deletes free-form diagnostic text, the closed
+        # uncertainty state is still needed to qualify late acceptance and
+        # recheck a finalized attempt. Never project other diagnostic values.
+        if family == "outbox":
+            candidate_rows = [
+                row
+                for row in rows
+                if row.get("failure_kind_detail") is None
+                and row.get("status") in {"retry_wait", "in_progress"}
+            ]
+            for start in range(0, len(candidate_rows), _LOOKUP_CHUNK_SIZE):
+                fact_chunk = candidate_rows[start : start + _LOOKUP_CHUNK_SIZE]
+                placeholders = ",".join("?" for _ in fact_chunk)
+                typed_rows = await self._read_all(
+                    "SELECT outbox_id, attempt_number, state "
+                    "FROM delivery_handoff_uncertainty "
+                    f"WHERE outbox_id IN ({placeholders})",
+                    tuple(str(row[identity_column]) for row in fact_chunk),
+                )
+                by_id = {str(fact["outbox_id"]): fact for fact in typed_rows}
+                for row in fact_chunk:
+                    typed_fact = by_id.get(str(row[identity_column]))
+                    if typed_fact is not None and int(
+                        typed_fact["attempt_number"]
+                    ) == int(row.get("attempt_number") or 0):
+                        row["failure_kind_detail"] = typed_fact["state"]
         return rows

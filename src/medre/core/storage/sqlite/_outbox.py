@@ -1312,10 +1312,14 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                 params.extend((outbox_id, attempt_number))
             else:
                 where_clauses.append(
-                    "EXISTS (SELECT 1 FROM radio_attempt_progress "
-                    "WHERE outbox_id = ? AND attempt_number = ? AND revision = ?)"
+                    "(EXISTS (SELECT 1 FROM radio_attempt_progress "
+                    "WHERE outbox_id = ? AND attempt_number = ? AND revision = ?) "
+                    "OR EXISTS (SELECT 1 FROM radio_attempt_evidence_summaries "
+                    "WHERE outbox_id = ? AND attempt_number = ? AND revision = ?))"
                 )
-                params.extend((outbox_id, attempt_number, expected_checkpoint_revision))
+                params.extend(
+                    (outbox_id, attempt_number, expected_checkpoint_revision) * 2
+                )
         if expected_worker_id is not None:
             where_clauses.append("worker_id = ?")
             params.append(expected_worker_id)
@@ -1331,6 +1335,24 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         # transition's transaction, so the diagnostic lands on the exact
         # generation the failure text describes.
         follow_ups = outbox_diagnostic_ops(diagnostics, now, outbox_id)
+        if (
+            failure_kind_detail == "uncertain_native_handoff"
+            and new_status == "retry_wait"
+        ):
+            follow_ups.append(
+                (
+                    "INSERT INTO delivery_handoff_uncertainty "
+                    "(outbox_id, attempt_number, state) "
+                    "SELECT outbox_id, attempt_number, 'uncertain_native_handoff' "
+                    "FROM delivery_outbox WHERE outbox_id=? "
+                    "ON CONFLICT(outbox_id) DO UPDATE SET "
+                    "attempt_number=excluded.attempt_number, state=excluded.state",
+                    (outbox_id,),
+                )
+            )
+        # Do not delete the closed original-attempt fact on terminal or
+        # operational deferral. Its attempt number and the parent's status
+        # prevent stale admission, while future audits can still trace it.
         if new_status == "sent" and clear_receipt_id and receipt_id is None:
             # Capture receipt append order under the same write lock as the
             # successful evidence settlement. An outbox-less receipt's

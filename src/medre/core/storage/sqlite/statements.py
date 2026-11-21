@@ -37,7 +37,10 @@ INSERT OR IGNORE INTO native_message_refs
     (id, event_id, adapter, native_channel_id,
      native_message_id, native_thread_id, native_relation_id,
      direction, metadata, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+SELECT ?, ?, ?, ?, ?, ?, ?, ?,
+    CASE WHEN EXISTS (
+        SELECT 1 FROM event_content_ceiling_log WHERE event_id=?
+    ) THEN '{}' ELSE ? END, ?
 """
 
 _INSERT_NATIVE_REF_STRICT = """
@@ -45,7 +48,10 @@ INSERT INTO native_message_refs
     (id, event_id, adapter, native_channel_id,
      native_message_id, native_thread_id, native_relation_id,
      direction, metadata, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+SELECT ?, ?, ?, ?, ?, ?, ?, ?,
+    CASE WHEN EXISTS (
+        SELECT 1 FROM event_content_ceiling_log WHERE event_id=?
+    ) THEN '{}' ELSE ? END, ?
 """
 
 _INSERT_RECEIPT = """
@@ -252,14 +258,24 @@ SELECT * FROM delivery_receipts
 ORDER BY sequence ASC
 """
 
-_SELECT_NREFS_FOR_EVENT = """
-SELECT * FROM native_message_refs
-WHERE event_id = ?
-ORDER BY created_at ASC, id ASC
+_NATIVE_REFERENCE_SAFE_FROM = """
+FROM (SELECT
+    n.id, n.event_id, n.adapter, n.native_channel_id,
+    n.native_message_id, n.native_thread_id, n.native_relation_id,
+    n.direction, n.created_at,
+    CASE WHEN EXISTS (
+        SELECT 1 FROM event_content_ceiling_log l WHERE l.event_id=n.event_id
+    ) THEN '{}' ELSE n.metadata END AS metadata
+FROM native_message_refs n) AS safe_refs
 """
 
-_GET_NATIVE_REF = """
-SELECT * FROM native_message_refs
-WHERE adapter = ? AND native_channel_id IS ? AND native_message_id = ?
-LIMIT 1
-"""
+_SELECT_NREFS_FOR_EVENT = (
+    "SELECT * "
+    + _NATIVE_REFERENCE_SAFE_FROM
+    + "WHERE event_id = ? ORDER BY created_at ASC, id ASC"
+)
+_GET_NATIVE_REF = (
+    "SELECT * "
+    + _NATIVE_REFERENCE_SAFE_FROM
+    + "WHERE adapter = ? AND native_channel_id IS ? AND native_message_id = ? LIMIT 1"
+)

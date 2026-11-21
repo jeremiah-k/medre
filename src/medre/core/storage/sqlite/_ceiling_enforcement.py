@@ -53,11 +53,17 @@ from __future__ import annotations
 
 import asyncio
 import json
+
+import msgspec
 import sqlite3
 import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
+
+from medre.core.storage.radio_handoff import RadioLocalHandoff
+from medre.core.storage.sqlite._handoff_facts import observation_scope
+from medre.core.storage.sqlite._radio import _decode
 
 from medre.core.storage.backend import StorageError
 from medre.core.storage.sqlite._content_identity import _utc_microseconds
@@ -81,18 +87,34 @@ _CEILING_RESIDUAL_CURSOR_KEY = "content_ceiling_residual_cursor"
 #: purge, and the same battery detects post-enforcement residual values.
 #: *event_ref* is either the ``:ev`` bind parameter (per-event battery) or
 #: a correlated outer column reference (candidate discovery).
+# Index-first relation lookup. Canonical targets win over native hints; an
+# explicitly resolved relation to B can never purge B's quote during A's
+# sweep merely because its native hint happens to name A. Each UNION arm
+# uses a supported target index before touching excerpt content.
+_INCOMING_EXCERPT_RELATION_IDS = (
+    "SELECT r.id FROM event_relations r INDEXED BY idx_relations_target_event_id "
+    "WHERE r.event_id<>{ev} AND r.target_event_id={ev} "
+    "UNION "
+    "SELECT r.id FROM canonical_events c "
+    "JOIN event_relations r INDEXED BY idx_relations_target_native_ref "
+    "ON r.target_native_adapter=c.source_native_adapter "
+    "AND r.target_native_channel_id IS c.source_native_channel_id "
+    "AND r.target_native_message_id=c.source_native_message_id "
+    "WHERE c.event_id={ev} AND r.event_id<>{ev} "
+    "AND r.target_event_id IS NULL AND r.target_native_adapter IS NOT NULL "
+    "AND r.target_native_message_id IS NOT NULL "
+    "UNION "
+    "SELECT r.id FROM native_message_refs n "
+    "JOIN event_relations r INDEXED BY idx_relations_target_native_ref "
+    "ON r.target_native_adapter=n.adapter "
+    "AND r.target_native_channel_id IS n.native_channel_id "
+    "AND r.target_native_message_id=n.native_message_id "
+    "WHERE n.event_id={ev} AND r.event_id<>{ev} "
+    "AND r.target_event_id IS NULL AND r.target_native_adapter IS NOT NULL "
+    "AND r.target_native_message_id IS NOT NULL"
+)
 _INCOMING_EXCERPTS_PREDICATE = (
-    "r.event_id<>{ev} AND (r.target_event_id={ev} OR ("
-    "r.target_native_adapter IS NOT NULL AND "
-    "r.target_native_message_id IS NOT NULL AND (EXISTS ("
-    "SELECT 1 FROM native_message_refs n WHERE n.event_id={ev} "
-    "AND n.adapter=r.target_native_adapter "
-    "AND n.native_channel_id IS r.target_native_channel_id "
-    "AND n.native_message_id=r.target_native_message_id) OR EXISTS ("
-    "SELECT 1 FROM canonical_events c WHERE c.event_id={ev} "
-    "AND c.source_native_adapter=r.target_native_adapter "
-    "AND c.source_native_channel_id IS r.target_native_channel_id "
-    "AND c.source_native_message_id=r.target_native_message_id))))"
+    "x.relation_id IN (" + _INCOMING_EXCERPT_RELATION_IDS + ")"
 )
 
 
@@ -121,8 +143,7 @@ _RESIDUAL_BATTERY: tuple[tuple[str, str], ...] = (
     # Excerpts other events quoted from this event's content.
     (
         "event_relation_excerpts:incoming",
-        "EXISTS (SELECT 1 FROM event_relation_excerpts x "  # nosec B608 - closed module-owned fragment; event reference is a bind parameter or correlated column
-        "JOIN event_relations r ON r.id=x.relation_id WHERE "
+        "EXISTS (SELECT 1 FROM event_relation_excerpts x WHERE "  # nosec B608 - closed module-owned fragment; event reference is a bind parameter or correlated column
         + _INCOMING_EXCERPTS_PREDICATE
         + ")",
     ),
@@ -259,6 +280,7 @@ _CEILING_POLICY_PAGE_SQL = """
       FROM event_content_access_policies AS p
      WHERE p.hard_ceiling <= ?
        AND (p.hard_ceiling, p.event_id) > (?, ?)
+       AND (p.hard_ceiling, p.event_id) <= (?, ?)
      ORDER BY p.hard_ceiling ASC, p.event_id ASC
      LIMIT ?
 """
@@ -296,7 +318,7 @@ _CEILING_RESIDUAL_CANDIDATES_SQL = (
 _CEILING_RESIDUAL_PAGE_SQL = """
     SELECT event_id, ceiling AS hard_ceiling
       FROM event_content_ceiling_log
-     WHERE event_id > ?
+     WHERE event_id > ? AND event_id <= ?
      ORDER BY event_id
      LIMIT ?
 """
@@ -338,9 +360,7 @@ def _purge_own_and_incoming_excerpts(db: sqlite3.Connection, event_id: str) -> N
     db.execute(
         "DELETE FROM event_relation_excerpts WHERE relation_id IN "  # nosec B608 - closed module-owned fragment; event reference is a bind parameter or correlated column
         "(SELECT r.id FROM event_relations r WHERE r.event_id=:ev) "
-        "OR relation_id IN (SELECT r.id FROM event_relations r WHERE "
-        + _INCOMING_EXCERPTS_PREDICATE.format(ev=":ev")
-        + ")",
+        "OR relation_id IN (" + _INCOMING_EXCERPT_RELATION_IDS.format(ev=":ev") + ")",
         {"ev": event_id},
     )
 
@@ -377,8 +397,8 @@ def _measure_and_purge(
     ).fetchone()
     incoming_excerpts = db.execute(
         "SELECT COUNT(*), COALESCE(SUM(length(CAST(x.excerpt AS BLOB))), 0) "  # nosec B608 - closed module-owned fragment; event reference is a bind parameter or correlated column
-        "FROM event_relation_excerpts x JOIN event_relations r ON r.id=x.relation_id "
-        "WHERE " + _INCOMING_EXCERPTS_PREDICATE.format(ev=":ev"),
+        "FROM event_relation_excerpts x WHERE "
+        + _INCOMING_EXCERPTS_PREDICATE.format(ev=":ev"),
         {"ev": event_id},
     ).fetchone()
     rows_removed += int(own_excerpts[0]) + int(incoming_excerpts[0])
@@ -445,6 +465,25 @@ def _measure_and_purge(
         (event_id,),
     ).fetchone()
     logical_bytes += int(observation_metadata[0])
+    # Preserve only packet identity, never provider metadata. A malformed
+    # packet claim remains explicitly unreadable rather than being promoted
+    # to whole-message acceptance by the redaction to '{}'.
+    for observation in db.execute(
+        "SELECT observation_id, metadata FROM delivery_observations WHERE event_id=?",
+        (event_id,),
+    ).fetchall():
+        try:
+            metadata = json.loads(observation["metadata"])
+        except (TypeError, ValueError):
+            metadata = {"radio_packet": None}
+        scope = observation_scope(metadata)
+        if scope is not None:
+            db.execute(
+                "INSERT INTO delivery_observation_scopes "
+                "(observation_id, scope_json) VALUES (?, ?) "
+                "ON CONFLICT(observation_id) DO NOTHING",
+                (observation["observation_id"], scope),
+            )
     db.execute(
         "UPDATE delivery_observations SET metadata='{}' WHERE event_id=?",
         (event_id,),
@@ -465,6 +504,22 @@ def _measure_and_purge(
     ).fetchone()
     rows_removed += int(diagnostics[0])
     logical_bytes += int(diagnostics[1])
+    # The diagnostic string is content-potential, but its closed handoff state
+    # is authority-neutral evidence admission for the original attempt.
+    db.execute(
+        "INSERT INTO delivery_handoff_uncertainty "
+        "(outbox_id, attempt_number, state) "
+        "SELECT o.outbox_id, o.attempt_number, 'uncertain_native_handoff' "
+        "FROM delivery_outbox o WHERE o.event_id=? "
+        "AND o.status='retry_wait' AND o.active_attempt IS NULL "
+        "AND (SELECT d.diagnostic FROM delivery_evidence_diagnostics d "
+        "WHERE d.family='outbox' AND d.row_id=o.outbox_id "
+        "AND d.attempt=o.attempt_number AND d.field='failure_kind_detail' "
+        "ORDER BY d.diag_id DESC LIMIT 1)='uncertain_native_handoff' "
+        "ON CONFLICT(outbox_id) DO UPDATE SET "
+        "attempt_number=excluded.attempt_number, state=excluded.state",
+        (event_id,),
+    )
     _purge_diagnostics(db, event_id)
 
     # Radio recovery plans riding the event's outbox generations.
@@ -479,6 +534,72 @@ def _measure_and_purge(
     ).fetchone()
     rows_removed += int(radio[0])
     logical_bytes += int(radio[1])
+    for checkpoint_row in db.execute(
+        "SELECT p.* FROM radio_attempt_progress p JOIN delivery_outbox o "
+        "ON o.outbox_id=p.outbox_id WHERE o.event_id=?",
+        (event_id,),
+    ).fetchall():
+        try:
+            saved = _decode(checkpoint_row)
+        except (StorageError, ValueError, TypeError):
+            # Invalid wire plans must still be erased. They confer no valid
+            # packet acceptance and therefore produce no retained facts.
+            continue
+        evidence_parts: list[dict[str, Any]] = []
+        for part in saved.progress.parts:
+            if part.state != "accepted":
+                evidence_parts.append(
+                    {"ordinal": part.ordinal, "state": part.state, "handoff_id": None}
+                )
+                continue
+            try:
+                fact = RadioLocalHandoff.from_part(part, saved.provenance)
+            except (ValueError, TypeError, msgspec.DecodeError):
+                # An invalid native reference cannot prove acceptance.
+                # Still remove its content-bearing wire plan below.
+                evidence_parts = []
+                break
+            # The content hash may disclose short messages by dictionary
+            # attack. It is stripped even from the evidence-only summary.
+            fact = msgspec.structs.replace(fact, payload_fingerprint=None)
+            evidence_parts.append(
+                {
+                    "ordinal": part.ordinal,
+                    "state": part.state,
+                    "handoff_id": fact.encode(),
+                }
+            )
+            if fact.origin is None or (
+                fact.origin.outbox_id != saved.provenance.outbox_id
+                or fact.origin.attempt_number != saved.provenance.attempt_number
+            ):
+                continue  # A continuation cannot create original acceptance.
+            if fact.native_message_id:
+                db.execute(
+                    "INSERT INTO radio_accepted_part_facts "
+                    "(outbox_id, attempt_number, ordinal, native_channel_id, native_message_id) "
+                    "VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
+                    (
+                        fact.origin.outbox_id,
+                        fact.origin.attempt_number,
+                        fact.ordinal,
+                        fact.native_channel_id,
+                        fact.native_message_id,
+                    ),
+                )
+        if evidence_parts:
+            db.execute(
+                "INSERT INTO radio_attempt_evidence_summaries "
+                "(outbox_id, attempt_number, provenance_json, parts_json, revision) "
+                "VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
+                (
+                    saved.provenance.outbox_id,
+                    saved.provenance.attempt_number,
+                    msgspec.json.encode(saved.provenance).decode(),
+                    json.dumps(evidence_parts, separators=(",", ":")),
+                    saved.revision,
+                ),
+            )
     db.execute(
         "DELETE FROM radio_attempt_progress WHERE outbox_id IN "
         "(SELECT outbox_id FROM delivery_outbox WHERE event_id=?)",
@@ -593,11 +714,25 @@ def sync_enforce_content_ceilings(
                 "SELECT value FROM _medre_schema_meta WHERE key=?",
                 (_CEILING_RESIDUAL_CURSOR_KEY,),
             ).fetchone()
-            residual_cursor = json.loads(progress[0]) if progress is not None else ""
-            if not isinstance(residual_cursor, str):
+            saved_residual = json.loads(progress[0]) if progress is not None else ""
+            if isinstance(saved_residual, str):
+                residual_cursor, residual_upper = saved_residual, ""
+            elif (
+                isinstance(saved_residual, list)
+                and len(saved_residual) == 2
+                and all(isinstance(value, str) for value in saved_residual)
+            ):
+                residual_cursor, residual_upper = saved_residual
+            else:
                 raise StorageError("Invalid ceiling residual cursor")
+            if not residual_upper:
+                row = db.execute(
+                    "SELECT MAX(event_id) FROM event_content_ceiling_log"
+                ).fetchone()
+                residual_upper = str(row[0]) if row[0] is not None else ""
             residual_rows = db.execute(
-                _CEILING_RESIDUAL_PAGE_SQL, (residual_cursor, residual_budget)
+                _CEILING_RESIDUAL_PAGE_SQL,
+                (residual_cursor, residual_upper, residual_budget),
             ).fetchall()
             for row in residual_rows:
                 event_id = str(row["event_id"])
@@ -639,12 +774,18 @@ def sync_enforce_content_ceilings(
                         residual_pass=True,
                     )
                 )
-            if len(residual_rows) < residual_budget:
-                residual_cursor = ""
+            if (
+                len(residual_rows) < residual_budget
+                or residual_cursor >= residual_upper
+            ):
+                residual_cursor = residual_upper = ""
             db.execute(
                 "INSERT INTO _medre_schema_meta(key, value) VALUES (?, ?) "
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                (_CEILING_RESIDUAL_CURSOR_KEY, json.dumps(residual_cursor)),
+                (
+                    _CEILING_RESIDUAL_CURSOR_KEY,
+                    json.dumps([residual_cursor, residual_upper]),
+                ),
             )
 
             # Record progress over every policy examined in keyset order.
@@ -655,11 +796,21 @@ def sync_enforce_content_ceilings(
             cursor = json.loads(progress[0]) if progress is not None else ["", ""]
             if (
                 not isinstance(cursor, list)
-                or len(cursor) != 2
+                or len(cursor) not in (2, 4)
                 or not all(isinstance(value, str) for value in cursor)
             ):
                 raise StorageError("Invalid ceiling enforcement cursor")
-            last_ceiling, last_event_id = cursor
+            last_ceiling, last_event_id = cursor[:2]
+            upper_ceiling, upper_event_id = cursor[2:] if len(cursor) == 4 else ("", "")
+            if not upper_ceiling:
+                row = db.execute(
+                    "SELECT hard_ceiling, event_id FROM event_content_access_policies "
+                    "WHERE hard_ceiling<=? "
+                    "ORDER BY hard_ceiling DESC, event_id DESC LIMIT 1",
+                    (observed,),
+                ).fetchone()
+                if row is not None:
+                    upper_ceiling, upper_event_id = map(str, row)
             budget = max(25, limit)
             examined = 0
             first_time = 0
@@ -667,13 +818,21 @@ def sync_enforce_content_ceilings(
                 page_size = min(100, budget - examined)
                 page = db.execute(
                     _CEILING_POLICY_PAGE_SQL,
-                    (observed, last_ceiling, last_event_id, page_size),
+                    (
+                        observed,
+                        last_ceiling,
+                        last_event_id,
+                        upper_ceiling,
+                        upper_event_id,
+                        page_size,
+                    ),
                 ).fetchall()
                 if not page:
                     # Wrap: the next sweep rescans from the start so events
                     # admitted (or backdated) behind the cursor are still
                     # enforced.
                     last_ceiling = last_event_id = ""
+                    upper_ceiling = upper_event_id = ""
                     break
                 for row in page:
                     examined += 1
@@ -726,15 +885,21 @@ def sync_enforce_content_ceilings(
                     first_time += 1
                     if first_time >= limit:
                         break
-                if len(page) < page_size and last_event_id == str(page[-1]["event_id"]):
+                if len(page) < page_size or (last_ceiling, last_event_id) >= (
+                    upper_ceiling,
+                    upper_event_id,
+                ):
                     last_ceiling = last_event_id = ""
+                    upper_ceiling = upper_event_id = ""
                     break
             db.execute(
                 "INSERT INTO _medre_schema_meta(key, value) VALUES (?, ?) "
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                 (
                     _CEILING_SWEEP_CURSOR_KEY,
-                    json.dumps([last_ceiling, last_event_id]),
+                    json.dumps(
+                        [last_ceiling, last_event_id, upper_ceiling, upper_event_id]
+                    ),
                 ),
             )
             db.commit()

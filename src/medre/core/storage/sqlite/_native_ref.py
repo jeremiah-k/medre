@@ -46,6 +46,7 @@ def _native_ref_insert_params(ref: NativeMessageRef) -> tuple[object, ...]:
         ref.native_thread_id,
         ref.native_relation_id,
         ref.direction,
+        ref.event_id,  # Recheck ceiling inside the atomic INSERT statement.
         _encode_json(ref.metadata),
         ref.created_at.isoformat(),
     )

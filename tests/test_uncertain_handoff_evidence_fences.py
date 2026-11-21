@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace as dataclass_replace
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -567,3 +568,131 @@ async def test_uncertain_backoff_accepts_exact_finalized_observation(temp_storag
     assert final is not None and final.outcome == "accepted"
     settled = await temp_storage.get_outbox_item(stored.outbox_id)
     assert settled is not None and settled.status == "sent"
+
+
+async def _install_elapsed_ceiling_for_handoff(storage, event_id):
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    await storage._write(
+        "INSERT INTO event_content_access_policies "
+        "(event_id, version, hard_ceiling, allowed_consumers, "
+        "max_optional_hold_microseconds, created_at) "
+        "VALUES (?, 1, ?, '[]', 1000000, ?)",
+        (event_id, (now - timedelta(seconds=1)).isoformat(), now.isoformat()),
+    )
+    return now
+
+
+async def test_ceiling_preserves_uncertain_attempt_admission_without_diagnostic(
+    temp_storage,
+):
+    stored, provenance = await _seed_reserved_claim(temp_storage)
+    assert await temp_storage.mark_outbox_retry_wait(
+        stored.outbox_id,
+        next_attempt_at=(
+            datetime.now(timezone.utc) + timedelta(seconds=60)
+        ).isoformat(),
+        attempt_number=1,
+        expected_worker_id=_WORKER,
+        failure_kind_detail=UNCERTAIN_NATIVE_HANDOFF_DETAIL,
+    )
+    now = await _install_elapsed_ceiling_for_handoff(temp_storage, provenance.event_id)
+    await temp_storage.enforce_content_ceilings(now=now)
+    remaining = await temp_storage.get_outbox_item(stored.outbox_id)
+    assert remaining is not None
+    assert remaining.failure_kind_detail == UNCERTAIN_NATIVE_HANDOFF_DETAIL
+    assert (
+        await temp_storage._read_one(
+            "SELECT 1 FROM delivery_evidence_diagnostics WHERE family='outbox' "
+            "AND row_id=?",
+            (stored.outbox_id,),
+        )
+        is None
+    )
+    assert await temp_storage.append_delivery_observation(
+        _observation("late-after-ceiling", provenance)
+    )
+    observed = await temp_storage.list_delivery_observations_for_attempt(
+        stored.outbox_id, 1
+    )
+    assert len(observed) == 1 and observed[0].metadata == {}
+    assert observed[0].confirmation_level == "end_to_end"
+
+
+async def test_ceiling_keeps_accepted_packet_scope_but_erases_wire_plan(temp_storage):
+    stored, provenance = await _seed_reserved_claim(temp_storage)
+    await _bind_and_progress(temp_storage, provenance, ["accepted", "unsent", "unsent"])
+    now = await _install_elapsed_ceiling_for_handoff(temp_storage, provenance.event_id)
+    await temp_storage.enforce_content_ceilings(now=now)
+    assert await temp_storage.get_radio_attempt(stored.outbox_id, 1) is None
+    fact = await temp_storage._read_one(
+        "SELECT native_message_id FROM radio_accepted_part_facts "
+        "WHERE outbox_id=? AND attempt_number=1 AND ordinal=1",
+        (stored.outbox_id,),
+    )
+    assert fact is not None and fact["native_message_id"] == "native-1"
+    ack = _observation(
+        "late-radio-packet",
+        provenance,
+        radio_packet={
+            "ordinal": 1,
+            "origin_attempt_number": 1,
+            "origin_outbox_id": stored.outbox_id,
+            "provider_secret": "sensitive",
+        },
+    )
+    assert await temp_storage.append_radio_packet_observation(ack)
+    assert not await temp_storage.append_radio_packet_observation(
+        _observation(
+            "false-packet",
+            provenance,
+            adapter_message_id="wrong",
+            radio_packet={
+                "ordinal": 1,
+                "origin_attempt_number": 1,
+                "origin_outbox_id": stored.outbox_id,
+            },
+        )
+    )
+    read = await temp_storage.list_delivery_observations_for_attempt(
+        stored.outbox_id, 1
+    )
+    assert len(read) == 1
+    assert read[0].metadata == {
+        "radio_packet": {
+            "ordinal": 1,
+            "origin_attempt_number": 1,
+            "origin_outbox_id": stored.outbox_id,
+        }
+    }
+    assert "sensitive" not in repr(read)
+
+
+async def test_complete_radio_handoff_still_settles_after_wire_plan_erasure(
+    temp_storage,
+):
+    stored, provenance = await _seed_reserved_claim(temp_storage)
+    await _bind_and_progress(
+        temp_storage, provenance, ["accepted", "accepted", "accepted"]
+    )
+    now = await _install_elapsed_ceiling_for_handoff(temp_storage, provenance.event_id)
+    await temp_storage.enforce_content_ceilings(now=now)
+    assert await temp_storage.get_radio_attempt(stored.outbox_id, 1) is None
+    summary = await temp_storage.get_radio_attempt_evidence(stored.outbox_id, 1)
+    assert summary is not None
+    assert all(part.state == "accepted" for part in summary.parts)
+    assert all(
+        "payload_fingerprint" not in (part.handoff_id or "") for part in summary.parts
+    )
+    claimed = await _claimed_row(temp_storage, stored.outbox_id, "reclaimer")
+    verdict = await DeliveryLifecycleService().reconcile_retry_claim(
+        temp_storage,
+        claimed,
+        RetryPolicy(max_attempts=4),
+        handoff_resolver=EvidenceBackedHandoffResolver(temp_storage),
+    )
+    assert verdict is not None and verdict.outcome == "accepted"
+    settled = await temp_storage.get_outbox_item(stored.outbox_id)
+    assert settled is not None and settled.status == "sent"
+    assert await temp_storage.list_receipts_for_outbox(stored.outbox_id) == []

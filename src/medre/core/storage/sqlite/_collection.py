@@ -27,6 +27,7 @@ from medre.core.storage.backend import (
 )
 from medre.core.storage.content import UNMEASURED_CONTENT_SCOPES
 from medre.core.storage.content_retention import normalize_admission_watermark
+from medre.core.storage.sqlite._ceiling_enforcement import _CEILING_RESIDUAL_SQL
 from medre.core.storage.sqlite._count import (
     _ALL_EVENT_COPY_PROBES,
     _EVENT_COPY_SQL,
@@ -92,7 +93,10 @@ def _read_collection_state(
     ).fetchone()
     if previous is not None and rows:
         raise StorageError("Collected content was unexpectedly recreated")
-    if ceiling_receipt is not None and rows:
+    if (
+        ceiling_receipt is not None
+        and int(db.execute(_CEILING_RESIDUAL_SQL, {"ev": event_id}).fetchone()[0]) != 0
+    ):
         raise StorageError("Ceiling-purged content was unexpectedly recreated")
     if ceiling_receipt is not None:
         # The hard-ceiling enforcement transition already removed this

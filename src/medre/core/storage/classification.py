@@ -327,6 +327,29 @@ STORAGE_COLUMN_CLASSES: dict[str, dict[str, ColumnClass]] = {
         "diagnostic": ColumnClass.INDEPENDENTLY_OWNED_CONTENT,
         "created_at": ColumnClass.IMMUTABLE_IDENTITY,
     },
+    "delivery_handoff_uncertainty": {
+        "outbox_id": ColumnClass.IMMUTABLE_IDENTITY,
+        "attempt_number": ColumnClass.IMMUTABLE_IDENTITY,
+        "state": ColumnClass.OPERATIONAL_AUTHORITY,
+    },
+    "radio_attempt_evidence_summaries": {
+        "outbox_id": ColumnClass.IMMUTABLE_IDENTITY,
+        "attempt_number": ColumnClass.IMMUTABLE_IDENTITY,
+        "provenance_json": ColumnClass.IMMUTABLE_IDENTITY,
+        "parts_json": ColumnClass.IMMUTABLE_IDENTITY,
+        "revision": ColumnClass.IMMUTABLE_IDENTITY,
+    },
+    "delivery_observation_scopes": {
+        "observation_id": ColumnClass.IMMUTABLE_IDENTITY,
+        "scope_json": ColumnClass.IMMUTABLE_IDENTITY,
+    },
+    "radio_accepted_part_facts": {
+        "outbox_id": ColumnClass.IMMUTABLE_IDENTITY,
+        "attempt_number": ColumnClass.IMMUTABLE_IDENTITY,
+        "ordinal": ColumnClass.IMMUTABLE_IDENTITY,
+        "native_channel_id": ColumnClass.IMMUTABLE_IDENTITY,
+        "native_message_id": ColumnClass.IMMUTABLE_IDENTITY,
+    },
     "delivery_handoff_settlements": {
         "outbox_id": ColumnClass.IMMUTABLE_IDENTITY,
         "attempt_number": ColumnClass.IMMUTABLE_IDENTITY,

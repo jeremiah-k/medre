@@ -76,7 +76,11 @@ from medre.core.delivery_authority import (
 from medre.core.events import DeliveryObservation
 from medre.core.rendering.radio_text import MAX_RADIO_TEXT_PARTS
 from medre.core.storage.backend import DeliveryOutboxItem, StorageError
-from medre.core.storage.radio import RadioAttemptMetadata, StoredRadioAttempt
+from medre.core.storage.radio import (
+    RadioAttemptEvidenceSummary,
+    RadioAttemptMetadata,
+    StoredRadioAttempt,
+)
 from medre.core.storage.radio_handoff import RadioLocalHandoff
 
 __all__ = [
@@ -316,7 +320,7 @@ def _resolve_message_level(
 def _resolve_checkpoint(
     *,
     outbox_id: str,
-    checkpoint: StoredRadioAttempt | RadioAttemptMetadata,
+    checkpoint: StoredRadioAttempt | RadioAttemptMetadata | RadioAttemptEvidenceSummary,
     attempt_number: int,
     identity: DeliveryIdentity,
     observations: Sequence[DeliveryObservation],
@@ -487,7 +491,9 @@ def resolve_uncertain_handoff(
     outbox_id: str,
     attempt_number: int,
     identity: DeliveryIdentity,
-    checkpoint: StoredRadioAttempt | RadioAttemptMetadata | None,
+    checkpoint: (
+        StoredRadioAttempt | RadioAttemptMetadata | RadioAttemptEvidenceSummary | None
+    ),
     observations: Sequence[DeliveryObservation],
     attempt_source: str | None = None,
     replay_run_id: str | None = None,
@@ -586,6 +592,12 @@ class EvidenceBackedHandoffResolver:
             checkpoint = await self._storage.get_radio_attempt(
                 item.outbox_id, attempt_number
             )
+            if checkpoint is None:
+                evidence_reader = getattr(
+                    self._storage, "get_radio_attempt_evidence", None
+                )
+                if evidence_reader is not None:
+                    checkpoint = await evidence_reader(item.outbox_id, attempt_number)
             observations = await self._storage.list_delivery_observations_for_attempt(
                 item.outbox_id, attempt_number
             )

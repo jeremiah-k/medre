@@ -83,3 +83,28 @@ class RadioAttemptMetadata:
             ],
             "content_withheld": True,
         }
+
+
+@dataclass(frozen=True, slots=True)
+class RadioAttemptEvidenceSummary:
+    """Post-ceiling native progress with no wire bytes or payload-derived hash.
+
+    Used exclusively for evidence classification, never for continuation,
+    native submission, grant allocation or radio recovery.
+    """
+
+    provenance: DeliveryAttemptProvenance
+    parts: tuple[RadioPartProgress, ...]
+    revision: int
+
+    def __post_init__(self) -> None:
+        if not self.parts or any(
+            part.ordinal != index + 1 for index, part in enumerate(self.parts)
+        ):
+            raise ValueError("radio evidence summary must cover ordered parts")
+        transitions = sum(
+            0 if part.state == "unsent" else 1 if part.state == "submitting" else 2
+            for part in self.parts
+        )
+        if type(self.revision) is not int or self.revision != transitions:
+            raise ValueError("radio evidence summary revision is inconsistent")

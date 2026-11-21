@@ -362,6 +362,43 @@ CREATE TABLE IF NOT EXISTS delivery_handoff_settlements (
     receipt_watermark INTEGER NOT NULL CHECK (receipt_watermark >= 0)
 );
 
+-- Content-free exact-attempt uncertainty evidence. The free-form diagnostic
+-- can be purged at the hard ceiling without losing late-ACK correlation.
+-- This state never grants another transport dispatch.
+CREATE TABLE IF NOT EXISTS delivery_handoff_uncertainty (
+    outbox_id TEXT PRIMARY KEY REFERENCES delivery_outbox(outbox_id),
+    attempt_number INTEGER NOT NULL CHECK (attempt_number >= 1),
+    state TEXT NOT NULL CHECK (state = 'uncertain_native_handoff')
+);
+
+-- Acceptance facts survive deletion of radio wire plans at the ceiling.
+-- Only a previously accepted, exact original packet is recorded. Retaining
+-- the identity never reconstructs a payload or authorizes submission.
+CREATE TABLE IF NOT EXISTS radio_accepted_part_facts (
+    outbox_id TEXT NOT NULL REFERENCES delivery_outbox(outbox_id),
+    attempt_number INTEGER NOT NULL CHECK (attempt_number >= 1),
+    ordinal INTEGER NOT NULL CHECK (ordinal BETWEEN 1 AND 128),
+    native_channel_id TEXT,
+    native_message_id TEXT NOT NULL CHECK (length(native_message_id) > 0),
+    PRIMARY KEY (outbox_id, attempt_number, ordinal)
+);
+
+-- Non-authorizing packet scope survives clearing observation metadata.
+-- Event-scoped evidence-only radio progress survives loss of all wire plans.
+CREATE TABLE IF NOT EXISTS radio_attempt_evidence_summaries (
+    outbox_id TEXT NOT NULL REFERENCES delivery_outbox(outbox_id),
+    attempt_number INTEGER NOT NULL CHECK (attempt_number >= 1),
+    provenance_json TEXT NOT NULL CHECK (json_valid(provenance_json)),
+    parts_json TEXT NOT NULL CHECK (json_valid(parts_json)),
+    revision INTEGER NOT NULL CHECK (revision >= 0),
+    PRIMARY KEY (outbox_id, attempt_number)
+);
+
+CREATE TABLE IF NOT EXISTS delivery_observation_scopes (
+    observation_id TEXT PRIMARY KEY REFERENCES delivery_observations(observation_id),
+    scope_json TEXT NOT NULL CHECK (json_valid(scope_json))
+);
+
 CREATE TABLE IF NOT EXISTS delivery_observations (
     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
     observation_id TEXT UNIQUE NOT NULL,
@@ -819,6 +856,20 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
             "created_at",
         }
     ),
+    "delivery_handoff_uncertainty": frozenset({"outbox_id", "attempt_number", "state"}),
+    "radio_attempt_evidence_summaries": frozenset(
+        {"outbox_id", "attempt_number", "provenance_json", "parts_json", "revision"}
+    ),
+    "delivery_observation_scopes": frozenset({"observation_id", "scope_json"}),
+    "radio_accepted_part_facts": frozenset(
+        {
+            "outbox_id",
+            "attempt_number",
+            "ordinal",
+            "native_channel_id",
+            "native_message_id",
+        }
+    ),
     "delivery_handoff_settlements": frozenset(
         {"outbox_id", "attempt_number", "receipt_watermark"}
     ),
@@ -1040,6 +1091,12 @@ _REQUIRED_FOREIGN_KEYS: dict[str, frozenset[tuple[str, str, str]]] = {
         }
     ),
     "delivery_outbox": frozenset({("event_id", "canonical_events", "event_id")}),
+    "delivery_handoff_uncertainty": frozenset(
+        {("outbox_id", "delivery_outbox", "outbox_id")}
+    ),
+    "radio_accepted_part_facts": frozenset(
+        {("outbox_id", "delivery_outbox", "outbox_id")}
+    ),
     "delivery_observations": frozenset(
         {
             ("event_id", "canonical_events", "event_id"),
@@ -1313,8 +1370,14 @@ _DIAGNOSTICS_DDL = _SCHEMA[
 # existing row or guessing the ordering of historical settlements.
 _HANDOFF_SETTLEMENTS_DDL = _SCHEMA[
     _SCHEMA.index("-- Receipt-less handoff settlement:") : _SCHEMA.index(
-        "CREATE TABLE IF NOT EXISTS delivery_observations ("
+        "-- Content-free exact-attempt uncertainty evidence."
     )
+]
+
+_HANDOFF_FACTS_DDL = _SCHEMA[
+    _SCHEMA.index(
+        "-- Content-free exact-attempt uncertainty evidence."
+    ) : _SCHEMA.index("CREATE TABLE IF NOT EXISTS delivery_observations (")
 ]
 
 # Derive the approved additive snapshot-table DDL verbatim from the

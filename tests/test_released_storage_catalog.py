@@ -49,6 +49,10 @@ _NOW = "2026-11-14T00:00:00+00:00"
 _HANDOFF_SETTLEMENTS = "delivery_handoff_settlements"
 _CEILING_ADDITIONS = (
     ("table", "event_content_ceiling_log"),
+    ("table", "delivery_handoff_uncertainty"),
+    ("table", "radio_accepted_part_facts"),
+    ("table", "delivery_observation_scopes"),
+    ("table", "radio_attempt_evidence_summaries"),
     ("index", "idx_ceiling_enforcement_order"),
 )
 _RELEASED_010_ADDITIONS = (("table", _HANDOFF_SETTLEMENTS), *_CEILING_ADDITIONS)
@@ -325,7 +329,10 @@ def test_released_catalog_assessment_reports_upgrade_then_current(
         assert assessment.stored_version == "1"
         assert assessment.detail == (
             "missing objects: index idx_ceiling_enforcement_order, "
-            "table delivery_handoff_settlements, table event_content_ceiling_log"
+            "table delivery_handoff_settlements, table delivery_handoff_uncertainty, "
+            "table delivery_observation_scopes, "
+            "table event_content_ceiling_log, table radio_accepted_part_facts, "
+            "table radio_attempt_evidence_summaries"
         )
     with closing(sqlite3.connect(path)) as db:
         assert _state(db) == before

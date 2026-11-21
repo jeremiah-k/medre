@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+from medre.core.storage.content_availability import AvailabilityPolicy, ContentHold
 from medre.core.storage.backend import OutboxDispatchSnapshotWrite
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.storage import make_storage_event
@@ -708,7 +709,15 @@ async def test_late_observation_values_are_masked_before_read(
         await temp_storage.list_delivery_observations_for_outbox(outbox_id),
         await temp_storage.list_delivery_observations_for_attempt(outbox_id, 1),
     ):
-        assert read
+        late = [
+            observation
+            for observation in read
+            if observation.observation_id == f"late-{event_id}"
+        ]
+        assert len(late) == 1
+        assert late[0].state == "delivered"
+        assert not late[0].metadata
+        assert not late[0].error
         assert all(not observation.metadata for observation in read)
         assert all(not observation.error for observation in read)
     assert (
@@ -753,3 +762,211 @@ async def test_audit_counts_sole_referent_blob_and_failed_receipt(
     failed = await temp_storage.verify_content_ceiling_receipts(event_id=event_id)
     assert failed["verdict"] == "failed"
     assert failed["event_state"] == "receipt_failed"
+
+
+async def test_incoming_quote_prefers_canonical_target_over_native_hint(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """A canonical link to B must not be purged while A's native ID expires."""
+    owner, actual, quoting = (
+        "ceiling-native-hint-owner",
+        "ceiling-canonical-target",
+        "ceiling-quoting-neighbor",
+    )
+    await _admit_with_ceiling(temp_storage, owner)
+    await _admit_with_ceiling(temp_storage, actual, seconds=7200)
+    await _admit_plain(temp_storage, quoting)
+    now = datetime.now(timezone.utc).isoformat()
+    await temp_storage._write(
+        "UPDATE canonical_events SET source_native_adapter='matrix', "
+        "source_native_channel_id='room', source_native_message_id='M' "
+        "WHERE event_id=?",
+        (owner,),
+    )
+    await temp_storage._write(
+        "INSERT INTO event_relations (event_id, relation_type, target_event_id, "
+        "target_native_adapter, target_native_channel_id, "
+        "target_native_message_id, metadata, created_at) "
+        "VALUES (?, 'reply', ?, 'matrix', 'room', 'M', '{}', ?)",
+        (quoting, actual, now),
+    )
+    await temp_storage._write(
+        "INSERT INTO event_relation_excerpts(relation_id, excerpt) "
+        "SELECT id, 'quoted B, not A' FROM event_relations WHERE event_id=?",
+        (quoting,),
+    )
+    first = await _read_ceiling(temp_storage, owner)
+    await temp_storage.enforce_content_ceilings(now=first + timedelta(seconds=1))
+    assert (
+        await _count(temp_storage, "SELECT COUNT(*) FROM event_relation_excerpts") == 1
+    )
+    audit = await temp_storage.audit_content_ceilings(
+        now=first + timedelta(seconds=1), event_id=actual
+    )
+    assert audit["residual_stores"]["event_relation_excerpts:incoming"] == 1
+
+
+async def test_incoming_quote_battery_uses_target_indexes(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """An expired event probes indexed identities, not every unrelated quote."""
+    from medre.core.storage.sqlite._ceiling_enforcement import (
+        _INCOMING_EXCERPTS_PREDICATE,
+    )
+
+    plan_sql = (
+        "EXPLAIN QUERY PLAN SELECT COUNT(*) FROM event_relation_excerpts x "
+        "WHERE " + _INCOMING_EXCERPTS_PREDICATE.format(ev="?")
+    )
+    details = await temp_storage._read_all(
+        plan_sql, ("unrelated-owner",) * plan_sql.count("?")
+    )
+    plan = " ".join(str(row["detail"]) for row in details)
+    assert "idx_relations_target_event_id" in plan
+    assert "idx_relations_target_native_ref" in plan
+    assert "SCAN x" not in plan
+
+
+async def test_residual_cursor_revisits_old_receipts_despite_new_high_ids(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """A finite cycle returns to the first receipt even under appended IDs."""
+    ids = [f"receipt-page-{index:02}" for index in range(30)]
+    for event_id in ids:
+        await _admit_with_ceiling(temp_storage, event_id)
+    ceiling = await _read_ceiling(temp_storage, ids[-1])
+    now = ceiling + timedelta(seconds=1)
+    enforced = await temp_storage.enforce_content_ceilings(now=now, limit=50)
+    assert len(enforced) == 30
+    await temp_storage._write(
+        "UPDATE canonical_events SET metadata=? WHERE event_id=?",
+        ('{"late":"text"}', ids[0]),
+    )
+    # A clean first page consumes the scan allowance but leaves old history.
+    await temp_storage._write(
+        "INSERT OR REPLACE INTO _medre_schema_meta(key, value) VALUES (?, ?)",
+        ("content_ceiling_residual_cursor", '["receipt-page-00","receipt-page-29"]'),
+    )
+    assert await temp_storage.enforce_content_ceilings(now=now, limit=1) == []
+    # More receipts arrive after the finite traversal began.
+    newcomers = [f"receipt-z-{index:02}" for index in range(25)]
+    for event_id in newcomers:
+        await _admit_with_ceiling(temp_storage, event_id)
+        await temp_storage._write(
+            "INSERT INTO event_content_ceiling_log(event_id, enforced_at, ceiling, "
+            "rows_removed, logical_bytes_removed, blobs_removed, blob_bytes_removed) "
+            "SELECT event_id, ?, hard_ceiling, 0, 0, 0, 0 "
+            "FROM event_content_access_policies WHERE event_id=?",
+            (now.isoformat(), event_id),
+        )
+    assert await temp_storage.enforce_content_ceilings(now=now, limit=1) == []
+    repaired = await temp_storage.enforce_content_ceilings(now=now, limit=1)
+    assert any(item.event_id == ids[0] and item.residual_pass for item in repaired)
+
+
+async def test_recreated_diagnostic_after_ceiling_is_not_already_collected(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """All-store battery, not just body rows, governs collector consistency."""
+    event_id = "ceiling-recreated-diagnostic"
+    await _admit_with_ceiling(temp_storage, event_id)
+    outbox_id = await _seed_every_copy(temp_storage, event_id)
+    ceiling = await _read_ceiling(temp_storage, event_id)
+    await temp_storage.enforce_content_ceilings(now=ceiling + timedelta(seconds=1))
+    now = datetime.now(timezone.utc).isoformat()
+    await temp_storage._write(
+        "INSERT INTO delivery_evidence_diagnostics "
+        "(family, row_id, attempt, field, diagnostic, created_at) "
+        "VALUES ('outbox', ?, 1, 'error_summary', 'late private text', ?)",
+        (outbox_id, now),
+    )
+    assessment = await temp_storage.assess_event_content_release(event_id)
+    assert "inconsistent_admission_identity" in assessment["blockers"]
+    assert assessment["core_subset_status"] == "blocked"
+    import pytest
+    from medre.core.storage.backend import StorageError
+
+    with pytest.raises(StorageError, match="unexpectedly recreated"):
+        await temp_storage.collect_event_content(event_id)
+
+
+async def test_late_native_reference_metadata_is_neither_written_nor_read(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """An accepted late native identity is durable, but not provider text."""
+    from medre.core.events import NativeMessageRef
+
+    event_id = "ceiling-late-native-reference"
+    await _admit_with_ceiling(temp_storage, event_id)
+    ceiling = await _read_ceiling(temp_storage, event_id)
+    await temp_storage.enforce_content_ceilings(now=ceiling + timedelta(seconds=1))
+    ref = NativeMessageRef(
+        id=f"ref-{event_id}",
+        event_id=event_id,
+        adapter="matrix",
+        native_channel_id="!room:example",
+        native_message_id="$after-ceiling",
+        native_thread_id=None,
+        native_relation_id=None,
+        direction="outbound",
+        metadata={"provider": "synthetic-private"},
+    )
+    await temp_storage.store_native_ref(ref)
+    raw = await temp_storage._read_one(
+        "SELECT metadata FROM native_message_refs WHERE id=?", (ref.id,)
+    )
+    assert raw is not None and raw["metadata"] == "{}"
+    # An already-authorized native finalizer may have written opaque metadata
+    # before the ceiling receipt; ordinary inspection still withholds it.
+    await temp_storage._write(
+        "UPDATE native_message_refs SET metadata=? WHERE id=?",
+        ('{"provider":"synthetic-race"}', ref.id),
+    )
+    found = await temp_storage.get_native_ref(
+        ref.adapter, ref.native_channel_id, ref.native_message_id
+    )
+    listed = await temp_storage.list_native_refs_for_event(event_id)
+    assert found is not None and found.event_id == event_id and not found.metadata
+    assert len(listed) == 1 and not listed[0].metadata
+    assert (
+        await temp_storage.resolve_native_ref(
+            ref.adapter, ref.native_channel_id, ref.native_message_id
+        )
+        == event_id
+    )
+
+
+async def test_ceiling_tombstones_the_same_live_optional_grant(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """Enforcement must expire an actually issued grant, not an empty table."""
+    event_id = "ceiling-optional-grant-tombstone"
+    await temp_storage.append(make_storage_event(event_id=event_id))
+    issued = datetime.now(timezone.utc)
+    ceiling = issued + timedelta(hours=1)
+    hold = ContentHold(
+        "reply_quotes", "body", issued + timedelta(minutes=5), issued_at=issued
+    )
+    policy = AvailabilityPolicy(
+        hard_ceiling=ceiling,
+        max_optional_hold=timedelta(minutes=10),
+        allowed_optional_consumers=frozenset({"reply_quotes"}),
+    )
+    await temp_storage.issue_optional_body_hold(event_id, hold, policy, now=issued)
+    before = await temp_storage._read_one(
+        "SELECT consumer, expired_at FROM event_content_access_grants WHERE event_id=?",
+        (event_id,),
+    )
+    assert before is not None
+    assert before["consumer"] == "reply_quotes" and before["expired_at"] is None
+    result = await temp_storage.enforce_content_ceilings(
+        now=ceiling + timedelta(seconds=1)
+    )
+    assert len(result) == 1 and result[0].event_id == event_id
+    after = await temp_storage._read_one(
+        "SELECT consumer, expired_at FROM event_content_access_grants WHERE event_id=?",
+        (event_id,),
+    )
+    assert after is not None
+    assert after["consumer"] == before["consumer"]
+    assert after["expired_at"] is not None

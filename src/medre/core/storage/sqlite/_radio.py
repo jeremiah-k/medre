@@ -20,7 +20,11 @@ from medre.core.events.delivery import DeliveryAttemptProvenance
 from medre.core.rendering.radio_progress import RadioAttemptProgress, RadioPartProgress
 from medre.core.rendering.radio_text import RadioTextPlan
 from medre.core.storage.backend import StorageError
-from medre.core.storage.radio import RadioAttemptMetadata, StoredRadioAttempt
+from medre.core.storage.radio import (
+    RadioAttemptMetadata,
+    RadioAttemptEvidenceSummary,
+    StoredRadioAttempt,
+)
 from medre.core.storage.radio_handoff import RadioLocalHandoff
 from medre.core.storage.sqlite._content_grants import (
     _native_submission_authorized,
@@ -559,6 +563,33 @@ class _RadioMixin:
             (outbox_id, attempt_number),
         )
         return None if row is None else _decode(row)
+
+    async def get_radio_attempt_evidence(
+        self, outbox_id: str, attempt_number: int
+    ) -> RadioAttemptEvidenceSummary | None:
+        """Read content-free post-ceiling evidence, never a resume/send grant."""
+        row = await self._read_one(
+            "SELECT * FROM radio_attempt_evidence_summaries "
+            "WHERE outbox_id=? AND attempt_number=?",
+            (outbox_id, attempt_number),
+        )
+        if row is None:
+            return None
+        try:
+            provenance = msgspec.json.decode(
+                row["provenance_json"], type=DeliveryAttemptProvenance
+            )
+            parts = tuple(
+                RadioPartProgress(**part) for part in json.loads(row["parts_json"])
+            )
+            if (
+                provenance.outbox_id != outbox_id
+                or provenance.attempt_number != attempt_number
+            ):
+                raise ValueError("radio evidence summary identity mismatch")
+            return RadioAttemptEvidenceSummary(provenance, parts, int(row["revision"]))
+        except (ValueError, TypeError, KeyError, msgspec.DecodeError) as exc:
+            raise StorageError("Retained radio evidence summary is invalid") from exc
 
     async def get_latest_radio_attempt(
         self, outbox_id: str, *, before_attempt: int

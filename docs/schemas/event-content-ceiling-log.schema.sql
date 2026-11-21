@@ -2,9 +2,8 @@
 -- ceiling-enforcement transition when one event's immutable hard ceiling
 -- elapsed and the ceiling purge of every enumerated content store committed
 -- and verified. Content-free counters only; presence is the durable fact
--- that enforcement completed and verified its residual battery at commit
--- time, not a guarantee of current absence if later authorized writes occur.
--- It never grants read authority. It does not claim physical erasure of SQLite free
+-- that enforcement completed for this event and no content may be
+-- resurrected for it. It does not claim physical erasure of SQLite free
 -- pages, WAL, provider copies, or backups.
 CREATE TABLE IF NOT EXISTS event_content_ceiling_log (
     event_id TEXT NOT NULL PRIMARY KEY REFERENCES canonical_events(event_id),
