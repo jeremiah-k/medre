@@ -416,6 +416,63 @@ async def test_content_denied_abandonment_fences_new_evidence(temp_storage) -> N
     assert row is not None and row.status == "in_progress"
 
 
+async def test_terminal_abandoned_receipt_records_despite_later_acceptance(
+    temp_storage,
+) -> None:
+    """Recording an explicit abandoned terminal commits even beside acceptance.
+
+    A fresh abandonment decision must never discard an observed acceptance,
+    but committing a terminal receipt that already records abandonment is
+    durable evidence, not a decision — the transition is exempt from the
+    acceptance fence. Without a terminal receipt pointer the same
+    abandonment is still refused.
+    """
+    stored, provenance = await _seed_reserved_claim(temp_storage)
+    item = await _claimed_row(temp_storage, stored.outbox_id, "reclaimer")
+    await append_receipt_with_parent(
+        temp_storage,
+        DeliveryReceipt(
+            receipt_id="late-sent-receipt",
+            event_id=provenance.event_id,
+            delivery_plan_id=provenance.delivery_plan_id,
+            target_adapter=provenance.target_adapter,
+            target_channel=provenance.target_channel,
+            status="sent",
+            outbox_id=provenance.outbox_id,
+            attempt_number=1,
+            source="retry",
+        ),
+    )
+    await append_receipt_with_parent(
+        temp_storage,
+        DeliveryReceipt(
+            receipt_id="explicit-abandoned-receipt",
+            event_id=provenance.event_id,
+            delivery_plan_id=provenance.delivery_plan_id,
+            target_adapter=provenance.target_adapter,
+            target_channel=provenance.target_channel,
+            status="abandoned",
+            outbox_id=provenance.outbox_id,
+            attempt_number=1,
+            source="retry",
+        ),
+    )
+    assert not await temp_storage.mark_outbox_abandoned(
+        item.outbox_id,
+        attempt_number=1,
+        expected_worker_id=item.worker_id,
+    )
+    assert await temp_storage.mark_outbox_abandoned(
+        item.outbox_id,
+        receipt_id="explicit-abandoned-receipt",
+        attempt_number=1,
+        expected_worker_id=item.worker_id,
+    )
+    row = await temp_storage.get_outbox_item(item.outbox_id)
+    assert row is not None and row.status == "abandoned"
+    assert row.receipt_id == "explicit-abandoned-receipt"
+
+
 async def test_receipt_fence_rejects_terminal_transition_after_late_append(
     temp_storage,
 ) -> None:
