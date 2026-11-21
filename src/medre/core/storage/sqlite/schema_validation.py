@@ -20,6 +20,7 @@ from medre.core.storage.sqlite._prerelease_migrate import (
 )
 from medre.core.storage.sqlite.schema import (
     _ADMISSION_ORDER_INDEX_DDL,
+    _ATTACHMENT_CONTENT_REF_INDEX_DDL,
     _CEILING_LOG_DDL,
     _CEILING_ORDER_INDEX_DDL,
     _COLLECTION_LOG_DDL,
@@ -106,6 +107,7 @@ _ADDITIVE_OBJECTS: frozenset[tuple[str, str]] = frozenset(
         ("index", "idx_events_admission_order"),
         ("index", "idx_outbox_snapshot_owner_unique"),
         ("index", "idx_ceiling_enforcement_order"),
+        ("index", "idx_attachment_associations_content_ref"),
     }
 )
 
@@ -213,6 +215,8 @@ def apply_safe_additions(db: sqlite3.Connection) -> None:
         execute_ddl(db, _SNAPSHOT_OWNER_INDEX_DDL)
     if ("index", "idx_ceiling_enforcement_order") not in current:
         execute_ddl(db, _CEILING_ORDER_INDEX_DDL)
+    if ("index", "idx_attachment_associations_content_ref") not in current:
+        execute_ddl(db, _ATTACHMENT_CONTENT_REF_INDEX_DDL)
     if (
         current[("table", "event_content_access_grants")]
         == _known_grant_table_forms()[0]

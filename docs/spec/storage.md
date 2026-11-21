@@ -1989,7 +1989,7 @@ and the named rebuild steps in
 - Recognized missing indexes: `idx_outbox_deadline_cleanup_order`,
   `idx_diagnostics_identity`, `idx_events_admission_order`,
   `idx_outbox_snapshot_owner_unique`, and
-  `idx_ceiling_enforcement_order`.
+  `idx_ceiling_enforcement_order` and `idx_attachment_associations_content_ref`.
 - The exact predecessor of `event_content_access_grants` without nullable
   `expired_at`.
 - The exact predecessor definitions for `operator_delivery_decisions`,

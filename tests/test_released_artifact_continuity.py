@@ -213,6 +213,7 @@ def test_d0_expected_state_allows_only_the_empty_approved_tables(
             "CREATE TABLE _medre_schema_meta (key TEXT PRIMARY KEY, value TEXT);"
             "INSERT INTO _medre_schema_meta VALUES ('schema_version', '1');"
             "CREATE TABLE delivery_outbox (outbox_id TEXT PRIMARY KEY);"
+            "CREATE TABLE event_attachment_associations (content_ref TEXT);"
             "INSERT INTO delivery_outbox VALUES ('work');"
             "CREATE TABLE event_content_access_policies "
             "(hard_ceiling TEXT, event_id TEXT);"
@@ -230,7 +231,7 @@ def test_d0_expected_state_allows_only_the_empty_approved_tables(
         for kind, name, sql in expected["catalog"]:
             if kind == "table" and name in approved:
                 db.execute(sql)
-            elif kind == "index" and name == "idx_ceiling_enforcement_order":
+            elif kind == "index":
                 db.execute(sql)
         assert driver._dump_state(path) == expected
         with db:
@@ -277,8 +278,12 @@ def test_released_010_database_reopens_on_current_wheel(tmp_path: Path) -> None:
     # Writable reopen adds the empty table once and keeps the upgraded state stable.
     reopen = d0["reopen"]
     assert reopen["expected_added_tables"] == [
-        "event_content_ceiling_log",
         "delivery_handoff_settlements",
+        "delivery_handoff_uncertainty",
+        "delivery_observation_scopes",
+        "event_content_ceiling_log",
+        "radio_accepted_part_facts",
+        "radio_attempt_evidence_summaries",
     ]
     assert reopen["schema_version_stamp"] == "1"
     assert reopen["identity_counts"]["canonical_events"] >= 1

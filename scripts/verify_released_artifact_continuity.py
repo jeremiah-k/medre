@@ -412,15 +412,10 @@ def _dump_state(path: Path) -> dict[str, Any]:
     }
 
 
-def _expected_d0_reopen_state(released: dict[str, Any]) -> dict[str, Any]:
-    """The exact 0.1.0 state after the approved table additions."""
-    _require(
-        _HANDOFF_SETTLEMENTS not in released["rows"],
-        "the released database already contains the handoff settlement table",
-    )
+def _d0_added_tables() -> tuple[tuple[str, str], ...]:
     _CEILING_LOG = "event_content_ceiling_log"
     _HANDOFF_FACTS = "docs/schemas/current/content-free-handoff-facts.schema.sql"
-    added = (
+    return (
         (
             _HANDOFF_SETTLEMENTS,
             "docs/schemas/handoff-settlements.schema.sql",
@@ -434,6 +429,11 @@ def _expected_d0_reopen_state(released: dict[str, Any]) -> dict[str, Any]:
         ("radio_attempt_evidence_summaries", _HANDOFF_FACTS),
         ("delivery_observation_scopes", _HANDOFF_FACTS),
     )
+
+
+def _expected_d0_reopen_state(released: dict[str, Any]) -> dict[str, Any]:
+    """The exact 0.1.0 state after the approved table additions."""
+    added = _d0_added_tables()
     entries = []
     for table, export in added:
         _require(
@@ -449,27 +449,24 @@ def _expected_d0_reopen_state(released: dict[str, Any]) -> dict[str, Any]:
             ).fetchone()
         _require(entry is not None, f"the {table} table definition is missing")
         entries.append(entry)
-    # The additive ceiling-ordering index completes the approved additions;
-    # a single-line DDL keeps its stored text reproducible here.
-    with closing(sqlite3.connect(":memory:")) as reference:
-        reference.execute(
-            "CREATE TABLE event_content_access_policies (hard_ceiling TEXT, event_id TEXT)"
+    # Pin the catalog text for both additive indexes independently of the runtime.
+    entries.extend(
+        (
+            (
+                "index",
+                "idx_ceiling_enforcement_order",
+                "CREATE INDEX idx_ceiling_enforcement_order ON event_content_access_policies(hard_ceiling, event_id)",
+            ),
+            (
+                "index",
+                "idx_attachment_associations_content_ref",
+                "CREATE INDEX idx_attachment_associations_content_ref ON event_attachment_associations(content_ref)",
+            ),
         )
-        reference.execute(
-            "CREATE INDEX IF NOT EXISTS idx_ceiling_enforcement_order "
-            "ON event_content_access_policies(hard_ceiling, event_id)"
-        )
-        index_entry = reference.execute(
-            "SELECT type,name,sql FROM sqlite_master WHERE type='index' "
-            "AND name='idx_ceiling_enforcement_order'"
-        ).fetchone()
-    _require(
-        index_entry is not None,
-        "the ceiling enforcement index definition is missing",
     )
     return {
         **released,
-        "catalog": sorted([*released["catalog"], *entries, index_entry]),
+        "catalog": sorted([*released["catalog"], *entries]),
         "rows": {
             **released["rows"],
             **{table: [] for table, _export in added},
@@ -754,10 +751,7 @@ def _scenario_d0(sandbox: Path, cache: Path) -> dict[str, Any]:
             "table_count": len(before["rows"]),
             "schema_version_stamp": before["schema_version_stamp"],
             "opens": opens,
-            "expected_added_tables": [
-                "event_content_ceiling_log",
-                _HANDOFF_SETTLEMENTS,
-            ],
+            "expected_added_tables": sorted(table for table, _ in _d0_added_tables()),
             "persisted_changes_detected": persisted_changes_detected,
             "migration_evidence_scope": "exact persisted state comparison against the approved additive layout",
             "consumer_cli_catalog_current": "Catalog: current" in consumer_status,

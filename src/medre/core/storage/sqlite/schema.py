@@ -676,6 +676,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_null_channel_unique
 -- whole policy table: elapsed ceilings page in a stable (hard_ceiling,
 -- event_id) keyset ordering.
 CREATE INDEX IF NOT EXISTS idx_ceiling_enforcement_order ON event_content_access_policies(hard_ceiling, event_id);
+CREATE INDEX IF NOT EXISTS idx_attachment_associations_content_ref ON event_attachment_associations(content_ref);
 """
 
 # ---------------------------------------------------------------------------
@@ -1460,7 +1461,13 @@ _PRESSURE_OUTAGE_GAPS_DDL = _SCHEMA[
 ]
 
 # Exact additive index for bounded ceiling-enforcement candidate discovery,
-# derived verbatim from the same index catalog (it closes the catalog).
+# derived verbatim from the same index catalog.
+_ATTACHMENT_INDEX_START = _INDEXES.index(
+    "CREATE INDEX IF NOT EXISTS idx_attachment_associations_content_ref"
+)
 _CEILING_ORDER_INDEX_DDL = _INDEXES[
-    _INDEXES.index("-- Hard-ceiling enforcement resumes in ceiling order") :
+    _INDEXES.index(
+        "-- Hard-ceiling enforcement resumes in ceiling order"
+    ) : _ATTACHMENT_INDEX_START
 ]
+_ATTACHMENT_CONTENT_REF_INDEX_DDL = _INDEXES[_ATTACHMENT_INDEX_START:]

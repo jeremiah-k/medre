@@ -54,6 +54,7 @@ _CEILING_ADDITIONS = (
     ("table", "delivery_observation_scopes"),
     ("table", "radio_attempt_evidence_summaries"),
     ("index", "idx_ceiling_enforcement_order"),
+    ("index", "idx_attachment_associations_content_ref"),
 )
 _RELEASED_010_ADDITIONS = (("table", _HANDOFF_SETTLEMENTS), *_CEILING_ADDITIONS)
 # SQLite catalog from tag 0.2.2 (dd2b50899c7bc1f6fff2abe7594d8ea3dc7809d5).
@@ -328,7 +329,8 @@ def test_released_catalog_assessment_reports_upgrade_then_current(
         assert assessment.classification is CatalogCompatibility.SUPPORTED_UPGRADE
         assert assessment.stored_version == "1"
         assert assessment.detail == (
-            "missing objects: index idx_ceiling_enforcement_order, "
+            "missing objects: index idx_attachment_associations_content_ref, "
+            "index idx_ceiling_enforcement_order, "
             "table delivery_handoff_settlements, table delivery_handoff_uncertainty, "
             "table delivery_observation_scopes, "
             "table event_content_ceiling_log, table radio_accepted_part_facts, "

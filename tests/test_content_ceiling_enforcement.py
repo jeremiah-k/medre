@@ -606,6 +606,25 @@ async def test_first_time_enforcement_advances_across_a_page_of_receipts(
     assert [item.event_id for item in enforced] == [pending]
 
 
+async def test_receipt_cursor_preserves_unexamined_short_page(
+    temp_storage: SQLiteStorage,
+) -> None:
+    prior = [f"ceiling-done-{index:02}" for index in range(25)]
+    for event_id in prior:
+        await _admit_with_ceiling(temp_storage, event_id)
+    now = await _read_ceiling(temp_storage, prior[-1]) + timedelta(seconds=1)
+    assert len(await temp_storage.enforce_content_ceilings(now=now, limit=25)) == 25
+    assert await temp_storage.enforce_content_ceilings(now=now, limit=1) == []
+    pending = ["ceiling-unprocessed-first", "ceiling-unprocessed-second"]
+    for event_id in pending:
+        await _admit_with_ceiling(temp_storage, event_id)
+    now = await _read_ceiling(temp_storage, pending[-1]) + timedelta(seconds=1)
+    assert await temp_storage.enforce_content_ceilings(now=now, limit=1) == []
+    for event_id in pending:
+        outcomes = await temp_storage.enforce_content_ceilings(now=now, limit=1)
+        assert [outcome.event_id for outcome in outcomes] == [event_id]
+
+
 async def test_evidence_reads_hide_provider_values_at_expiry_without_receipt(
     temp_storage: SQLiteStorage,
     monkeypatch,

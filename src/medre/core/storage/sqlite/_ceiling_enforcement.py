@@ -209,11 +209,11 @@ _RESIDUAL_BATTERY: tuple[tuple[str, str], ...] = (
     # the corresponding blob, even though the blob has no event_id column.
     (
         "attachment_blobs:last_reference",
-        "EXISTS (SELECT 1 FROM attachment_blobs b WHERE EXISTS ("  # nosec B608 - closed module-owned fragment
-        "SELECT 1 FROM event_attachment_associations a "
-        "WHERE a.event_id={ev} AND a.content_ref=b.content_ref) "
+        "EXISTS (SELECT 1 FROM event_attachment_associations a "  # nosec B608 - closed module-owned fragment
+        "JOIN attachment_blobs b ON b.content_ref=a.content_ref "
+        "WHERE a.event_id={ev} "
         "AND NOT EXISTS (SELECT 1 FROM event_attachment_associations other "
-        "WHERE other.content_ref=b.content_ref AND other.event_id<>{ev}))",
+        "WHERE other.content_ref=a.content_ref AND other.event_id<>{ev}))",
     ),
 )
 
@@ -643,9 +643,8 @@ def _measure_and_purge(
     ]
     blobs = db.execute(
         "SELECT COUNT(*), COALESCE(SUM(b.size_bytes), 0) "
-        "FROM attachment_blobs b WHERE EXISTS ("
-        "SELECT 1 FROM event_attachment_associations a "
-        "WHERE a.content_ref=b.content_ref AND a.event_id=?) "
+        "FROM event_attachment_associations a JOIN attachment_blobs b "
+        "ON b.content_ref=a.content_ref WHERE a.event_id=? "
         "AND NOT EXISTS (SELECT 1 FROM event_attachment_associations other "
         "WHERE other.content_ref=b.content_ref AND other.event_id<>?)",
         (event_id, event_id),
@@ -889,10 +888,9 @@ def sync_enforce_content_ceilings(
                     first_time += 1
                     if first_time >= limit:
                         break
-                if len(page) < page_size or (last_ceiling, last_event_id) >= (
-                    upper_ceiling,
-                    upper_event_id,
-                ):
+                if (
+                    len(page) < page_size and last_event_id == str(page[-1]["event_id"])
+                ) or (last_ceiling, last_event_id) >= (upper_ceiling, upper_event_id):
                     last_ceiling = last_event_id = ""
                     upper_ceiling = upper_event_id = ""
                     break
