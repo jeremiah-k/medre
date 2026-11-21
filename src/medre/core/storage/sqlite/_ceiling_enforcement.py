@@ -274,11 +274,11 @@ _CEILING_RESIDUAL_SQL = "SELECT " + " + ".join(
     for predicate in _residual_fragments(":ev")
 )
 
-#: Page all elapsed policies before filtering by receipt so LIMIT bounds
-#: the policies visited under the writer lock, even in a mostly clean store.
+#: Page unreceipted elapsed policies so LIMIT bounds the policies visited
+#: under the writer lock, even in a mostly clean store. Every row in a
+#: page is by construction not yet enforced.
 _CEILING_POLICY_PAGE_SQL = """
-    SELECT p.event_id, p.hard_ceiling,
-           0 AS enforced
+    SELECT p.event_id, p.hard_ceiling
       FROM event_content_access_policies AS p
      WHERE p.hard_ceiling <= ?
        AND NOT EXISTS (
@@ -852,8 +852,6 @@ def sync_enforce_content_ceilings(
                     examined += 1
                     last_ceiling = str(row["hard_ceiling"])
                     last_event_id = str(row["event_id"])
-                    if row["enforced"]:
-                        continue
                     event_id = str(row["event_id"])
                     ceiling = str(row["hard_ceiling"])
                     (

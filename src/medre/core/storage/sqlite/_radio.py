@@ -318,6 +318,10 @@ class _RadioMixin:
         def bind(db: sqlite3.Connection) -> StoredRadioAttempt | None:
             if not _owns(db, provenance, worker_id):
                 return None
+            # The clock read must stay inside this closure: _radio_transaction
+            # runs bind under the storage lock, so the ceiling is evaluated at
+            # execution time. Hoisting this probe out would silently revert it
+            # to statement-build-time evaluation.
             if db.execute(
                 "SELECT "
                 + event_content_denied_sql(
