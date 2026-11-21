@@ -522,34 +522,50 @@ class TestNoDeleteInStorageModule:
     """
 
     def test_only_classified_content_rows_are_deleted(self) -> None:
-        delete_pattern = re.compile(r"\bDELETE\s+FROM\b", re.IGNORECASE)
+        delete_pattern = re.compile(
+            r"\bDELETE\s+FROM\s+([A-Za-z_][A-Za-z_0-9]*)", re.IGNORECASE
+        )
         permitted = {"event_body_content", "event_relation_excerpts"}
         found: set[str] = set()
         violations: list[str] = []
         for py_file in _sqlite_source_files():
             for line_no, line in enumerate(py_file.read_text().split("\n"), 1):
-                stripped = line.lstrip()
-                if stripped.startswith("#") or not delete_pattern.search(line):
+                if line.lstrip().startswith("#"):
                     continue
-                if py_file.name == "_collection.py":
-                    matches = {table for table in permitted if table in line}
-                    if len(matches) == 1:
-                        found.update(matches)
+                destinations = [
+                    match.group(1) for match in delete_pattern.finditer(line)
+                ]
+                for target in destinations:
+                    if py_file.name == "_collection.py" and target in permitted:
+                        found.add(target)
                         continue
-                # Frozen work context is an owned, transient projection, not
-                # durable delivery evidence. Its one exact-table DELETE is
-                # guarded by a terminal transition in the same transaction.
-                if (
-                    py_file.name == "statements.py"
-                    and line.strip()
-                    == "DELETE FROM delivery_outbox_snapshots WHERE outbox_id = ?"
-                ):
-                    continue
-                violations.append(f"{py_file.name}:{line_no}: {line.strip()}")
+                    # Only the exact, terminal-guarded snapshot delete is exempt.
+                    if (
+                        py_file.name == "statements.py"
+                        and target == "delivery_outbox_snapshots"
+                        and line.strip()
+                        == "DELETE FROM delivery_outbox_snapshots WHERE outbox_id = ?"
+                    ):
+                        continue
+                    violations.append(f"{py_file.name}:{line_no}: DELETE FROM {target}")
         assert not violations, "Unexpected storage DELETE operations: " + repr(
             violations
         )
         assert found == permitted
+
+    def test_multiple_delete_destinations_on_one_line_are_all_checked(self) -> None:
+        """A permitted first DELETE must not mask a prohibited second one."""
+        source = "DELETE FROM event_body_content; DELETE FROM delivery_receipts"
+        destinations = re.findall(
+            r"\bDELETE\s+FROM\s+([A-Za-z_][A-Za-z_0-9]*)",
+            source,
+            re.IGNORECASE,
+        )
+        assert destinations == ["event_body_content", "delivery_receipts"]
+        assert set(destinations) - {
+            "event_body_content",
+            "event_relation_excerpts",
+        } == {"delivery_receipts"}
 
     def test_no_delete_method_on_storage(self) -> None:
         """SQLiteStorage has no delete/remove method.
