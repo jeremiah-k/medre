@@ -121,6 +121,23 @@ CREATE TABLE IF NOT EXISTS event_content_collection_log (
     logical_bytes_removed INTEGER NOT NULL CHECK (logical_bytes_removed >= 0)
 );
 
+-- Immutable hard-ceiling enforcement receipt. Written by the guarded
+-- ceiling-enforcement transition when one event's immutable hard ceiling
+-- elapsed and the ceiling purge of every enumerated content store committed
+-- and verified. Content-free counters only; presence is the durable fact
+-- that enforcement completed for this event and no content may be
+-- resurrected for it. It does not claim physical erasure of SQLite free
+-- pages, WAL, provider copies, or backups.
+CREATE TABLE IF NOT EXISTS event_content_ceiling_log (
+    event_id TEXT PRIMARY KEY REFERENCES canonical_events(event_id),
+    enforced_at TEXT NOT NULL,
+    ceiling TEXT NOT NULL,
+    rows_removed INTEGER NOT NULL CHECK (rows_removed >= 0),
+    logical_bytes_removed INTEGER NOT NULL CHECK (logical_bytes_removed >= 0),
+    blobs_removed INTEGER NOT NULL CHECK (blobs_removed >= 0),
+    blob_bytes_removed INTEGER NOT NULL CHECK (blob_bytes_removed >= 0)
+);
+
 -- Durable content-retention activation epochs. One append-only row per
 -- relay-only policy activation; the admission watermark is the store's
 -- maximum local admission created_at observed inside the activation
@@ -618,6 +635,10 @@ CREATE INDEX IF NOT EXISTS idx_ingress_work_claim
 CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_null_channel_unique
     ON delivery_outbox(event_id, delivery_plan_id, target_adapter, attempt_number)
     WHERE target_channel IS NULL;
+-- Hard-ceiling enforcement resumes in ceiling order without sorting the
+-- whole policy table: elapsed ceilings page in a stable (hard_ceiling,
+-- event_id) keyset ordering.
+CREATE INDEX IF NOT EXISTS idx_ceiling_enforcement_order ON event_content_access_policies(hard_ceiling, event_id);
 """
 
 # ---------------------------------------------------------------------------
@@ -674,6 +695,17 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
     ),
     "event_content_collection_log": frozenset(
         {"event_id", "collected_at", "policy", "rows_removed", "logical_bytes_removed"}
+    ),
+    "event_content_ceiling_log": frozenset(
+        {
+            "event_id",
+            "enforced_at",
+            "ceiling",
+            "rows_removed",
+            "logical_bytes_removed",
+            "blobs_removed",
+            "blob_bytes_removed",
+        }
     ),
     "content_retention_epochs": frozenset(
         {
@@ -970,6 +1002,9 @@ _REQUIRED_UNIQUE_CONSTRAINTS: dict[str, frozenset[tuple[str, ...]]] = {
 
 _REQUIRED_FOREIGN_KEYS: dict[str, frozenset[tuple[str, str, str]]] = {
     "event_routing_facts": frozenset({("event_id", "canonical_events", "event_id")}),
+    "event_content_ceiling_log": frozenset(
+        {("event_id", "canonical_events", "event_id")}
+    ),
     "delivery_handoff_settlements": frozenset(
         {("outbox_id", "delivery_outbox", "outbox_id")}
     ),
@@ -1247,6 +1282,15 @@ _REQUIRED_CHECK_CONSTRAINTS: dict[str, tuple[tuple[str, str], ...]] = {
 # This prevents fresh and additive-upgraded databases from diverging.
 _COLLECTION_LOG_DDL = _SCHEMA[
     _SCHEMA.index("-- Immutable logical-collection receipt.") : _SCHEMA.index(
+        "-- Immutable hard-ceiling enforcement receipt."
+    )
+]
+
+# The approved additive hard-ceiling enforcement receipt derives verbatim
+# from the same authoritative schema, ending at the collection log's
+# successor object.
+_CEILING_LOG_DDL = _SCHEMA[
+    _SCHEMA.index("-- Immutable hard-ceiling enforcement receipt.") : _SCHEMA.index(
         "-- Durable content-retention activation epochs."
     )
 ]
@@ -1350,4 +1394,10 @@ _PRESSURE_OUTAGE_GAPS_DDL = _SCHEMA[
     _SCHEMA.index(
         "-- Accounting-gap records for admission-gate refusal"
     ) : _SCHEMA.index("CREATE TABLE IF NOT EXISTS plugin_state")
+]
+
+# Exact additive index for bounded ceiling-enforcement candidate discovery,
+# derived verbatim from the same index catalog (it closes the catalog).
+_CEILING_ORDER_INDEX_DDL = _INDEXES[
+    _INDEXES.index("-- Hard-ceiling enforcement resumes in ceiling order") :
 ]

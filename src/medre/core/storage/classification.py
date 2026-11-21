@@ -157,6 +157,19 @@ STORAGE_COLUMN_CLASSES: dict[str, dict[str, ColumnClass]] = {
         "rows_removed": ColumnClass.IMMUTABLE_IDENTITY,
         "logical_bytes_removed": ColumnClass.IMMUTABLE_IDENTITY,
     },
+    # Immutable hard-ceiling enforcement receipt: content-free counters and
+    # the elapsed ceiling instant, written once by the guarded ceiling
+    # enforcement transition and never rewritten. Presence is the durable
+    # fact that the ceiling purge committed and verified for this event.
+    "event_content_ceiling_log": {
+        "event_id": ColumnClass.IMMUTABLE_IDENTITY,
+        "enforced_at": ColumnClass.IMMUTABLE_IDENTITY,
+        "ceiling": ColumnClass.IMMUTABLE_IDENTITY,
+        "rows_removed": ColumnClass.IMMUTABLE_IDENTITY,
+        "logical_bytes_removed": ColumnClass.IMMUTABLE_IDENTITY,
+        "blobs_removed": ColumnClass.IMMUTABLE_IDENTITY,
+        "blob_bytes_removed": ColumnClass.IMMUTABLE_IDENTITY,
+    },
     # Durable relay-only activation epochs. Every column is the activation
     # boundary the retention worker relies on and none holds content: the
     # AUTOINCREMENT epoch number is written once identity, the closed mode

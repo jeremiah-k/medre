@@ -30,6 +30,7 @@ in a document under this tree.
 | [routing-delivery.md](routing-delivery.md)                             | Route matching, fanout, delivery plans, receipts                    |
 | [storage.md](storage.md)                                               | SQLite schema, append-only guarantees, replay semantics             |
 | [content-retention.md](content-retention.md)                           | Content surfaces, consumers, and read-only logical-byte accounting  |
+| [content-privacy-ceiling.md](content-privacy-ceiling.md)               | The hard content privacy ceiling: invariant and store census        |
 | [storage-column-classification.md](storage-column-classification.md)   | Column-level ownership classes over every persistent storage column |
 | [accepted-context-ownership.md](accepted-context-ownership.md)         | Ownership boundary for persisted accepted-event context             |
 | [state-machines.md](state-machines.md)                                 | Receipt and outbox transition graphs                                |

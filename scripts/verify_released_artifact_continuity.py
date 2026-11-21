@@ -413,25 +413,62 @@ def _dump_state(path: Path) -> dict[str, Any]:
 
 
 def _expected_d0_reopen_state(released: dict[str, Any]) -> dict[str, Any]:
-    """The exact 0.1.0 state after the approved table addition."""
+    """The exact 0.1.0 state after the approved table additions."""
     _require(
         _HANDOFF_SETTLEMENTS not in released["rows"],
         "the released database already contains the handoff settlement table",
     )
-    ddl = (_REPO_ROOT / "docs/schemas/handoff-settlements.schema.sql").read_text(
-        encoding="utf-8"
+    _CEILING_LOG = "event_content_ceiling_log"
+    added = (
+        (
+            _HANDOFF_SETTLEMENTS,
+            "docs/schemas/handoff-settlements.schema.sql",
+        ),
+        (
+            _CEILING_LOG,
+            "docs/schemas/event-content-ceiling-log.schema.sql",
+        ),
     )
+    entries = []
+    for table, export in added:
+        _require(
+            table not in released["rows"],
+            f"the released database already contains the {table} table",
+        )
+        ddl = (_REPO_ROOT / export).read_text(encoding="utf-8")
+        with closing(sqlite3.connect(":memory:")) as reference:
+            reference.executescript(ddl)
+            entry = reference.execute(
+                "SELECT type,name,sql FROM sqlite_master WHERE type='table' AND name=?",
+                (table,),
+            ).fetchone()
+        _require(entry is not None, f"the {table} table definition is missing")
+        entries.append(entry)
+    # The additive ceiling-ordering index completes the approved additions;
+    # a single-line DDL keeps its stored text reproducible here.
     with closing(sqlite3.connect(":memory:")) as reference:
-        reference.executescript(ddl)
-        entry = reference.execute(
-            "SELECT type,name,sql FROM sqlite_master WHERE type='table' AND name=?",
-            (_HANDOFF_SETTLEMENTS,),
+        reference.execute(
+            "CREATE TABLE event_content_access_policies (hard_ceiling TEXT, event_id TEXT)"
+        )
+        reference.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ceiling_enforcement_order "
+            "ON event_content_access_policies(hard_ceiling, event_id)"
+        )
+        index_entry = reference.execute(
+            "SELECT type,name,sql FROM sqlite_master WHERE type='index' "
+            "AND name='idx_ceiling_enforcement_order'"
         ).fetchone()
-    _require(entry is not None, "the handoff settlement table definition is missing")
+    _require(
+        index_entry is not None,
+        "the ceiling enforcement index definition is missing",
+    )
     return {
         **released,
-        "catalog": sorted([*released["catalog"], entry]),
-        "rows": {**released["rows"], _HANDOFF_SETTLEMENTS: []},
+        "catalog": sorted([*released["catalog"], *entries, index_entry]),
+        "rows": {
+            **released["rows"],
+            **{table: [] for table, _export in added},
+        },
     }
 
 
@@ -613,8 +650,7 @@ def _scenario_d0(sandbox: Path, cache: Path) -> dict[str, Any]:
             and o["foreign_keys_clean"]
             for o in opens
         ),
-        "writable reopen differs from the released state plus the empty "
-        "handoff settlement table",
+        "writable reopen differs from the released state plus the empty approved additive tables",
     )
     stamp_changed = any(
         o["schema_version_stamp"] != before["schema_version_stamp"] for o in opens
@@ -713,7 +749,10 @@ def _scenario_d0(sandbox: Path, cache: Path) -> dict[str, Any]:
             "table_count": len(before["rows"]),
             "schema_version_stamp": before["schema_version_stamp"],
             "opens": opens,
-            "expected_added_tables": [_HANDOFF_SETTLEMENTS],
+            "expected_added_tables": [
+                "event_content_ceiling_log",
+                _HANDOFF_SETTLEMENTS,
+            ],
             "persisted_changes_detected": persisted_changes_detected,
             "migration_evidence_scope": "exact persisted state comparison against the approved additive layout",
             "consumer_cli_catalog_current": "Catalog: current" in consumer_status,

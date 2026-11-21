@@ -20,6 +20,8 @@ from medre.core.storage.sqlite._prerelease_migrate import (
 )
 from medre.core.storage.sqlite.schema import (
     _ADMISSION_ORDER_INDEX_DDL,
+    _CEILING_LOG_DDL,
+    _CEILING_ORDER_INDEX_DDL,
     _COLLECTION_LOG_DDL,
     _DEADLINE_CLEANUP_INDEX_DDL,
     _DIAGNOSTICS_DDL,
@@ -87,6 +89,7 @@ def _known_grant_table_forms() -> tuple[str, str]:
 _ADDITIVE_OBJECTS: frozenset[tuple[str, str]] = frozenset(
     {
         ("table", "event_content_collection_log"),
+        ("table", "event_content_ceiling_log"),
         ("table", "content_retention_epochs"),
         ("table", "delivery_evidence_diagnostics"),
         ("table", "event_routing_facts"),
@@ -97,6 +100,7 @@ _ADDITIVE_OBJECTS: frozenset[tuple[str, str]] = frozenset(
         ("index", "idx_diagnostics_identity"),
         ("index", "idx_events_admission_order"),
         ("index", "idx_outbox_snapshot_owner_unique"),
+        ("index", "idx_ceiling_enforcement_order"),
     }
 )
 
@@ -173,6 +177,8 @@ def apply_safe_additions(db: sqlite3.Connection) -> None:
     current = _definitions(db)
     if ("table", "event_content_collection_log") not in current:
         execute_ddl(db, _COLLECTION_LOG_DDL)
+    if ("table", "event_content_ceiling_log") not in current:
+        execute_ddl(db, _CEILING_LOG_DDL)
     if ("table", "content_retention_epochs") not in current:
         execute_ddl(db, _RETENTION_EPOCHS_DDL)
     if ("table", "delivery_evidence_diagnostics") not in current:
@@ -193,6 +199,8 @@ def apply_safe_additions(db: sqlite3.Connection) -> None:
         execute_ddl(db, _ADMISSION_ORDER_INDEX_DDL)
     if ("index", "idx_outbox_snapshot_owner_unique") not in current:
         execute_ddl(db, _SNAPSHOT_OWNER_INDEX_DDL)
+    if ("index", "idx_ceiling_enforcement_order") not in current:
+        execute_ddl(db, _CEILING_ORDER_INDEX_DDL)
     if (
         current[("table", "event_content_access_grants")]
         == _known_grant_table_forms()[0]
