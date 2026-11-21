@@ -106,10 +106,8 @@ async def test_ceiling_sweep_failure_is_isolated(
 ) -> None:
     """A failing enforcement step never takes the delivery poll down."""
 
-    async def failing(*, now=None, limit=50):
-        raise RuntimeError("synthetic ceiling sweep failure")
-
-    monkeypatch.setattr(temp_storage, "enforce_content_ceilings", failing)
+    sweep_mock = AsyncMock(side_effect=RuntimeError("synthetic ceiling sweep failure"))
+    monkeypatch.setattr(temp_storage, "enforce_content_ceilings", sweep_mock)
     claims = AsyncMock(wraps=temp_storage.claim_due_outbox_items)
     monkeypatch.setattr(temp_storage, "claim_due_outbox_items", claims)
     runner, _, _ = _pipeline(temp_storage)
@@ -128,8 +126,10 @@ async def test_ceiling_sweep_failure_is_isolated(
     assert worker.state.ceiling_sweep_errors == 1
     assert worker.state.ceiling_sweep_runs == 0
     assert claims.await_count == 1  # failed sweep did not skip delivery
-    succeeded = AsyncMock(return_value=[])
-    monkeypatch.setattr(temp_storage, "enforce_content_ceilings", succeeded)
+    # The worker binds the sweep step at construction, so recovery flips
+    # the same mock instead of rebinding the storage attribute.
+    sweep_mock.side_effect = None
+    sweep_mock.return_value = []
     # The due timer uses the supplied clock; no arbitrary sleeps.
     await worker._process_due(now + timedelta(seconds=61))
     assert worker.state.ceiling_sweep_runs == 1
