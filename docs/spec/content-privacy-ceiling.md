@@ -123,11 +123,11 @@ The guarded ceiling-enforcement transition is a single mutation boundary:
 - Candidate discovery MUST be bounded per invocation with a durable keyset
   cursor that wraps at queue end, so backdated admissions are still
   enforced and one event can never starve others.
-- Each sweep MUST reserve a distinct bounded budget for unenforced ceilings,
-  independent of the bounded residual-repair policy page; residual repairs MUST
-  NOT starve newly elapsed events. The residual cursor MUST wrap to detect
-  late writes behind its prior position. Each audit finding MUST distinguish
-  sole-owner attachment blobs from shared associations.
+- Each sweep MUST bound the number of elapsed policies examined for first-time
+  enforcement, including policies that already have a receipt. This budget
+  MUST be independent of the residual-repair receipt page. The residual cursor
+  MUST wrap to detect late writes behind its prior position. Each audit finding
+  MUST distinguish sole-owner attachment blobs from shared associations.
 - For each elapsed ceiling without a receipt it MUST: measure the values
   it removes; purge per the census classes; tombstone every live optional
   grant and release every unsettled dependency (the ceiling supersedes
