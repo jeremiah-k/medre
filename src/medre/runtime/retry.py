@@ -1444,18 +1444,15 @@ class RetryWorker:
                     # radio checkpoint or provider acceptance can still settle.
                     try:
                         attempt = item.active_attempt or item.attempt_number
-                        receipts = (
-                            await self._lifecycle_storage.list_receipts_for_outbox(
-                                item.outbox_id
+                        current_receipts = (
+                            await self._lifecycle.list_attempt_receipts(
+                                self._lifecycle_storage,
+                                item.outbox_id,
+                                attempt,
                             )
                             if attempt
                             else []
                         )
-                        current_receipts = [
-                            receipt
-                            for receipt in receipts
-                            if receipt.attempt_number == attempt
-                        ]
                         resolved: (
                             RetryAttemptFinalization | UncertainHandoffResolution | None
                         )

@@ -100,6 +100,7 @@ def _lifecycle(recheck_result) -> MagicMock:
     lifecycle = MagicMock()
     lifecycle.reconcile_retry_claim = AsyncMock(return_value=None)
     lifecycle.recheck_last_uncertain_handoff = AsyncMock(return_value=recheck_result)
+    lifecycle.list_attempt_receipts = AsyncMock(return_value=[])
     lifecycle.reserve_retry_attempt = AsyncMock(return_value=None)
     lifecycle.abandon_retry_outbox = AsyncMock(return_value=None)
     return lifecycle
@@ -440,7 +441,8 @@ async def test_expired_dispatch_context_fences_existing_failed_receipt():
     item = _gated_item(failure_kind_detail=None)
     storage = _retained_storage()
     storage.read_event_for_outbox.return_value = SimpleNamespace(status="expired")
-    storage.list_receipts_for_outbox = AsyncMock(
+    lifecycle = _lifecycle(recheck_result=None)
+    lifecycle.list_attempt_receipts = AsyncMock(
         return_value=[
             DeliveryReceipt(
                 receipt_id="failed-before-expiry",
@@ -453,7 +455,6 @@ async def test_expired_dispatch_context_fences_existing_failed_receipt():
             )
         ]
     )
-    lifecycle = _lifecycle(recheck_result=None)
     worker, pipeline = _worker(storage, lifecycle)
 
     await worker._retry_outbox_item(item)

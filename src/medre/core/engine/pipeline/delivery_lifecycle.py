@@ -1707,6 +1707,22 @@ class DeliveryLifecycleService:
             lease_until,
         )
 
+    async def list_attempt_receipts(
+        self,
+        storage: DeliveryLifecycleStorage,
+        outbox_id: str,
+        attempt_number: int,
+    ) -> list[DeliveryReceipt]:
+        """List the immutable receipt history for one exact outbox attempt.
+
+        The exact-attempt view backs evidence-fenced terminal decisions:
+        receipts from any other attempt never inflate the observed count.
+        """
+        receipts = await storage.list_receipts_for_outbox(outbox_id)
+        return [
+            receipt for receipt in receipts if receipt.attempt_number == attempt_number
+        ]
+
     async def reconcile_retry_claim(
         self,
         storage: DeliveryLifecycleStorage,
