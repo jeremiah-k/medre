@@ -1323,6 +1323,15 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                     expected_checkpoint_revision,
                 )
             )
+        if new_status == "abandoned":
+            # A second receipt read after reconciliation is not evidence
+            # authority: it can see an acceptance that reconciliation did
+            # not. Refuse abandonment even when the supplied count matches.
+            where_clauses.append(
+                "NOT EXISTS (SELECT 1 FROM delivery_receipts accepted "
+                "WHERE accepted.outbox_id=delivery_outbox.outbox_id "
+                "AND accepted.status IN ('sent', 'queued'))"
+            )
         if expected_worker_id is not None:
             where_clauses.append("worker_id = ?")
             params.append(expected_worker_id)

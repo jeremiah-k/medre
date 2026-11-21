@@ -7,9 +7,8 @@ Authority surface:
     the ``direction`` column (real directional value, not a placeholder).
     Same native identity must not silently remap to a different canonical
     event (first-writer-wins via resolve-before-insert + INSERT OR IGNORE).
-    NULL ``native_channel_id`` requires explicit dedup because SQL UNIQUE
-    treats NULL != NULL; the resolve-before-insert uses ``IS`` for proper
-    NULL comparison.
+    NULL ``native_channel_id`` needs an additional exact-tuple INSERT guard
+    because the schema's UNIQUE constraint does not deduplicate NULLs.
   - resolve_native_ref: **list/get** (read-only).  No mutation.
   - get_native_ref:     **list/get** (read-only).
   - list_native_refs_for_event: **list/get** (read-only).
@@ -49,9 +48,14 @@ def _native_ref_insert_params(ref: NativeMessageRef) -> tuple[object, ...]:
         ref.native_thread_id,
         ref.native_relation_id,
         ref.direction,
-        ref.event_id,  # Recheck ceiling inside the atomic INSERT statement.
+        ref.event_id,  # Compare installed ceiling in the atomic INSERT.
+        CEILING_CLOCK_AT_EXECUTION,
+        ref.event_id,  # A committed receipt remains authoritative after clock rollback.
         _encode_json(ref.metadata),
         ref.created_at.isoformat(),
+        ref.adapter,
+        ref.native_channel_id,
+        ref.native_message_id,
     )
 
 

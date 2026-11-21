@@ -274,16 +274,13 @@ _CEILING_RESIDUAL_SQL = "SELECT " + " + ".join(
     for predicate in _residual_fragments(":ev")
 )
 
-#: Page unreceipted elapsed policies so LIMIT bounds the policies visited
-#: under the writer lock, even in a mostly clean store. Every row in a
-#: page is by construction not yet enforced.
+#: Bound *policy visits*, not just missing-receipt matches: a NOT EXISTS
+#: filter before LIMIT scans arbitrarily many clean policies under BEGIN
+#: IMMEDIATE. Every visited key advances the cursor, even with a receipt.
 _CEILING_POLICY_PAGE_SQL = """
     SELECT p.event_id, p.hard_ceiling
       FROM event_content_access_policies AS p
      WHERE p.hard_ceiling <= ?
-       AND NOT EXISTS (
-           SELECT 1 FROM event_content_ceiling_log l WHERE l.event_id=p.event_id
-       )
        AND (p.hard_ceiling, p.event_id) > (?, ?)
        AND (p.hard_ceiling, p.event_id) <= (?, ?)
      ORDER BY p.hard_ceiling ASC, p.event_id ASC
@@ -477,7 +474,7 @@ def _measure_and_purge(
         "SELECT observation_id, outbox_id, attempt_number, metadata "
         "FROM delivery_observations WHERE event_id=? AND metadata<>'{}'",
         (event_id,),
-    ).fetchall():
+    ):
         try:
             metadata = json.loads(observation["metadata"])
         except (TypeError, ValueError):
@@ -541,7 +538,8 @@ def _measure_and_purge(
         "SELECT COUNT(*), COALESCE(SUM("
         "length(CAST(p.plan_json AS BLOB)) + "
         "length(CAST(p.provenance_json AS BLOB)) + "
-        "length(CAST(p.parts_json AS BLOB))), 0) "
+        "length(CAST(p.parts_json AS BLOB)) + "
+        "COALESCE(length(CAST(p.plan_fingerprint AS BLOB)), 0)), 0) "
         "FROM radio_attempt_progress p JOIN delivery_outbox o "
         "ON o.outbox_id=p.outbox_id WHERE o.event_id=?",
         (event_id,),
@@ -552,7 +550,7 @@ def _measure_and_purge(
         "SELECT p.* FROM radio_attempt_progress p JOIN delivery_outbox o "
         "ON o.outbox_id=p.outbox_id WHERE o.event_id=?",
         (event_id,),
-    ).fetchall():
+    ):
         try:
             saved = _decode(checkpoint_row)
         except (StorageError, ValueError, TypeError):
@@ -854,6 +852,14 @@ def sync_enforce_content_ceilings(
                     last_event_id = str(row["event_id"])
                     event_id = str(row["event_id"])
                     ceiling = str(row["hard_ceiling"])
+                    if (
+                        db.execute(
+                            "SELECT 1 FROM event_content_ceiling_log WHERE event_id=?",
+                            (event_id,),
+                        ).fetchone()
+                        is not None
+                    ):
+                        continue
                     (
                         rows_removed,
                         logical_bytes,

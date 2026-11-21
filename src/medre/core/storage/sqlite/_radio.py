@@ -500,9 +500,17 @@ class _RadioMixin:
                     for old_part, retained_part in zip(
                         expected.progress.parts, retained_parts, strict=True
                     ):
-                        if old_part.state == "accepted" and (
-                            _closed_handoff(old_part, claim) != retained_part.handoff_id
-                        ):
+                        if old_part.state != "accepted":
+                            continue
+                        try:
+                            closed = _closed_handoff(old_part, claim)
+                        except (ValueError, TypeError, msgspec.DecodeError):
+                            # The sweep retains the existence of unreadable
+                            # acceptance as a non-authorizing sentinel. It
+                            # must not prevent completion of a different,
+                            # already-granted in-flight packet.
+                            closed = "{}"
+                        if closed != retained_part.handoff_id:
                             return None
                     compact = (
                         RadioPartProgress(

@@ -41,8 +41,16 @@ INSERT OR IGNORE INTO native_message_refs
      direction, metadata, created_at)
 SELECT ?, ?, ?, ?, ?, ?, ?, ?,
     CASE WHEN EXISTS (
+        SELECT 1 FROM event_content_access_policies p
+        WHERE p.event_id=? AND p.hard_ceiling<=?
+    ) OR EXISTS (
         SELECT 1 FROM event_content_ceiling_log WHERE event_id=?
     ) THEN '{}' ELSE ? END, ?
+WHERE NOT EXISTS (
+    SELECT 1 FROM native_message_refs prior
+    WHERE prior.adapter=? AND prior.native_channel_id IS ?
+      AND prior.native_message_id=?
+)
 """
 
 _INSERT_NATIVE_REF_STRICT = """
@@ -52,8 +60,16 @@ INSERT INTO native_message_refs
      direction, metadata, created_at)
 SELECT ?, ?, ?, ?, ?, ?, ?, ?,
     CASE WHEN EXISTS (
+        SELECT 1 FROM event_content_access_policies p
+        WHERE p.event_id=? AND p.hard_ceiling<=?
+    ) OR EXISTS (
         SELECT 1 FROM event_content_ceiling_log WHERE event_id=?
     ) THEN '{}' ELSE ? END, ?
+WHERE NOT EXISTS (
+    SELECT 1 FROM native_message_refs prior
+    WHERE prior.adapter=? AND prior.native_channel_id IS ?
+      AND prior.native_message_id=?
+)
 """
 
 _INSERT_RECEIPT = """

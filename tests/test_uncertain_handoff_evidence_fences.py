@@ -858,3 +858,73 @@ async def test_explicit_new_retry_failure_retires_stale_uncertainty_fact(temp_st
     assert not await temp_storage.append_delivery_observation(
         _observation("late-not-uncertain", provenance)
     )
+
+
+@pytest.mark.parametrize("completion", ["unknown", "accepted"])
+async def test_in_flight_completion_with_prior_unreadable_handoff_stays_recordable(
+    temp_storage, completion
+):
+    """Unreadable earlier evidence cannot erase an independently granted completion."""
+    import json
+
+    from medre.core.storage.radio import StoredRadioAttempt
+    from medre.core.storage.radio_handoff import RadioLocalHandoff
+
+    stored, provenance = await _seed_reserved_claim(temp_storage)
+    bound = await temp_storage.bind_radio_attempt(provenance, _WORKER, _plan())
+    assert bound is not None
+    first = await temp_storage.begin_radio_part(bound, _WORKER, 1)
+    assert first is not None
+    accepted = await temp_storage.observe_radio_part(
+        first,
+        _WORKER,
+        1,
+        handoff_id=RadioLocalHandoff(1, "native-1", "ch-0", "local_transport").encode(),
+    )
+    assert accepted is not None
+    started = await temp_storage.begin_radio_part(accepted, _WORKER, 2)
+    assert started is not None
+    corrupted_parts = list(started.progress.parts)
+    corrupted_parts[0] = dataclass_replace(
+        corrupted_parts[0], handoff_id="{bad-handoff}"
+    )
+    corrupted_progress = dataclass_replace(
+        started.progress, parts=tuple(corrupted_parts)
+    )
+    corrupted_started = StoredRadioAttempt(
+        provenance, corrupted_progress, started.revision
+    )
+    await temp_storage._write(
+        "UPDATE radio_attempt_progress SET parts_json=? WHERE outbox_id=?",
+        (
+            json.dumps(
+                [
+                    {
+                        "ordinal": part.ordinal,
+                        "state": part.state,
+                        "handoff_id": part.handoff_id,
+                    }
+                    for part in corrupted_parts
+                ]
+            ),
+            stored.outbox_id,
+        ),
+    )
+    now = await _install_elapsed_ceiling_for_handoff(temp_storage, provenance.event_id)
+    await temp_storage.enforce_content_ceilings(now=now)
+    handoff = (
+        RadioLocalHandoff(2, "native-2", "ch-0", "local_transport").encode()
+        if completion == "accepted"
+        else None
+    )
+    finished = await temp_storage.observe_radio_part(
+        corrupted_started, _WORKER, 2, handoff_id=handoff
+    )
+    assert finished is not None
+    summary = await temp_storage.get_radio_attempt_evidence(stored.outbox_id, 1)
+    assert summary is not None
+    assert summary.parts[0].handoff_id == "{}"
+    assert summary.parts[1].state == completion
+    verdict = await EvidenceBackedHandoffResolver(temp_storage).resolve(stored, 1)
+    assert verdict.verdict == "unresolved"
+    assert verdict.reasons == ("unreadable_handoff_reference",)

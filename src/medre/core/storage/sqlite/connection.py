@@ -205,7 +205,7 @@ def sync_write(
     """Execute a write, thread-safe via lock."""
     with lock:
         try:
-            db.execute(sql, params)
+            db.execute(sql, _bind_execution_clock(params))
             db.commit()
         except BaseException:
             try:
@@ -502,7 +502,10 @@ def sync_finalize_deferred_handoff(
 
             if native_identity is not None and existing_event_id is None:
                 assert native_insert_params is not None
-                db.execute(_INSERT_NATIVE_REF_STRICT, native_insert_params)
+                db.execute(
+                    _INSERT_NATIVE_REF_STRICT,
+                    _bind_execution_clock(native_insert_params),
+                )
             db.execute(_INSERT_RECEIPT, receipt_insert_params)
             for diagnostic_sql, diagnostic_params in receipt_diagnostic_ops or []:
                 db.execute(diagnostic_sql, diagnostic_params)
@@ -825,7 +828,7 @@ def sync_admit_ingress(
                 for sql, params in attachment_plan.retain_ops:
                     db.execute(sql, params)
             if native_insert is not None:
-                db.execute(*native_insert)
+                db.execute(native_insert[0], _bind_execution_clock(native_insert[1]))
             db.execute(
                 INSERT_INGRESS_WORK,
                 (event_id, provenance, work_status, now_iso, now_iso),
