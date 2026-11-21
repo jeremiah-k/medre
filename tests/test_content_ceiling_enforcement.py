@@ -15,8 +15,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from medre.core.storage.content_availability import AvailabilityPolicy, ContentHold
 from medre.core.storage.backend import OutboxDispatchSnapshotWrite
+from medre.core.storage.content_availability import AvailabilityPolicy, ContentHold
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.storage import make_storage_event
 from tests.helpers.storage_outbox import make_outbox_item
@@ -816,7 +816,10 @@ async def test_incoming_quote_battery_uses_target_indexes(
 
     plan_sql = (
         "EXPLAIN QUERY PLAN SELECT COUNT(*) FROM event_relation_excerpts x "
-        "WHERE " + _INCOMING_EXCERPTS_PREDICATE.format(ev="?")
+        "WHERE "
+        + _INCOMING_EXCERPTS_PREDICATE.format(
+            ev="?"
+        )  # nosec B608 - module-owned predicate with a bound event reference
     )
     details = await temp_storage._read_all(
         plan_sql, ("unrelated-owner",) * plan_sql.count("?")
@@ -884,6 +887,7 @@ async def test_recreated_diagnostic_after_ceiling_is_not_already_collected(
     assert "inconsistent_admission_identity" in assessment["blockers"]
     assert assessment["core_subset_status"] == "blocked"
     import pytest
+
     from medre.core.storage.backend import StorageError
 
     with pytest.raises(StorageError, match="unexpectedly recreated"):

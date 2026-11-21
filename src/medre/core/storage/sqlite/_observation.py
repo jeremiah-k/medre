@@ -27,11 +27,11 @@ from medre.core.events import (
 )
 from medre.core.storage.backend import StorageError
 from medre.core.storage.radio_handoff import RadioLocalHandoff
-from medre.core.storage.sqlite._handoff_facts import observation_scope
 from medre.core.storage.sqlite._evidence_diagnostics import (
     _EvidenceDiagnosticsReadMixin,
     diagnostic_write_ops,
 )
+from medre.core.storage.sqlite._handoff_facts import observation_scope
 from medre.core.storage.sqlite._projections import inspection_sql
 from medre.core.storage.sqlite._radio import _decode
 from medre.core.storage.sqlite.serde import _encode_json, _row_to_delivery_observation

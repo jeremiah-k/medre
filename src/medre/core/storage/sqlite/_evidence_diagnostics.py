@@ -182,12 +182,12 @@ class _EvidenceDiagnosticsReadMixin:
                 await self._read_all(
                     "SELECT d.diag_id, d.row_id, d.field, d.attempt, d.diagnostic"
                     " FROM delivery_evidence_diagnostics d"
-                    f" WHERE d.family = ? AND d.row_id IN ({placeholders})"
+                    f" WHERE d.family = ? AND d.row_id IN ({placeholders})"  # nosec B608 - generated placeholders only; identities are bound values
                     " AND NOT EXISTS (SELECT 1 FROM event_content_ceiling_log l "
                     + (
                         "WHERE l.event_id=d.row_id)"
                         if family == "ingress"
-                        else f"WHERE EXISTS (SELECT 1 FROM {parent_table} p "
+                        else f"WHERE EXISTS (SELECT 1 FROM {parent_table} p "  # nosec B608 - closed parent table and ID allowlist; bound identities only
                         f"WHERE p.{parent_id}=d.row_id AND p.event_id=l.event_id))"
                     )
                     + " ORDER BY d.diag_id ASC",  # nosec B608 - closed parent table and ID allowlist; bound identities only
@@ -237,7 +237,7 @@ class _EvidenceDiagnosticsReadMixin:
                 typed_rows = await self._read_all(
                     "SELECT outbox_id, attempt_number, state "
                     "FROM delivery_handoff_uncertainty "
-                    f"WHERE outbox_id IN ({placeholders})",
+                    f"WHERE outbox_id IN ({placeholders})",  # nosec B608 - generated placeholders only; identities are bound values
                     tuple(str(row[identity_column]) for row in fact_chunk),
                 )
                 by_id = {str(fact["outbox_id"]): fact for fact in typed_rows}

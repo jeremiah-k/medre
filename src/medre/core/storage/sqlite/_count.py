@@ -14,14 +14,14 @@ from medre.core.storage.classification import (
     CONTENT_POTENTIAL_CLASSES,
     STORAGE_COLUMN_CLASSES,
 )
-from medre.core.storage.sqlite._ceiling_enforcement import (
-    _INCOMING_EXCERPTS_PREDICATE,
-    _residual_fragments,
-)
 from medre.core.storage.content import (
     CONTENT_SURFACES,
     UNMEASURED_CONTENT_SCOPES,
     inventory_sql,
+)
+from medre.core.storage.sqlite._ceiling_enforcement import (
+    _INCOMING_EXCERPTS_PREDICATE,
+    _residual_fragments,
 )
 
 # The relation type is a closed core enum; a corrupted/free-form value is
@@ -38,7 +38,7 @@ _EVENT_COPY_PROBES: dict[str, str] = {
     # collectable.  Evaluate the same row-presence rules as the guarded
     # collector without reading content or acquiring any new authority.
     "inconsistent_admission_identity": (
-        "SELECT CASE WHEN NOT EXISTS ("
+        "SELECT CASE WHEN NOT EXISTS ("  # nosec B608 - closed module-owned probe fragments; bound values only
         "SELECT 1 FROM event_body_identity i WHERE i.event_id=e.event_id "
         "AND i.present_at_admission IN (0,1)) "
         "OR EXISTS (SELECT 1 FROM event_body_identity i "
@@ -65,7 +65,7 @@ _EVENT_COPY_PROBES: dict[str, str] = {
     ),
     "relation_excerpts": "SELECT COUNT(*) FROM event_relation_excerpts x JOIN event_relations r ON r.id=x.relation_id WHERE r.event_id=e.event_id",
     "incoming_relation_excerpts": (
-        "SELECT COUNT(*) FROM event_relation_excerpts x WHERE "
+        "SELECT COUNT(*) FROM event_relation_excerpts x WHERE "  # nosec B608 - module-owned predicate; the event reference is a column name from this module
         + _INCOMING_EXCERPTS_PREDICATE.format(ev="e.event_id")
     ),
     "opaque_envelope": "SELECT COUNT(*) FROM canonical_events c WHERE c.event_id=e.event_id AND (c.payload<>'{}' OR c.metadata<>'{}')",

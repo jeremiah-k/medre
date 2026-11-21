@@ -53,20 +53,19 @@ from __future__ import annotations
 
 import asyncio
 import json
-
-import msgspec
 import sqlite3
 import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
-from medre.core.storage.radio_handoff import RadioLocalHandoff
-from medre.core.storage.sqlite._handoff_facts import observation_scope
-from medre.core.storage.sqlite._radio import _decode
+import msgspec
 
 from medre.core.storage.backend import StorageError
+from medre.core.storage.radio_handoff import RadioLocalHandoff
 from medre.core.storage.sqlite._content_identity import _utc_microseconds
+from medre.core.storage.sqlite._handoff_facts import observation_scope
+from medre.core.storage.sqlite._radio import _decode
 
 if TYPE_CHECKING:
     from collections.abc import Callable
