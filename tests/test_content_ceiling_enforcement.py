@@ -1142,7 +1142,8 @@ async def test_native_reference_read_uses_clock_after_sqlite_lock_wait(
     import asyncio
     import threading
 
-    from medre.core.storage.sqlite import connection, storage as storage_module
+    import medre.core.storage.sqlite.connection as connection
+    import medre.core.storage.sqlite.storage as storage_module
 
     entered = threading.Event()
 

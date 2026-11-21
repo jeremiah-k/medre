@@ -34,7 +34,6 @@ from pathlib import Path
 
 from medre.cli.exit_codes import EXIT_BUILD, EXIT_CONFIG, EXIT_FAILED
 from medre.core.storage.sqlite.storage import SQLiteStorage
-
 from tests.helpers.ceiling_audit import (
     _BLOB_REF,
     _admit_with_ceiling,

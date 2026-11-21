@@ -6,14 +6,11 @@ late residual writes and pagination without importing provider adapters or CLI.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.ceiling_audit import (
-    MARKER,
     _BLOB_REF,
-    _QUOTE,
-    _admit_plain,
     _admit_with_ceiling,
     _associate_blob,
     _count,

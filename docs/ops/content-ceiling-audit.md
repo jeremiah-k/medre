@@ -61,7 +61,7 @@ medre storage ceiling verify --storage-path PATH [--limit N] [--event EVENT_ID |
   receipt, because absence of proof is not proof.
 
 - `--as-of UTC_TIMESTAMP` — choose an offset-aware ISO 8601 audit cutoff
-  (e.g. `2026-11-21T18:00:00Z`). Reuse the *same* cutoff across all audit
+  (e.g. `2026-11-21T18:00:00Z`). Reuse the _same_ cutoff across all audit
   pages. Without it, each invocation uses its current UTC clock; a policy
   whose ceiling elapses after an earlier page has passed its event ID can
   otherwise be omitted by the remaining pages. Receipt verification is
