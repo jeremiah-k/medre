@@ -23,7 +23,12 @@ adapter invocation site. Each sweep examines at most
 `max(25, limit)` candidates and retires at most `limit` generations, preserving
 keyset progress across invocations and restart in the same transaction.
 The retry worker runs the sweep behind the default-off `retry.deadline_sweep`
-policy. A first sweep-impact profile is recorded in
+policy. The ceiling invariant that takes over where these fences end —
+what happens to the content itself once the ceiling elapses — is now
+normative in
+[the hard content privacy ceiling](../spec/content-privacy-ceiling.md),
+including the store-by-store census and the guarded enforcement
+transition. A first sweep-impact profile is recorded in
 [deadline-sweep-measurement-2026-11-18](deadline-sweep-measurement-2026-11-18.md),
 and the refusal boundary is qualified through the pinned Meshtastic SDK
 against meshtasticd (`tests/native_qualification/test_meshtasticd_deadline_fence.py`);

@@ -66,10 +66,10 @@ class BuildPyWithCompatibility(build_py):
         # Active source configuration evolves separately from released snapshots.
         current_target = schema_target / "current"
         self.mkpath(str(current_target))
-        self.copy_file(
-            str(schema_root / "current" / "adapter-config.schema.json"),
-            str(current_target / "adapter-config.schema.json"),
-        )
+        for name in ("adapter-config.schema.json", "runtime-config.schema.json"):
+            self.copy_file(
+                str(schema_root / "current" / name), str(current_target / name)
+            )
 
 
 setup(cmdclass={"build_py": BuildPyWithCompatibility})

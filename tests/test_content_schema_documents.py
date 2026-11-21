@@ -16,6 +16,10 @@ from medre.core.storage.sqlite.schema import _INDEXES, _SCHEMA
         ("outbox-dispatch-snapshots.schema.sql", {"delivery_outbox_snapshots"}),
         ("handoff-settlements.schema.sql", {"delivery_handoff_settlements"}),
         (
+            "event-content-ceiling-log.schema.sql",
+            {"event_content_ceiling_log"},
+        ),
+        (
             "content-access-grants.schema.sql",
             {"event_content_access_policies", "event_content_access_grants"},
         ),

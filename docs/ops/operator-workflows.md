@@ -58,6 +58,12 @@ such a database is preserved for an explicit recovery decision. Use a
 compatible previous build if appropriate, or back up and deliberately reset
 when starting fresh is acceptable.
 
+Before upgrading, keep a verified SQLite-aware backup. An older build can
+refuse an upgraded layout even when both use version 1. To roll back,
+restore the pre-upgrade backup with a build that accepts its catalog.
+Keep the upgraded database separately if it contains work recorded since
+the backup.
+
 ### How to tell if your database is stale
 
 Run `medre storage status --storage-path <path>` to assess the stored

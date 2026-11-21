@@ -57,20 +57,21 @@ def test_checkout_schemas_take_precedence_over_package_data(
 
 
 @pytest.mark.parametrize("packaged", [False, True])
-def test_current_adapter_schema_is_reported_when_available(
-    tmp_path, monkeypatch, packaged
+@pytest.mark.parametrize("kind", ["adapter", "runtime"])
+def test_current_config_schema_is_reported_when_available(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, packaged: bool, kind: str
 ):
     base = tmp_path / "_schemas" if packaged else tmp_path / "source"
     current = base / "current"
     current.mkdir(parents=True)
-    (base / "adapter-config.schema.json").write_text('{"$id":"urn:baseline"}')
-    (current / "adapter-config.schema.json").write_text('{"$id":"urn:current"}')
+    filename = f"{kind}-config.schema.json"
+    (base / filename).write_text('{"$id":"urn:baseline"}', encoding="utf-8")
+    (current / filename).write_text('{"$id":"urn:current"}', encoding="utf-8")
     monkeypatch.setattr(
         support_bundle, "_SCHEMAS_DIR", tmp_path / "missing" if packaged else base
     )
     monkeypatch.setattr(support_bundle.importlib.resources, "files", lambda _: tmp_path)
     result = support_bundle._build_schemas_member()
-    assert result.adapter_config_schema.id == "urn:current"
-    assert result.adapter_config_schema.path == str(
-        current / "adapter-config.schema.json"
-    )
+    schema = getattr(result, f"{kind}_config_schema")
+    assert schema.id == "urn:current"
+    assert schema.path == str(current / filename)

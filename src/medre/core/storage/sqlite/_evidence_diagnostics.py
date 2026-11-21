@@ -33,6 +33,15 @@ _DIAGNOSTIC_FIELDS: dict[str, tuple[str, ...]] = {
 #: they belong to and never surface on a later settled attempt.
 _DIAGNOSTIC_ATTEMPT_COLUMNS: dict[str, str] = {"outbox": "attempt_number"}
 _LOOKUP_CHUNK_SIZE = 500
+#: Closed schema-owned parent lookup for read-time ceiling redaction. A late
+#: diagnostic may be retained for immutable evidence but is never projected
+#: after an enforcement receipt has committed for its owner event.
+_DIAGNOSTIC_PARENTS: dict[str, tuple[str, str]] = {
+    "receipt": ("delivery_receipts", "receipt_id"),
+    "observation": ("delivery_observations", "observation_id"),
+    "outbox": ("delivery_outbox", "outbox_id"),
+    "ingress": ("durable_ingress_work", "event_id"),
+}
 
 _INSERT_DIAGNOSTIC = """
 INSERT INTO delivery_evidence_diagnostics
@@ -164,16 +173,20 @@ class _EvidenceDiagnosticsReadMixin:
                     row.setdefault(field, None)
             return rows
         fetched: list[dict[str, Any]] = []
+        parent_table, parent_id = _DIAGNOSTIC_PARENTS[family]
         identities = list(wanted)
         for start in range(0, len(identities), _LOOKUP_CHUNK_SIZE):
             chunk = identities[start : start + _LOOKUP_CHUNK_SIZE]
             placeholders = ",".join("?" for _ in chunk)
             fetched.extend(
                 await self._read_all(
-                    "SELECT diag_id, row_id, field, attempt, diagnostic"
-                    " FROM delivery_evidence_diagnostics"
-                    f" WHERE family = ? AND row_id IN ({placeholders})"
-                    " ORDER BY diag_id ASC",  # nosec B608 - static identifiers and bound values only
+                    "SELECT d.diag_id, d.row_id, d.field, d.attempt, d.diagnostic"
+                    " FROM delivery_evidence_diagnostics d"
+                    f" WHERE d.family = ? AND d.row_id IN ({placeholders})"
+                    " AND NOT EXISTS (SELECT 1 FROM event_content_ceiling_log l "
+                    f"JOIN {parent_table} p ON p.{parent_id}=d.row_id "
+                    "WHERE l.event_id=p.event_id)"
+                    " ORDER BY d.diag_id ASC",  # nosec B608 - closed parent table and ID allowlist; bound identities only
                     (family, *chunk),
                 )
             )
