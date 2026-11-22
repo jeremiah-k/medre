@@ -91,6 +91,7 @@ def test_current_runtime_schema_adds_the_optional_ceiling_sweep() -> None:
         },
     }
     expected["properties"]["retry"]["properties"]["ceiling_sweep"] = sweep
+    expected["properties"]["retry"]["type"] = ["object", "null"]
     expected["properties"]["retry"]["properties"]["deadline_sweep"] = current[
         "properties"
     ]["retry"]["properties"]["deadline_sweep"]
@@ -113,6 +114,7 @@ def test_current_runtime_schema_adds_the_optional_ceiling_sweep() -> None:
     Draft202012Validator(current).validate(
         {"retry": {"ceiling_sweep": {"enabled": True}}}
     )
+    Draft202012Validator(current).validate({"retry": None})
 
 
 @pytest.mark.parametrize(

@@ -121,7 +121,7 @@
       }
     },
     "retry": {
-      "type": "object",
+      "type": ["object", "null"],
       "description": "Global retry worker configuration (RetryConfig).",
       "additionalProperties": false,
       "properties": {
