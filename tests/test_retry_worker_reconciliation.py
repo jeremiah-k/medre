@@ -704,6 +704,7 @@ async def test_retry_worker_abandons_outbox_when_content_authority_is_denied(
     storage.read_event_for_outbox = AsyncMock(
         return_value=SimpleNamespace(status="denied", event=None)
     )
+    storage.get_outbox_route_retry_bounds = AsyncMock(return_value=None)
     storage.delivery_status = AsyncMock(return_value=None)
     storage.list_receipts_for_delivery = AsyncMock(return_value=[])
     storage.list_receipts_for_outbox = AsyncMock(return_value=[])

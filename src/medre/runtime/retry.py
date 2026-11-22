@@ -75,6 +75,7 @@ from medre.core.planning.delivery_plan import DeliveryFailureKind, RetryPolicy
 from medre.core.storage.backend import (
     DeliveryOutboxItem,
     OutboxDispatchSnapshot,
+    OutboxRouteRetryBounds,
     OutboxSnapshotReadError,
 )
 from medre.core.storage.read_contracts import AuthorizedEventRead
@@ -92,6 +93,41 @@ _logger = logging.getLogger(__name__)
 # Bounded preflight for the startup evidence read so a stalled storage
 # backend cannot block RetryWorker.start() indefinitely.
 _STARTUP_EVIDENCE_TIMEOUT_SECONDS: float = 5.0
+
+#: Reconciliation-only policy for outbox generations admitted without
+#: persisted route bounds (historical predecessor rows and routes admitted
+#: without a resolved retry policy). ``max_attempts=1`` makes every finalized
+#: or reserved attempt exhausted, so reconciliation settles persisted
+#: evidence exactly as before but dead-letters an ambiguous or unfinalized
+#: attempt instead of scheduling another one. Nothing here consults current
+#: configuration and nothing authorizes a transport dispatch: the bounds are
+#: arithmetic facts for evidence settlement only.
+_RECONCILE_ONLY_RETRY_POLICY = RetryPolicy(
+    max_attempts=1,
+    backoff_base=2.0,
+    max_delay_seconds=60.0,
+    jitter=False,
+)
+
+
+def _route_bounds_retry_policy(
+    bounds: OutboxRouteRetryBounds | None,
+) -> RetryPolicy:
+    """Resolve the post-erasure reconciliation policy for one outbox row.
+
+    Persisted admission bounds restore the route's own historic limits after
+    ceiling enforcement retired the frozen dispatch context. Rows without
+    bounds reconcile with :data:`_RECONCILE_ONLY_RETRY_POLICY`; the worker's
+    current configuration is never consulted for an erased route.
+    """
+    if bounds is None:
+        return _RECONCILE_ONLY_RETRY_POLICY
+    return RetryPolicy(
+        max_attempts=bounds.max_attempts,
+        backoff_base=bounds.backoff_base,
+        max_delay_seconds=bounds.max_delay_seconds,
+        jitter=bounds.jitter,
+    )
 
 
 class RetryWorkerStorage(Protocol):
@@ -149,6 +185,17 @@ class RetryWorkerStorage(Protocol):
         target_channel: str | None,
     ) -> OutboxDispatchSnapshot | None:
         """Read the frozen dispatch context under the exact outbox identity."""
+        ...
+
+    async def get_outbox_route_retry_bounds(
+        self,
+        outbox_id: str,
+    ) -> OutboxRouteRetryBounds | None:
+        """Read the persisted admission-time retry bounds for one generation.
+
+        Returns ``None`` for generations admitted without resolved route
+        bounds.  The bounds are content-free facts, not send authority.
+        """
         ...
 
 
@@ -1515,16 +1562,26 @@ class RetryWorker:
                         resolved: (
                             RetryAttemptFinalization | UncertainHandoffResolution | None
                         )
-                        # Capture the receipt set that reconciliation will see.
-                        # A later acceptance must invalidate, not silently
-                        # update, the terminal abandonment evidence fence.
-                        # Even unreserved claims can have a newer committed
-                        # receipt. Reconcile them before considering terminal
-                        # content denial, never repeatedly finalize queued.
+                        # Post-erasure reconciliation uses the route's own
+                        # persisted bounds, never this worker's current
+                        # configuration. Ceiling enforcement retired the
+                        # frozen dispatch context, so the only authoritative
+                        # remaining facts are the content-free bounds stored
+                        # at admission. Rows without bounds (historical
+                        # predecessors and routes admitted without a resolved
+                        # retry policy) reconcile without bounds: evidence
+                        # settles exactly as below, and an ambiguous or
+                        # unfinalized attempt dead-letters instead of
+                        # scheduling another attempt — no reconstruction from
+                        # globals. This read never authorizes a send; the
+                        # content denial below still bars transport dispatch.
+                        bounds = await self._storage.get_outbox_route_retry_bounds(
+                            item.outbox_id
+                        )
                         resolved = await self._lifecycle.reconcile_retry_claim(
                             self._lifecycle_storage,
                             item,
-                            RetryPolicy(max_attempts=self._max_attempts),
+                            _route_bounds_retry_policy(bounds),
                             handoff_resolver=self._handoff_resolver,
                         )
                         if (

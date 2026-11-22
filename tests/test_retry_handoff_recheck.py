@@ -73,6 +73,7 @@ def _retained_storage(
             "get",
             "delivery_status",
             "get_outbox_dispatch_context",
+            "get_outbox_route_retry_bounds",
             "list_receipts_for_outbox",
             "read_event_for_outbox",
             *evidence_methods,
@@ -85,6 +86,7 @@ def _retained_storage(
     storage.get = AsyncMock(return_value=stored)
     storage.delivery_status = AsyncMock(return_value=None)
     storage.get_outbox_dispatch_context = AsyncMock(return_value=None)
+    storage.get_outbox_route_retry_bounds = AsyncMock(return_value=None)
     storage.read_event_for_outbox = AsyncMock(
         return_value=SimpleNamespace(status="retained", event=stored)
     )
