@@ -36,6 +36,16 @@ including ones created during staging, are preserved.
 Use a separate administrative switch of the installation root only after
 validating native identity/profiles and confirming all old owners are stopped.
 
+Restoring a backup over newer delivery evidence is refused. Pass the live
+core database with `--against-live PATH` (or the `live_database` keyword):
+while that database holds a newer delivery-evidence watermark than the
+snapshot's core database — the monotone high-water of `delivery_receipts`
+sequence identities — the restore fails closed, because switching the
+installation root to such a copy would erase delivery evidence recorded
+after the capture. An unreadable live database also refuses the restore.
+The remedy is a fresh snapshot of the live installation. See
+[operator workflows](operator-workflows.md) for the full policy wording.
+
 No delivery attempt is sent, reopened, or changed by these functions. A
 successful file checksum proves byte integrity, not the safety of replaying an
 unknown native send. Recovery must continue to use the existing outbox claim

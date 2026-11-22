@@ -64,6 +64,54 @@ restore the pre-upgrade backup with a build that accepts its catalog.
 Keep the upgraded database separately if it contains work recorded since
 the backup.
 
+### The two migration policy rulings
+
+These rules hold on every path; the tooling enforces them and the guarded
+migration depends on them.
+
+**MEDRE never automatically downgrades an upgraded database.** An upgrade
+is one-directional: additive, transactional, and idempotent. A database
+whose catalog declares objects the running build does not declare may hold
+a NEWER catalog written by a newer build, and every open path refuses it
+with a `StorageDowngradeRefusedError` that names both catalog states —
+the stored object inventory and this build's declared inventory — instead
+of planning or executing any schema downgrade. `medre storage status`
+reports the same refusal as an `unsupported` verdict with an explicit
+"automatic downgrade refused" diagnostic. When you see it, do not reset:
+the database is preserved untouched. Resolve it with a compatible build
+that declares that catalog, or make a deliberate recovery or reset
+decision. Never point an older build at an upgraded database expecting it
+to "just work"; that refusal is the tooling keeping the evidence intact.
+
+**MEDRE never restores a stale backup over newer delivery evidence.**
+Evidence backfill also runs before any erase: a guarded upgrade copies
+legacy uncertainty out of free-form diagnostics into the typed evidence
+tables while the legacy columns still exist, so no history is erased
+before its replacement is durably in place. A backup, however, is a
+point-in-time copy, and restoring an old one can silently discard
+delivery evidence recorded after it was taken. The stopped-state restore
+refuses any existing destination outright, so it cannot overwrite a live
+installation directly; the remaining risk is switching the installation
+root to a restored copy afterward. Before such a switch, compare the
+snapshot against the live core database — the restore refuses while the
+live database holds a newer delivery-evidence watermark (the monotone
+high-water of `delivery_receipts` sequence identities, the same
+content-free fence handoff settlements record; it survives evidence
+purges and clock skew where timestamps do not):
+
+```bash
+python -m medre.maintenance.stopped_cli restore \
+  --snapshot /secure-backups/medre-snapshot-001 \
+  --destination /srv/medre-restored \
+  --against-live /srv/medre-state/medre.sqlite --stopped
+```
+
+The command reports `refused` and exits nonzero when the live evidence is
+newer; capture a fresh snapshot instead. A live database that cannot be
+read also refuses the restore. An equal or older watermark is allowed,
+because the backup then carries the same or newer evidence than the state
+it is replacing.
+
 The tagged `0.1.0` build includes the exact unstarted `medre resolve`
 command, but does not include G03's store-wide content purge and verification
 procedure. Do not treat a restored pre-upgrade database as privacy-clean
