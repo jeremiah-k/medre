@@ -112,14 +112,14 @@ INSERT INTO delivery_evidence_diagnostics
     (family, row_id, attempt, field, diagnostic, created_at)
 SELECT 'ingress', event_id, attempts, 'last_error', ?, ?
 FROM durable_ingress_work WHERE event_id = ?
-  AND (? = '' OR NOT EXISTS (
+  AND NOT EXISTS (
       SELECT 1 FROM event_content_access_policies p
       WHERE p.event_id=durable_ingress_work.event_id
         AND p.hard_ceiling <= medre_ceiling_now(NULL)
   ) AND NOT EXISTS (
       SELECT 1 FROM event_content_ceiling_log l
       WHERE l.event_id=durable_ingress_work.event_id
-  ))
+  )
 """
 
 
@@ -181,7 +181,7 @@ def ingress_diagnostic_ops(
     """Build an ingress ``last_error`` op keyed by the committed attempt count."""
     if not isinstance(error, str):
         return []
-    return [(_INSERT_INGRESS_DIAGNOSTIC, (error, created_at, event_id, error))]
+    return [(_INSERT_INGRESS_DIAGNOSTIC, (error, created_at, event_id))]
 
 
 class _EvidenceDiagnosticsReadMixin:

@@ -674,7 +674,12 @@ def _measure_and_purge(
         FROM latest
         WHERE diagnostic IS NOT NULL AND attempt_number >= 1
         ON CONFLICT(outbox_id) DO UPDATE SET
-            attempt_number=excluded.attempt_number, state=excluded.state
+            attempt_number=excluded.attempt_number,
+            state=CASE
+                WHEN delivery_handoff_uncertainty.attempt_number=excluded.attempt_number
+                     AND delivery_handoff_uncertainty.state='superseded_native_handoff'
+                    THEN 'superseded_native_handoff'
+                ELSE excluded.state END
         """,
         (event_id,),
     )

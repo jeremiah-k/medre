@@ -231,3 +231,48 @@ async def test_readonly_ceiling_audit_opens_exact_hash_named_database(tmp_path) 
             )
     finally:
         await reader.close()
+
+
+async def test_empty_ingress_clear_after_enforcement_does_not_recreate_a_row(
+    temp_storage: SQLiteStorage,
+) -> None:
+    await _admit_plain(temp_storage, "late-ingress-empty-clear")
+    now = await _install_elapsed_policy(temp_storage, "late-ingress-empty-clear")
+    await temp_storage.enforce_content_ceilings(now=now)
+    claimed = await temp_storage.claim_ingress_work(worker_id="clear-worker", limit=10)
+    assert any(item.event_id == "late-ingress-empty-clear" for item in claimed)
+    assert await temp_storage.release_ingress_work(
+        "late-ingress-empty-clear", worker_id="clear-worker", error=""
+    )
+    assert await _diagnostics(temp_storage, "ingress", "late-ingress-empty-clear") == []
+
+
+async def test_ceiling_purge_does_not_revive_superseded_uncertainty(
+    temp_storage: SQLiteStorage,
+) -> None:
+    stored, provenance = await _seed_reserved_claim(
+        temp_storage, outbox_id="superseded-after-purge", event_id="superseded-event"
+    )
+    assert await temp_storage.mark_outbox_retry_wait(
+        stored.outbox_id,
+        next_attempt_at=(datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(),
+        failure_kind="adapter_transient",
+        failure_kind_detail="uncertain_native_handoff",
+        attempt_number=provenance.attempt_number,
+    )
+    await temp_storage._write(
+        "UPDATE delivery_handoff_uncertainty SET state='superseded_native_handoff' "
+        "WHERE outbox_id=?",
+        (stored.outbox_id,),
+    )
+    now = await _install_elapsed_policy(temp_storage, provenance.event_id)
+    await temp_storage.enforce_content_ceilings(now=now)
+    assert await _diagnostics(temp_storage, "outbox", stored.outbox_id) == []
+    assert await temp_storage._read_one(
+        "SELECT attempt_number, state FROM delivery_handoff_uncertainty "
+        "WHERE outbox_id=?",
+        (stored.outbox_id,),
+    ) == {
+        "attempt_number": provenance.attempt_number,
+        "state": "superseded_native_handoff",
+    }

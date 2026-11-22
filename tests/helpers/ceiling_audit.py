@@ -38,8 +38,8 @@ async def _admit_with_ceiling(
 ) -> None:
     """Admit one event with a body through the real ceiling producer.
 
-    A negative *seconds* installs an already-elapsed ceiling for the
-    real-time CLI scenarios.
+    *seconds* must place the initial deadline in the future. To exercise an
+    elapsed ceiling, admit first and use ``_install_elapsed_policy``.
     """
     await store.admit_ingress(
         make_storage_event(event_id=event_id, payload={"body": MARKER}),

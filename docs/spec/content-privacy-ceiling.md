@@ -287,10 +287,12 @@ independently retained as documented by
 ## 7. Operator audit and receipt verification contract
 
 The audit surface is strictly read-only. It MUST NOT purge, tombstone,
-release, record, or rewrite anything, and it MUST NOT read content
-values: event identifiers and census store labels are content-free
-identity; message text, excerpts, blob bytes, and other content-potential
-values never appear in an audit report. Both modes MUST derive their
+release, record, or rewrite anything, and it MUST NOT expose content
+values in its reports, diagnostics or logs. Database-side residual predicates
+MAY inspect content-bearing fields without returning their values: event
+identifiers and census store labels are content-free identity; message text,
+excerpts, blob bytes, and other content-potential values never appear in an
+audit report. Both modes MUST derive their
 probes from the same battery table the enforcement transition verifies
 with, so the audit cannot drift from what enforcement proves.
 
