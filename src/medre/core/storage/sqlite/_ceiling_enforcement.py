@@ -122,6 +122,22 @@ _INCOMING_EXCERPTS_PREDICATE = (
     "x.relation_id IN (" + _INCOMING_EXCERPT_RELATION_IDS + ")"
 )
 
+#: Attribution of separated delivery diagnostic text to one event's evidence
+#: rows. The same four-family predicate drives the residual battery, the byte
+#: measurement, and the purge DELETE, so a future attribution change updates
+#: the receipt counts, the measured bytes, and the erasure together. Every
+#: consumer spells the event reference once via *ev* — a bind parameter or a
+#: correlated outer column reference, matching the battery's convention.
+_DIAGNOSTIC_ATTRIBUTION_SQL = (
+    "(d.family='receipt' AND d.row_id IN (SELECT r.receipt_id "  # nosec B608 - closed module-owned fragment; event reference is a bind parameter or correlated column
+    "FROM delivery_receipts r WHERE r.event_id={ev})) "
+    "OR (d.family='observation' AND d.row_id IN (SELECT o.observation_id "
+    "FROM delivery_observations o WHERE o.event_id={ev})) "
+    "OR (d.family='outbox' AND d.row_id IN (SELECT b.outbox_id "
+    "FROM delivery_outbox b WHERE b.event_id={ev})) "
+    "OR (d.family='ingress' AND d.row_id={ev})"
+)
+
 
 #: The residual battery as one ordered ``(census store label, predicate
 #: template)`` table. This is the single source for three consumers: the
@@ -186,13 +202,8 @@ _RESIDUAL_BATTERY: tuple[tuple[str, str], ...] = (
     (
         "delivery_evidence_diagnostics",
         "EXISTS (SELECT 1 FROM delivery_evidence_diagnostics d WHERE "  # nosec B608 - closed module-owned fragment; event reference is a bind parameter or correlated column
-        "(d.family='receipt' AND d.row_id IN (SELECT r3.receipt_id "
-        "FROM delivery_receipts r3 WHERE r3.event_id={ev})) "
-        "OR (d.family='observation' AND d.row_id IN (SELECT o2.observation_id "
-        "FROM delivery_observations o2 WHERE o2.event_id={ev})) "
-        "OR (d.family='outbox' AND d.row_id IN (SELECT b2.outbox_id "
-        "FROM delivery_outbox b2 WHERE b2.event_id={ev})) "
-        "OR (d.family='ingress' AND d.row_id={ev}))",
+        + _DIAGNOSTIC_ATTRIBUTION_SQL
+        + ")",
     ),
     # Radio recovery plans riding the event's outbox generations.
     (
@@ -346,14 +357,8 @@ class CeilingEnforcement:
 def _purge_diagnostics(db: sqlite3.Connection, event_id: str) -> None:
     """Delete the event's separated delivery diagnostic rows."""
     db.execute(
-        "DELETE FROM delivery_evidence_diagnostics WHERE "
-        "(family='receipt' AND row_id IN (SELECT r.receipt_id "
-        "FROM delivery_receipts r WHERE r.event_id=?)) "
-        "OR (family='observation' AND row_id IN (SELECT o.observation_id "
-        "FROM delivery_observations o WHERE o.event_id=?)) "
-        "OR (family='outbox' AND row_id IN (SELECT b.outbox_id "
-        "FROM delivery_outbox b WHERE b.event_id=?)) "
-        "OR (family='ingress' AND row_id=?)",
+        "DELETE FROM delivery_evidence_diagnostics AS d WHERE "  # nosec B608 - closed module-owned attribution fragment; the event reference is a bound parameter
+        + _DIAGNOSTIC_ATTRIBUTION_SQL.format(ev="?"),
         (event_id, event_id, event_id, event_id),
     )
 
@@ -617,15 +622,9 @@ def _measure_and_purge(
 
     # Separated delivery diagnostic text on the event's evidence rows.
     diagnostics = db.execute(
-        "SELECT COUNT(*), COALESCE(SUM(length(CAST(diagnostic AS BLOB))), 0) "
-        "FROM delivery_evidence_diagnostics WHERE "
-        "(family='receipt' AND row_id IN (SELECT r.receipt_id "
-        "FROM delivery_receipts r WHERE r.event_id=?)) "
-        "OR (family='observation' AND row_id IN (SELECT o.observation_id "
-        "FROM delivery_observations o WHERE o.event_id=?)) "
-        "OR (family='outbox' AND row_id IN (SELECT b.outbox_id "
-        "FROM delivery_outbox b WHERE b.event_id=?)) "
-        "OR (family='ingress' AND row_id=?)",
+        "SELECT COUNT(*), COALESCE(SUM(length(CAST(d.diagnostic AS BLOB))), 0) "  # nosec B608 - closed module-owned attribution fragment; the event reference is a bound parameter
+        "FROM delivery_evidence_diagnostics d WHERE "
+        + _DIAGNOSTIC_ATTRIBUTION_SQL.format(ev="?"),
         (event_id, event_id, event_id, event_id),
     ).fetchone()
     rows_removed += int(diagnostics[0])
