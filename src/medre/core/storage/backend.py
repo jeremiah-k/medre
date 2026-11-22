@@ -2088,7 +2088,9 @@ class StorageBackend(Protocol):
         append-only observations for this outbox and ``from_attempt`` in
         the same reservation write; a mismatch returns ``None`` without
         reserving or consuming an attempt. A supplied observation scope
-        count MUST match the attempt's scope rows under the same rule.
+        revision is a durable revision token, not a row count: it MUST
+        equal the attempt's stored scope revision (including zero when no
+        scope mutation has been recorded) under the same guarded write.
         """
         ...
 
