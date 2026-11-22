@@ -58,6 +58,17 @@ The receipt (`event_content_ceiling_log`) is the durable, content-free
 fact that purge and verification completed for one event. Receipt
 presence MUST NOT be read as a physical-erasure certificate.
 
+The two layers distinguish two states that operators and reviewers must
+not conflate. **Expired** content is read-denied from the ceiling instant
+onward, but its values can still be stored until a sweep reaches the
+event: writes authorized before the ceiling may add residual values in
+that window, and the read-only audit reports them per store until
+enforcement revisits them. **Purged** content is logically absent: a
+successful purge plus the residual battery establishes absence, and the
+same battery re-checks it at every later receipt verification. Physical
+erasure of freed pages and WAL frames is a further, separate step and is
+never implied by either state (§5).
+
 ## 3. Census: every store that can hold content or derivable bytes
 
 The census enumerates every persistent store in the core SQLite catalog
@@ -82,7 +93,7 @@ plus the SQLite-level remnants. Coverage classes:
 | `delivery_outbox`                                               | `metadata` (inline frozen dispatch context), `payload_hash` (render-input digest)                                                                                                    | cleared-on-surviving-rows | metadata set to `'{}'` and payload hash set to `NULL`; generations never deleted                                                                                                                                          |
 | `delivery_observations`                                         | `metadata`                                                                                                                                                                           | cleared-on-surviving-rows | set to `'{}'`; evidence rows retained                                                                                                                                                                                     |
 | `delivery_evidence_diagnostics`                                 | `diagnostic`                                                                                                                                                                         | purged                    | rows deleted for the event's receipts, observations, outbox rows, and ingress work                                                                                                                                        |
-| `radio_attempt_progress`                                        | `plan_json`, `provenance_json`, `parts_json`                                                                                                                                         | purged                    | rows deleted for the event's outbox generations                                                                                                                                                                           |
+| `radio_attempt_progress`                                        | `plan_json`, `provenance_json`, `parts_json`, `plan_fingerprint`                                                                                                                     | purged                    | rows deleted for the event's outbox generations; the payload-derived plan fingerprint is measured into the receipt's logical bytes and removed with the row                                                               |
 | `delivery_outbox_snapshots`                                     | `context_json`                                                                                                                                                                       | purged                    | rows deleted for the event's outbox generations                                                                                                                                                                           |
 | `event_attachment_associations`                                 | the load authority for retained bytes                                                                                                                                                | purged                    | rows deleted                                                                                                                                                                                                              |
 | `attachment_blobs`                                              | `data` (plaintext bytes)                                                                                                                                                             | purged                    | row deleted only when no other event still refers to the `content_ref`; shared bytes go with the last reference                                                                                                           |
