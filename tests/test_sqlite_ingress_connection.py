@@ -10,6 +10,7 @@ from typing import cast
 
 import pytest
 
+from medre.core.storage.backend import StorageDowngradeRefusedError
 from medre.core.storage.sqlite.connection import (
     sync_admit_ingress,
     sync_claim_ingress_work,
@@ -389,11 +390,15 @@ def test_schema_shape_inspection_covers_unstamped_and_stamped_databases(
     db.execute("ALTER TABLE durable_ingress_work ADD COLUMN status TEXT")
     db.commit()
     db.close()
+    # A table outside the required set may be newer catalog state, so the
+    # preflight refuses with the explicit downgrade language instead of a
+    # bare "unexpected table" label.
     mismatch = sync_find_schema_shape_mismatch(str(db_path), required)
     assert mismatch is not None
-    assert mismatch.table == "_medre_schema_meta"
-    assert mismatch.missing_columns == []
-    assert mismatch.detail == "unexpected table"
+    assert isinstance(mismatch, StorageDowngradeRefusedError)
+    assert "_medre_schema_meta" in str(mismatch)
+    assert "downgrade refused" in str(mismatch)
+    assert "no automatic schema downgrade is performed" in str(mismatch)
 
 
 def test_sync_ingress_helpers_preserve_original_error_when_rollback_fails() -> None:

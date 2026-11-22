@@ -8,6 +8,7 @@ from functools import lru_cache
 from medre.core.storage.backend import (
     PreReleaseSchemaConstraintMismatchError,
     PreReleaseSchemaMismatchError,
+    StorageDowngradeRefusedError,
     StorageInitializationError,
 )
 from medre.core.storage.sqlite._prerelease_migrate import (
@@ -184,6 +185,23 @@ def safe_additive_state(db: sqlite3.Connection) -> bool:
     return True
 
 
+def downgrade_refusal(
+    db: sqlite3.Connection, path: str | None, unexpected: list[str]
+) -> StorageDowngradeRefusedError:
+    """Build the explicit downgrade refusal from one connection's catalog.
+
+    Shared by the exact-catalog validator and the read-only startup preflight
+    so both refusal sites name the same two catalog states.
+    """
+    return StorageDowngradeRefusedError(
+        path,
+        unexpected,
+        stored_count=len(_definitions(db)),
+        expected_count=len(_expected_definitions()),
+        expected_version=_EXPECTED_SCHEMA_VERSION,
+    )
+
+
 def apply_safe_additions(db: sqlite3.Connection) -> None:
     """Apply allowlisted additive DDL inside the caller's IMMEDIATE transaction."""
     if not safe_additive_state(db):
@@ -267,6 +285,10 @@ def validate_schema_definition(db: sqlite3.Connection, path: str) -> bool:
     actions, CHECK/UNIQUE constraints, expression/partial indexes, views and
     triggers. Semantically equivalent hand-written DDL is deliberately outside
     the exact catalog contract; no independent fingerprint inventory can drift.
+
+    A stored catalog declaring objects this build does not declare raises
+    :class:`StorageDowngradeRefusedError` naming both catalog states: such a
+    database may hold a newer catalog, and no automatic downgrade is planned.
     """
     actual = _definitions(db)
     # SQLite writes an ALTER-added nullable column at the end of the stored
@@ -308,10 +330,24 @@ def validate_schema_definition(db: sqlite3.Connection, path: str) -> bool:
             "or silent reset is performed. Preserve the database and verify a backup "
             "before using a compatible build or choosing an explicit reset."
         )
+    expected = _expected_definitions()
+    # A catalog declaring objects this build does not declare may be a NEWER
+    # catalog written by a newer build. Opening it against the declared schema
+    # would plan a downgrade, so refuse explicitly with both catalog states
+    # before any per-table comparison can render the situation as an
+    # ambiguous per-object mismatch.
+    extra_objects = sorted(actual.keys() - expected.keys())
+    if extra_objects:
+        raise StorageDowngradeRefusedError(
+            path,
+            [f"{kind} {name}" for kind, name in extra_objects],
+            stored_count=len(actual),
+            expected_count=len(expected),
+            expected_version=_EXPECTED_SCHEMA_VERSION,
+        )
     for table in _REQUIRED_COLUMNS:
         if table != version_table:
             _validate_table_columns(db, path, table)
-    expected = _expected_definitions()
     # Inspect table constraints before missing indexes so diagnostics identify
     # the owning invariant even when an incompatible fixture has no indexes.
     for key, definition in expected.items():

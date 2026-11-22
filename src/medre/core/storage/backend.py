@@ -202,6 +202,60 @@ class PreReleaseSchemaConstraintMismatchError(StorageInitializationError):
         )
 
 
+class StorageDowngradeRefusedError(StorageInitializationError):
+    """Refusal to open a database that declares an unknown, likely newer catalog.
+
+    The stored SQLite catalog contains objects this build does not declare.
+    The database may hold a **newer** catalog written by a newer build of
+    medre, so opening it with the declared catalog would require a schema
+    downgrade. Automatic downgrades are never planned or executed: the
+    refusal names both catalog states and preserves the database untouched.
+    """
+
+    def __init__(
+        self,
+        path: str | None,
+        unexpected: list[str],
+        *,
+        stored_count: int,
+        expected_count: int,
+        expected_version: int,
+    ) -> None:
+        self.path = path
+        self.unexpected = sorted(unexpected)
+        self.stored_count = stored_count
+        self.expected_count = expected_count
+        self.expected_version = expected_version
+        preview = ", ".join(self.unexpected[:6])
+        if len(self.unexpected) > 6:
+            preview += ", ..."
+        path_hint = f" (database: {path})" if path else ""
+        super().__init__(
+            f"Storage catalog downgrade refused{path_hint}: the database "
+            f"declares {stored_count} catalog object(s), including "
+            f"{len(self.unexpected)} this build does not declare: "
+            f"[{preview}]. This build declares {expected_count} catalog "
+            f"object(s) at schema version {expected_version}. The database "
+            "may hold a newer catalog written by a newer build of medre; "
+            "no automatic schema downgrade is performed. Preserve the "
+            "database, verify a backup, and use a compatible build that "
+            "declares this catalog, or make an explicit recovery or reset "
+            "decision."
+        )
+
+    @property
+    def summary(self) -> str:
+        """Compact single-line operator diagnostic for assessment output."""
+        preview = ", ".join(self.unexpected[:4])
+        if len(self.unexpected) > 4:
+            preview += ", ..."
+        return (
+            f"automatic downgrade refused: {len(self.unexpected)} undeclared "
+            f"catalog object(s) [{preview}]; this build declares schema "
+            f"version {self.expected_version}"
+        )
+
+
 class SchemaValidationError(StorageError):
     """Raised when stored data does not conform to the expected schema."""
 

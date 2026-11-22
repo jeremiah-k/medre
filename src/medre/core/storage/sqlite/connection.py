@@ -43,6 +43,7 @@ from medre.core.storage.sqlite.ingress_sql import (
 from medre.core.storage.sqlite.schema import _EXPECTED_SCHEMA_VERSION, _INDEXES, _SCHEMA
 from medre.core.storage.sqlite.schema_validation import (
     apply_safe_additions,
+    downgrade_refusal,
     execute_ddl,
     safe_additive_state,
     validate_schema_definition,
@@ -288,8 +289,11 @@ def sync_find_schema_shape_mismatch(
 
     A version-1 stamp authorizes only verified, allowlisted additive DDL.
     Unstamped, nonempty databases cannot be silently adopted as fresh state.
-    All structural comparisons use a read-only handle, so mismatch does not
-    create schema artifacts or rewrite an operator's database.
+    A catalog declaring tables this build does not declare may be newer
+    catalog state, so the refusal names both catalog states and no downgrade
+    is planned. All structural comparisons use a read-only handle, so
+    mismatch does not create schema artifacts or rewrite an operator's
+    database.
     """
     if db_path == ":memory:" or not os.path.exists(db_path):
         return None
@@ -344,13 +348,13 @@ def sync_find_schema_shape_mismatch(
                 return PreReleaseSchemaMismatchError(
                     db_path, table, missing, unexpected_columns=extra
                 )
-        # Reject new or abandoned tables rather than quietly accepting an
-        # otherwise compatible subset of the schema.
+        # Reject tables this build does not declare rather than quietly
+        # accepting an otherwise compatible subset of the schema. Such a
+        # catalog may be NEWER catalog state written by a newer build, so
+        # the refusal names both catalog states and no downgrade is planned.
         extra_tables = sorted(names - required_columns.keys())
         if extra_tables:
-            return PreReleaseSchemaMismatchError(
-                db_path, extra_tables[0], detail="unexpected table"
-            )
+            return downgrade_refusal(db, db_path, [f"table {t}" for t in extra_tables])
         validate_schema_definition(db, db_path)
         return None
     finally:
