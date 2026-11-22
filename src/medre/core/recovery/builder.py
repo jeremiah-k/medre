@@ -20,13 +20,12 @@ They must not and do not:
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any, Callable, Iterable
-
-from medre.core.storage.sqlite.constants import STALE_QUEUED_GRACE_SECONDS
 
 from ._helpers import _get, _parse_as_utc, _to_str
 from .classification import (
+    CLASS_CONFIRMATION_PENDING,
     CLASS_IMMEDIATELY_CLAIMABLE,
     CLASS_INCONSISTENT,
     CLASS_ORPHANED,
@@ -99,6 +98,7 @@ def _infer_recovery_source(
 _CLASSIFICATION_TO_OWNERSHIP: dict[str, str] = {
     CLASS_IMMEDIATELY_CLAIMABLE: str(RecoveryOwnershipStatus.RECOVERABLE),
     CLASS_RETRY_ELIGIBLE: str(RecoveryOwnershipStatus.SKIPPED),
+    CLASS_CONFIRMATION_PENDING: str(RecoveryOwnershipStatus.SKIPPED),
     CLASS_STALE: str(RecoveryOwnershipStatus.CLAIMED_FOR_RECOVERY),
     CLASS_ORPHANED: str(RecoveryOwnershipStatus.UNRECOVERABLE),
     CLASS_TERMINAL: str(RecoveryOwnershipStatus.UNRECOVERABLE),
@@ -109,11 +109,6 @@ _CLASSIFICATION_TO_OWNERSHIP: dict[str, str] = {
 # Public builders
 # ---------------------------------------------------------------------------
 
-#: Default stale-queued grace period; mirrors the storage-layer
-#: :data:`~medre.core.storage.sqlite.constants.STALE_QUEUED_GRACE_SECONDS`
-#: so recovery classification and outbox reclaim use a single source of truth.
-_DEFAULT_STALE_QUEUED_GRACE: timedelta = timedelta(seconds=STALE_QUEUED_GRACE_SECONDS)
-
 
 def build_startup_recovery_ledger(
     outbox_items: Iterable[Any] = (),
@@ -123,7 +118,6 @@ def build_startup_recovery_ledger(
     recovery_source: str | None = None,
     now_fn: Callable[[], str] | None = None,
     known_event_ids: set[str] | frozenset[str] | None = None,
-    stale_queued_grace: timedelta | None = None,
 ) -> StartupRecoveryLedger:
     """Build a deterministic startup recovery ledger from outbox snapshots.
 
@@ -152,9 +146,6 @@ def build_startup_recovery_ledger(
     known_event_ids:
         Known event IDs for orphan detection.  ``None`` skips orphan
         checks; an empty set flags all non-terminal items.
-    stale_queued_grace:
-        Grace period before a ``queued`` item with ``updated_at`` is
-        considered stale.  Defaults to 5 minutes when ``None``.
 
     Returns
     -------
@@ -165,11 +156,6 @@ def build_startup_recovery_ledger(
     _now_iso_fn = now_fn or _now_iso
     _run_id = recovery_run_id  # None is valid for per-event snapshot diagnostics
     _source_override = recovery_source  # Explicit caller override; None → infer
-    _grace = (
-        stale_queued_grace
-        if stale_queued_grace is not None
-        else _DEFAULT_STALE_QUEUED_GRACE
-    )
     generated_at = _now_iso_fn()
 
     # Derive a datetime for classification timestamp comparisons.
@@ -190,7 +176,6 @@ def build_startup_recovery_ledger(
             item,
             known_event_ids=known_event_ids,
             now=_now_dt,
-            stale_queued_grace=_grace,
         )
 
         ownership_action = _CLASSIFICATION_TO_OWNERSHIP.get(

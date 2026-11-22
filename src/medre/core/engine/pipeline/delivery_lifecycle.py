@@ -67,11 +67,21 @@ Retry representation
 Observed transitions
     - Receipt: ``queued`` -> ``sent`` (supplemental, via callback)
     - Receipt: ``failed`` -> ``dead_lettered`` (exhausted retry)
-    - Outbox: ``pending`` / ``retry_wait`` / stale ``queued`` / expired
-      ``in_progress`` -> ``in_progress`` (lease acquisition)
+    - Outbox: ``pending`` / ``retry_wait`` / expired ``in_progress`` ->
+      ``in_progress`` (lease acquisition)
     - Outbox: ``in_progress`` -> ``queued`` / ``sent`` / ``retry_wait`` /
       ``dead_lettered`` (delivery outcome)
     - Outbox: ``queued`` -> ``sent`` (callback confirmation)
+
+The queued outbox disposition
+    A queued receipt records only adapter-local queue acceptance, so a
+    ``queued`` outbox row is the durable, content-free
+    confirmation-pending disposition: never claimable, never reclaimed
+    for redispatch, and never counted as delivery success.  It leaves
+    ``queued`` only through evidence-driven settlement (deferred
+    completion, a provenance-matched ``sent`` receipt, or terminal
+    lifecycle evidence) or the explicit operator confirmation-pending
+    resolution.
 """
 
 from __future__ import annotations
@@ -1582,8 +1592,21 @@ class DeliveryLifecycleService:
 
         if evidence is not None and evidence.status in {"queued", "sent", "suppressed"}:
             accepted = await self.finalize_retry_success(storage, item, evidence)
+            # A queued receipt is adapter-local acceptance only: it is the
+            # third observability outcome, never delivery success. The row
+            # rests in the durable confirmation-pending disposition and no
+            # success/failure counter counts it.
+            outcome: Literal[
+                "accepted",
+                "queued",
+                "suppressed",
+            ] = (
+                "suppressed"
+                if not accepted
+                else ("queued" if evidence.status == "queued" else "accepted")
+            )
             return RetryAttemptFinalization(
-                outcome="accepted" if accepted else "suppressed",
+                outcome=outcome,
                 receipt_id=evidence.receipt_id,
                 failure_kind=evidence.failure_kind,
                 attempt_number=evidence.attempt_number,
@@ -2015,10 +2038,13 @@ class DeliveryLifecycleService:
         """Reconcile a committed receipt without promoting local queue admission.
 
         Content denial can follow a ``queued``/``sent`` receipt whose outbox
-        transition never committed. Only ``sent`` proves completion; queued
-        retains the deferred-completion obligation without redispatching.
-        Every receipt's provenance is validated against the claimed
-        delivery identity before any settlement commits.
+        transition never committed. Only ``sent`` proves completion; a
+        ``queued`` receipt commits the row to the durable, content-free
+        confirmation-pending disposition — never claimable, never
+        redispatched — with deferred completion outstanding until evidence
+        settles it or the operator resolves it. Every receipt's provenance
+        is validated against the claimed delivery identity before any
+        settlement commits.
         """
         if self._receipt_provenance_conflicts(item, attempt_number, receipts):
             raise StorageError(
@@ -2337,9 +2363,11 @@ class DeliveryLifecycleService:
         """Commit a queued, sent, or suppressed retry receipt to the outbox.
 
         Return ``True`` for queued or sent, and ``False`` for suppressed
-        (which abandons the row). Raise :class:`RetryAttemptCommitRejected`
-        if the guarded transition fails, or :class:`ValueError` for another
-        receipt status.
+        (which abandons the row). A queued receipt commits the durable,
+        content-free confirmation-pending disposition: the row is never
+        claimable and never redispatched. Raise
+        :class:`RetryAttemptCommitRejected` if the guarded transition
+        fails, or :class:`ValueError` for another receipt status.
         """
         if receipt.status == "queued":
             committed = await storage.mark_outbox_queued(

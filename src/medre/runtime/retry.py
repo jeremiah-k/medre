@@ -103,9 +103,13 @@ class RetryWorkerStorage(Protocol):
     """
 
     async def health_backlog_adapters(
-        self, candidates: tuple[str, ...], *, queued_as_of: str | None = None
+        self, candidates: tuple[str, ...]
     ) -> tuple[str, ...]:
-        """Return lanes with current work, including stale queued rows if requested."""
+        """Return lanes with dispatchable nonterminal work.
+
+        ``queued`` rows are the durable confirmation-pending disposition and
+        never make a lane a wake candidate.
+        """
         ...
 
     async def claim_due_outbox_items(
@@ -465,7 +469,7 @@ class RetryWorker:
             if self._task is not None and self.state.running:
                 self._dispatch_wake.set()
 
-    async def _health_excluded_adapters(self, now: datetime) -> tuple[str, ...]:
+    async def _health_excluded_adapters(self) -> tuple[str, ...]:
         """Return adapters whose obligations must not be claimed now.
 
         An adapter with a current non-healthy observation is excluded so its
@@ -476,7 +480,9 @@ class RetryWorker:
         work this process never admitted — expires, so normal
         retry/retention rules resume (the admission gate composes with the
         same decision) and an adapter that never recovers cannot strand
-        obligations silently.
+        obligations silently. A ``queued`` row is the durable
+        confirmation-pending disposition: it is not held work, so it never
+        opens a lane for dispatch.
         """
         if self._health_gate is None:
             return ()
@@ -487,10 +493,7 @@ class RetryWorker:
         )
         candidates = self._health_gate.unhealthy_adapters(universe)
         held = (
-            await self._storage.health_backlog_adapters(
-                candidates,
-                queued_as_of=now.isoformat() if self._retries_enabled else None,
-            )
+            await self._storage.health_backlog_adapters(candidates)
             if candidates
             else ()
         )
@@ -1213,7 +1216,7 @@ class RetryWorker:
             # The health exclusion read can itself take longer than a
             # lease. Resolve it first, then timestamp the claim only
             # after that final await.
-            health_excluded = await self._health_excluded_adapters(now)
+            health_excluded = await self._health_excluded_adapters()
             claim_now = max(now, datetime.now(timezone.utc))
             items = await self._storage.claim_due_outbox_items(
                 now=claim_now.isoformat(),

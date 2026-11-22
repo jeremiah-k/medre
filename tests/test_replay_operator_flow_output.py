@@ -558,7 +558,7 @@ class TestRecoverySkippedActiveUnowned:
         assert "not yet due" in action.reason
 
     def test_queued_recent_skipped(self) -> None:
-        """Queued item within grace period -> SKIPPED."""
+        """Queued item is the confirmation-pending disposition -> SKIPPED."""
         recent = (_fixed_now_dt() - timedelta(minutes=1)).isoformat()
         item = _make_outbox_item(
             outbox_id="ob-q",
@@ -574,7 +574,7 @@ class TestRecoverySkippedActiveUnowned:
         )
         action = ledger.actions[0]
         assert action.ownership_action == str(RecoveryOwnershipStatus.SKIPPED)
-        assert "grace" in action.reason.lower()
+        assert "confirmation pending" in action.reason.lower()
 
     def test_summary_skipped_count_matches(self) -> None:
         future = (_fixed_now_dt() + timedelta(hours=1)).isoformat()

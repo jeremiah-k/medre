@@ -8,10 +8,17 @@ Authority surface:
   - list_all_outbox_items:      **list/get** (read-only).
   - list_outbox_items_for_event: **list/get** (read-only).
   - list_outbox_items_by_replay_run: **list/get** (read-only).
-  - claim_due_outbox_items:     **claim** (atomic).
+  - claim_due_outbox_items:     **claim** (atomic). Queued rows are never
+                                claimable: a queued receipt records only
+                                adapter-local acceptance, so the row rests in
+                                the durable confirmation-pending disposition
+                                until evidence settles it or the operator
+                                resolves it.
   - reserve_outbox_attempt:     **claim** (atomic attempt-identity reservation).
   - mark_outbox_sent:           **mark** (terminal transition, in_progress|queued -> sent).
-  - mark_outbox_queued:         **mark** (non-terminal, in_progress -> queued).
+  - mark_outbox_queued:         **mark** (non-terminal, in_progress -> queued; the
+                                durable confirmation-pending disposition — never
+                                claimable, never reclaimed for redispatch).
   - mark_outbox_retry_wait:     **mark** (non-terminal, in_progress -> retry_wait).
   - mark_outbox_dead_lettered:  **mark** (terminal, in_progress|retry_wait -> dead_lettered).
   - mark_outbox_cancelled:      **mark** (terminal, any non-terminal -> cancelled).
@@ -32,7 +39,6 @@ Key invariants:
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from medre.core.delivery_authority import DeliveryIdentity
@@ -62,7 +68,6 @@ from medre.core.storage.sqlite._evidence_diagnostics import (
 )
 from medre.core.storage.sqlite._projections import inspection_sql
 from medre.core.storage.sqlite.connection import sync_transition_outbox_and_settle
-from medre.core.storage.sqlite.constants import STALE_QUEUED_GRACE_SECONDS
 from medre.core.storage.sqlite.serde import (
     _add_seconds_iso,
     _decode_json,
@@ -83,12 +88,6 @@ if TYPE_CHECKING:
 
     _P = ParamSpec("_P")
     _T = TypeVar("_T")
-
-
-def _stale_queued_cutoff(now: str) -> str:
-    return (
-        datetime.fromisoformat(now) - timedelta(seconds=STALE_QUEUED_GRACE_SECONDS)
-    ).isoformat()
 
 
 class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
@@ -786,10 +785,15 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         UPDATE equivalent (rowid-based) and updates in one step.  Claims items that are:
 
         - ``status IN ('pending', 'retry_wait')`` — directly claimable;
-        - ``status = 'in_progress' AND (lease_until IS NULL OR lease_until <= now)`` — missing or expired leases;
-        - ``status = 'queued' AND updated_at <= now - GRACE`` — stale
-          queued items past the grace threshold
-          (:data:`STALE_QUEUED_GRACE_SECONDS`).
+        - ``status = 'in_progress' AND (lease_until IS NULL OR lease_until <= now)`` — missing or expired leases.
+
+        Rows in ``queued`` status are the durable confirmation-pending
+        disposition: a queued receipt records only adapter-local queue
+        acceptance, so the row is never claimable and never reclaimed for
+        redispatch. It leaves ``queued`` only through evidence-driven
+        settlement (deferred completion, a provenance-matched ``sent``
+        receipt, or terminal lifecycle evidence) or the explicit operator
+        confirmation-pending resolution.
 
         ``one_per_adapter`` selects the oldest eligible row for each adapter
         before applying the global limit, and excludes adapters with an
@@ -823,7 +827,6 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         observe fewer rows than its initial ``SELECT`` saw.
         """
         lease_until = _add_seconds_iso(now, lease_seconds)
-        stale_cutoff = _stale_queued_cutoff(now)
         claimable_ph = ",".join("?" for _ in CLAIMABLE_OUTBOX_STATUSES)
         claimable_params = tuple(CLAIMABLE_OUTBOX_STATUSES)
         # Use a two-step approach: SELECT candidates, then UPDATE matching.
@@ -871,8 +874,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
             ) AS adapter_rank
             FROM delivery_outbox
             WHERE (status IN ({claimable_ph})
-                   OR (status = 'in_progress' AND (lease_until IS NULL OR lease_until <= ?))
-                   OR (status = 'queued' AND updated_at <= ?))
+                   OR (status = 'in_progress' AND (lease_until IS NULL OR lease_until <= ?)))
               AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
               AND (lease_until IS NULL OR lease_until <= ?)
               AND {_no_newer_generation} {filters}
@@ -885,7 +887,6 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
             (
                 *claimable_params,
                 now,
-                stale_cutoff,
                 now,
                 now,
                 *filter_params,
@@ -908,8 +909,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                     next_attempt_at = NULL
                 WHERE outbox_id IN ({placeholders})
                   AND (status IN ({claimable_ph})
-                       OR (status = 'in_progress' AND (lease_until IS NULL OR lease_until <= ?))
-                       OR (status = 'queued' AND updated_at <= ?))
+                       OR (status = 'in_progress' AND (lease_until IS NULL OR lease_until <= ?)))
                   AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
                   AND (lease_until IS NULL OR lease_until <= ?)
                   AND {_no_newer_generation} {filters}""",  # nosec: interpolated fragments are static SQL or ? placeholders
@@ -921,7 +921,6 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                 *outbox_ids,
                 *claimable_params,
                 now,
-                stale_cutoff,
                 now,
                 now,
                 *filter_params,
@@ -989,12 +988,15 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         )
 
     async def health_backlog_adapters(
-        self, candidates: tuple[str, ...], *, queued_as_of: str | None = None
+        self, candidates: tuple[str, ...]
     ) -> tuple[str, ...]:
-        """Probe each unhealthy lane for current nonterminal work using its index."""
+        """Probe each unhealthy lane for dispatchable nonterminal work.
+
+        A ``queued`` row is the durable confirmation-pending disposition: it
+        never dispatches again, so it never makes a lane a wake candidate.
+        """
         if not candidates:
             return ()
-        stale_cutoff = _stale_queued_cutoff(queued_as_of) if queued_as_of else None
         values = ",".join("(?)" for _ in candidates)
         rows = await self._read_all(
             f"""WITH candidates(target_adapter) AS (VALUES {values})
@@ -1002,8 +1004,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                WHERE EXISTS (
                  SELECT 1 FROM delivery_outbox
                  WHERE delivery_outbox.target_adapter=candidates.target_adapter
-                   AND (status IN ('pending','retry_wait','in_progress')
-                        OR (status='queued' AND updated_at<=?))
+                   AND status IN ('pending','retry_wait','in_progress')
                    AND NOT EXISTS (
                        SELECT 1 FROM delivery_outbox sibling
                        WHERE sibling.outbox_id<>delivery_outbox.outbox_id
@@ -1014,7 +1015,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                          AND COALESCE(sibling.active_attempt,sibling.attempt_number)>=
                              COALESCE(delivery_outbox.active_attempt,delivery_outbox.attempt_number))
                )""",  # nosec B608 - values contains only parameter placeholders
-            (*candidates, stale_cutoff),
+            candidates,
         )
         return tuple(sorted(row["target_adapter"] for row in rows))
 

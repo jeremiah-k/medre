@@ -475,59 +475,45 @@ class TestClassifyStartupReclamation:
         label, _ = classify_startup_reclamation(item, now=now)
         assert label == "immediately_claimable"
 
-    # -- Item 10: Queued stale-grace ----------------------------------------
+    # -- Item 10: Queued confirmation-pending disposition --------------------
 
-    def test_queued_recent_within_grace(self) -> None:
-        """Queued item with recent updated_at is within grace — not claimable."""
+    def test_queued_recent_is_confirmation_pending(self) -> None:
+        """A freshly queued row is confirmation-pending, never claimable."""
         now = _fixed_dt()
         recent = (now - timedelta(minutes=1)).isoformat()
         item = _make_item(status="queued", updated_at=recent)
         label, reason = classify_startup_reclamation(item, now=now)
-        assert label == "retry_eligible"
-        assert "grace" in reason.lower()
+        assert label == "confirmation_pending"
+        assert "confirmation pending" in reason.lower()
 
-    def test_queued_stale_beyond_grace(self) -> None:
-        """Queued item with old updated_at exceeds grace — claimable."""
+    def test_queued_stale_beyond_grace_is_confirmation_pending(self) -> None:
+        """A stale queued row is still confirmation-pending — never claimable."""
         now = _fixed_dt()
         old = (now - timedelta(hours=1)).isoformat()
         item = _make_item(status="queued", updated_at=old)
         label, reason = classify_startup_reclamation(item, now=now)
-        assert label == "immediately_claimable"
-        assert "stale" in reason.lower()
+        assert label == "confirmation_pending"
+        assert "confirmation pending" in reason.lower()
 
     def test_queued_missing_updated_at(self) -> None:
-        """Queued item with no updated_at is stale."""
+        """A queued row with no updated_at is still confirmation-pending."""
         item = _make_item(status="queued", updated_at=None)
         label, reason = classify_startup_reclamation(item, now=_fixed_dt())
-        assert label == "stale"
+        assert label == "confirmation_pending"
         assert "no updated_at" in reason.lower()
 
-    def test_queued_stale_custom_grace(self) -> None:
-        """Custom grace period is respected."""
-        now = _fixed_dt()
-        updated = (now - timedelta(minutes=3)).isoformat()
-        item = _make_item(status="queued", updated_at=updated)
-        # Default grace (5 min) → not stale
-        label_default, _ = classify_startup_reclamation(item, now=now)
-        assert label_default == "retry_eligible"
-        # 2 min grace → stale
-        label_short, _ = classify_startup_reclamation(
-            item, now=now, stale_queued_grace=timedelta(minutes=2)
-        )
-        assert label_short == "immediately_claimable"
-
     def test_queued_stale_old_timestamp(self) -> None:
-        """Legacy test: queued with very old timestamp is claimable."""
+        """A queued row with a very old timestamp never becomes claimable."""
         item = _make_item(status="queued", updated_at="2020-01-01T00:00:00+00:00")
         label, reason = classify_startup_reclamation(item, now=_fixed_dt())
-        assert label == "immediately_claimable"
-        assert "exceeds grace" in reason.lower()
+        assert label == "confirmation_pending"
+        assert "confirmation pending" in reason.lower()
 
     def test_queued_unparseable_updated_at(self) -> None:
-        """Queued item with unparseable updated_at is stale."""
+        """An unparseable timestamp cannot make a queued row claimable."""
         item = _make_item(status="queued", updated_at="not-a-date")
         label, _ = classify_startup_reclamation(item, now=_fixed_dt())
-        assert label == "stale"
+        assert label == "confirmation_pending"
 
 
 # ---------------------------------------------------------------------------

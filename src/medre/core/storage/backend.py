@@ -1817,9 +1817,13 @@ class StorageBackend(Protocol):
         ...
 
     async def health_backlog_adapters(
-        self, candidates: tuple[str, ...], *, queued_as_of: str | None = None
+        self, candidates: tuple[str, ...]
     ) -> tuple[str, ...]:
-        """Return lanes with current work, including stale queued rows if requested."""
+        """Return lanes with dispatchable nonterminal work.
+
+        ``queued`` rows are the durable confirmation-pending disposition and
+        never make a lane a wake candidate.
+        """
         ...
 
     async def claim_due_outbox_items(
@@ -1843,11 +1847,12 @@ class StorageBackend(Protocol):
           claimable;
         - ``status = 'in_progress' AND (lease_until IS NULL OR
           lease_until <= now)`` — missing or expired leases (worker
-          crashed or stalled);
-        - ``status = 'queued' AND updated_at <= now - GRACE`` — stale
-          queued items past the grace threshold defined by
-          :data:`~medre.core.storage.sqlite.STALE_QUEUED_GRACE_SECONDS`
-          (default 300 s).
+          crashed or stalled).
+
+        ``queued`` rows are never claimed: a queued receipt records only
+        adapter-local queue acceptance, so the row rests in the durable
+        confirmation-pending disposition until evidence settles it or the
+        operator resolves it.
 
         Additional guards applied to every candidate:
 
