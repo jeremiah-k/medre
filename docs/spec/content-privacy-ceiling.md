@@ -158,6 +158,17 @@ The guarded ceiling-enforcement transition is a single mutation boundary:
   their content values, and the receipt stays valid. This is the honest
   boundary between "gone by enforcement" and writes already authorized
   before the instant.
+- A terminal evidence fence MUST cover every retained evidence version that
+  can change the decision: the exact-attempt observation count, receipt count,
+  checkpoint revision, and retained packet-scope count. A sweep that restores
+  packet correlation for a legacy acknowledgment therefore invalidates a
+  stale abandonment decision rather than letting it commit.
+- When content is denied after a receipt was persisted, a committed `sent`
+  or `queued` receipt for the claimed attempt settles the outbox `sent`
+  without another dispatch. Positive exact-attempt native evidence also
+  settles `sent` alongside a historical failed receipt; both the accepted
+  and failed receipt rows remain immutable history. No settlement fabricates a
+  receipt or restores send authority.
 
 Runtime invocation rides the existing LIVE-mode outbox poll cycle behind
 an independent, default-off `retry.ceiling_sweep` declaration, bounded and

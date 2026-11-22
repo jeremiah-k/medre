@@ -179,6 +179,10 @@ class _ObservationMixin(_EvidenceDiagnosticsReadMixin):
             self, sql: str, params: tuple[Any, ...] = ()
         ) -> list[dict[str, Any]]: ...
 
+        async def _read_one(
+            self, sql: str, params: tuple[Any, ...] = ()
+        ) -> dict[str, Any] | None: ...
+
         async def _radio_transaction(
             self, operation: Callable[[sqlite3.Connection], _T]
         ) -> _T: ...
@@ -447,3 +451,22 @@ class _ObservationMixin(_EvidenceDiagnosticsReadMixin):
             (CEILING_CLOCK_AT_EXECUTION, outbox_id, attempt_number),
         )
         return [_row_to_delivery_observation(row) for row in rows]
+
+    async def count_delivery_observation_scopes(
+        self, outbox_id: str, attempt_number: int
+    ) -> int:
+        """Count retained packet scopes for one exact attempt.
+
+        This is a content-free evidence version. The ceiling sweep adds a
+        scope row when it validates a legacy packet claim, so a terminal
+        write that captured the old count cannot commit after that repair.
+        """
+        if not outbox_id or type(attempt_number) is not int or attempt_number < 1:
+            raise ValueError("A positive outbox attempt is required")
+        row = await self._read_one(
+            "SELECT COUNT(*) AS scope_count FROM delivery_observation_scopes s "
+            "JOIN delivery_observations o ON o.observation_id=s.observation_id "
+            "WHERE o.outbox_id=? AND o.attempt_number=?",
+            (outbox_id, attempt_number),
+        )
+        return int(row["scope_count"]) if row is not None else 0

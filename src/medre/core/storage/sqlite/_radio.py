@@ -158,8 +158,15 @@ def _owns(
     db: sqlite3.Connection,
     claim: DeliveryAttemptProvenance,
     worker_id: str | None,
+    *,
+    require_active_lease: bool = True,
 ) -> bool:
-    """Require an active, unexpired dispatch claim and fence newer generations.
+    """Require an active dispatch claim and fence newer generations.
+
+    ``require_active_lease=False`` is used only for recording completion of a
+    native call that was already authorized. The exact worker, active attempt,
+    status and newer-generation fences still apply, so a takeover or release
+    still refuses the write; a mere lease lapse does not discard acceptance.
 
     Once the parent enters queued it has relinquished its worker reservation;
     a checkpoint must never resurrect native submission authority from that row.
@@ -196,7 +203,7 @@ def _owns(
     ).fetchone()
     if row is None:
         return False
-    if row["lease_until"] is not None:
+    if require_active_lease and row["lease_until"] is not None:
         try:
             if _utc(datetime.fromisoformat(row["lease_until"])) <= _now_iso():
                 return False
@@ -441,7 +448,7 @@ class _RadioMixin:
                     _utc(observed),
                 ):
                     return None
-            if not _owns(db, claim, worker_id):
+            if not _owns(db, claim, worker_id, require_active_lease=native_start):
                 return None
             row = db.execute(
                 "SELECT * FROM radio_attempt_progress WHERE outbox_id=? AND attempt_number=?",

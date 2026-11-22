@@ -11,6 +11,7 @@ config entry path. The purge behavior itself is qualified per store in
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 
@@ -167,5 +168,34 @@ async def test_ceiling_only_worker_does_not_claim_delivery(
     )
     assert worker._enabled is True
     await worker._process_due(datetime.now(timezone.utc))
+    sweep.assert_awaited_once()
+    claims.assert_not_awaited()
+
+
+async def test_maintenance_wake_does_not_bypass_retry_scan(
+    temp_storage: SQLiteStorage, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A ceiling wake before the retry scan must not claim retry work."""
+    sweep = AsyncMock(return_value=[])
+    claims = AsyncMock(return_value=[])
+    monkeypatch.setattr(temp_storage, "enforce_content_ceilings", sweep)
+    monkeypatch.setattr(temp_storage, "claim_due_outbox_items", claims)
+    runner, _, _ = _pipeline(temp_storage)
+    worker = RetryWorker(
+        temp_storage,
+        runner,
+        None,
+        retry_config=RetryConfig(
+            enabled=True,
+            interval_seconds=3600,
+            ceiling_sweep=CeilingSweepConfig(enabled=True, interval_seconds=60),
+        ),
+        initial_dispatch=False,
+    )
+    now = datetime.now(timezone.utc)
+    worker._next_retry_scan = now + timedelta(seconds=3600)
+    worker._next_ceiling_sweep_at = now
+    async with asyncio.TaskGroup() as group:
+        await worker._process_due(now, group=group)
     sweep.assert_awaited_once()
     claims.assert_not_awaited()

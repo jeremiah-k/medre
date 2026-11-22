@@ -387,7 +387,9 @@ CREATE TABLE IF NOT EXISTS radio_accepted_part_facts (
 );
 
 -- Non-authorizing packet scope survives clearing observation metadata.
--- Event-scoped evidence-only radio progress survives loss of all wire plans.
+-- Event-scoped evidence-only radio progress survives loss of all wire plans;
+-- states include accepted, submitting and unknown, so the projection is
+-- evidence of progress, not by itself proof of acceptance.
 CREATE TABLE IF NOT EXISTS radio_attempt_evidence_summaries (
     outbox_id TEXT NOT NULL REFERENCES delivery_outbox(outbox_id),
     attempt_number INTEGER NOT NULL CHECK (attempt_number >= 1),

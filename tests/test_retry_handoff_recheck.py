@@ -100,6 +100,7 @@ def _lifecycle(recheck_result) -> MagicMock:
     lifecycle = MagicMock()
     lifecycle.reconcile_retry_claim = AsyncMock(return_value=None)
     lifecycle.reconcile_content_denied_handoff = AsyncMock(return_value=None)
+    lifecycle.settle_committed_acceptance = AsyncMock(return_value=None)
     lifecycle.recheck_last_uncertain_handoff = AsyncMock(return_value=recheck_result)
     lifecycle.list_attempt_receipts = AsyncMock(return_value=[])
     lifecycle.reserve_retry_attempt = AsyncMock(return_value=None)
@@ -389,6 +390,7 @@ async def test_recheck_passes_observation_count_to_reservation(count):
         expected_observation_count=count,
         expected_receipt_count=0,
         expected_checkpoint_revision=None,
+        expected_observation_scope_count=None,
     )
     pipeline.deliver_execution_to_target.assert_not_called()
     emit.assert_not_called()
@@ -438,8 +440,8 @@ async def test_claim_owner_identifier_is_full_uuid_hex(monkeypatch):
     assert claim.await_args.kwargs["worker_id"] == f"retry-worker-{owner.hex}"
 
 
-async def test_reconciled_acceptance_records_before_visible_receipt_guard():
-    """A committed reconciliation is accounted for even when its receipt is visible."""
+async def test_committed_acceptance_records_before_visible_receipt_guard():
+    """A committed acceptance is recorded before the receipt early return."""
     item = _gated_item(metadata={})
     storage = _retained_storage()
     storage.read_event_for_outbox.return_value = SimpleNamespace(status="expired")
@@ -466,10 +468,18 @@ async def test_reconciled_acceptance_records_before_visible_receipt_guard():
             )
         ]
     )
+    finalization = RetryAttemptFinalization(
+        outcome="accepted",
+        receipt_id="rcpt-visible-acceptance",
+        failure_kind=None,
+        attempt_number=1,
+    )
+    lifecycle.settle_committed_acceptance = AsyncMock(return_value=finalization)
     worker, pipeline = _worker(storage, lifecycle)
 
     emit = await _run_with_emit(worker, item)
 
+    lifecycle.settle_committed_acceptance.assert_awaited_once()
     lifecycle.abandon_retry_outbox.assert_not_awaited()
     pipeline.deliver_execution_to_target.assert_not_awaited()
     assert worker.state.processed == 1
@@ -508,5 +518,43 @@ async def test_expired_dispatch_context_fences_existing_failed_receipt():
         expected_observation_count=None,
         expected_checkpoint_revision=None,
         expected_receipt_count=1,
+        expected_observation_scope_count=None,
     )
     pipeline.deliver_execution_to_target.assert_not_awaited()
+
+
+async def test_content_denied_settles_committed_receipt_before_abandon():
+    """A persisted sent receipt is terminal even when content is denied."""
+    item = _gated_item(metadata={})
+    storage = _retained_storage()
+    storage.read_event_for_outbox.return_value = SimpleNamespace(status="expired")
+    lifecycle = _lifecycle(None)
+    receipt = DeliveryReceipt(
+        receipt_id="sent-current-attempt",
+        event_id=item.event_id,
+        delivery_plan_id=item.delivery_plan_id,
+        target_adapter=item.target_adapter,
+        outbox_id=item.outbox_id,
+        attempt_number=1,
+        status="sent",
+        source="retry",
+    )
+    lifecycle.list_attempt_receipts = AsyncMock(return_value=[receipt])
+    finalization = RetryAttemptFinalization(
+        outcome="accepted",
+        receipt_id="sent-current-attempt",
+        failure_kind=None,
+        attempt_number=1,
+    )
+    lifecycle.settle_committed_acceptance = AsyncMock(return_value=finalization)
+    worker, pipeline = _worker(storage, lifecycle)
+
+    emit = await _run_with_emit(worker, item)
+
+    lifecycle.settle_committed_acceptance.assert_awaited_once()
+    lifecycle.abandon_retry_outbox.assert_not_awaited()
+    pipeline.deliver_execution_to_target.assert_not_awaited()
+    assert worker.state.processed == 1
+    assert worker.state.succeeded == 1
+    emitted = {call.args[0]: call.args[1] for call in emit.call_args_list}
+    assert emitted["retry_succeeded"]["receipt_id"] == "sent-current-attempt"

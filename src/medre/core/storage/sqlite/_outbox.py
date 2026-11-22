@@ -1027,6 +1027,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         expected_observation_count: int | None = None,
         expected_receipt_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
+        expected_observation_scope_count: int | None = None,
     ) -> int | None:
         """Durably reserve the next attempt on a row this worker claimed.
 
@@ -1056,6 +1057,10 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
             raise ValueError(
                 "An observation guard requires a finalized attempt and count"
             )
+        if expected_observation_scope_count is not None and (
+            from_attempt < 1 or expected_observation_scope_count < 0
+        ):
+            raise ValueError("A scope guard requires a finalized attempt and count")
         if (
             expected_receipt_count is not None
             or expected_checkpoint_revision is not None
@@ -1088,6 +1093,13 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                      SELECT COUNT(*) FROM delivery_observations
                      WHERE outbox_id = delivery_outbox.outbox_id
                        AND attempt_number = delivery_outbox.attempt_number
+                 ) = ?)
+                 AND (? IS NULL OR (
+                     SELECT COUNT(*) FROM delivery_observation_scopes s
+                     JOIN delivery_observations o
+                       ON o.observation_id=s.observation_id
+                     WHERE o.outbox_id = delivery_outbox.outbox_id
+                       AND o.attempt_number = delivery_outbox.attempt_number
                  ) = ?)
                  AND (? IS NULL OR (
                      SELECT COUNT(*) FROM delivery_receipts
@@ -1125,6 +1137,8 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                 from_attempt,
                 expected_observation_count,
                 expected_observation_count,
+                expected_observation_scope_count,
+                expected_observation_scope_count,
                 expected_receipt_count,
                 expected_receipt_count,
                 expected_checkpoint_revision,
@@ -1153,6 +1167,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         expected_observation_count: int | None = None,
         expected_receipt_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
+        expected_observation_scope_count: int | None = None,
     ) -> bool:
         """Shared helper for status transitions.
 
@@ -1271,6 +1286,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                 expected_observation_count,
                 expected_receipt_count,
                 expected_checkpoint_revision,
+                expected_observation_scope_count,
             )
         ):
             if attempt_number is None or attempt_number < 0:
@@ -1299,6 +1315,22 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                 "WHERE outbox_id = ? AND attempt_number = ?) = ?"
             )
             params.extend((outbox_id, attempt_number, expected_receipt_count))
+        if expected_observation_scope_count is not None:
+            if expected_observation_scope_count < 0 or (
+                attempt_number == 0 and expected_observation_scope_count
+            ):
+                raise ValueError("A scope guard requires a valid count")
+            # The ceiling sweep can restore packet correlation for a legacy
+            # acknowledgement without changing the observation count. Fence
+            # the exact attempt's scope set so a terminal write captured
+            # before that repair cannot commit after it.
+            where_clauses.append(
+                "(SELECT COUNT(*) FROM delivery_observation_scopes s "
+                "JOIN delivery_observations o "
+                "ON o.observation_id=s.observation_id "
+                "WHERE o.outbox_id = ? AND o.attempt_number = ?) = ?"
+            )
+            params.extend((outbox_id, attempt_number, expected_observation_scope_count))
         if expected_checkpoint_revision is not None:
             if (
                 attempt_number is None
@@ -1335,15 +1367,16 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                 "SELECT 1 FROM delivery_receipts terminal "
                 "WHERE terminal.receipt_id=? "
                 "AND terminal.outbox_id=delivery_outbox.outbox_id "
+                "AND terminal.attempt_number = COALESCE(?, "
+                "delivery_outbox.active_attempt, delivery_outbox.attempt_number) "
                 "AND terminal.status='abandoned')) "
                 "OR NOT EXISTS (SELECT 1 FROM delivery_receipts accepted "
                 "WHERE accepted.outbox_id=delivery_outbox.outbox_id "
-                "AND accepted.attempt_number = "
-                "COALESCE(delivery_outbox.active_attempt, "
-                "delivery_outbox.attempt_number) "
+                "AND accepted.attempt_number = COALESCE(?, "
+                "delivery_outbox.active_attempt, delivery_outbox.attempt_number) "
                 "AND accepted.status IN ('sent', 'queued')))"
             )
-            params.extend((receipt_id, receipt_id))
+            params.extend((receipt_id, receipt_id, attempt_number, attempt_number))
         if expected_worker_id is not None:
             where_clauses.append("worker_id = ?")
             params.append(expected_worker_id)
@@ -1368,7 +1401,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                     "INSERT INTO delivery_handoff_uncertainty "
                     "(outbox_id, attempt_number, state) "
                     "SELECT outbox_id, attempt_number, 'uncertain_native_handoff' "
-                    "FROM delivery_outbox WHERE outbox_id=? "
+                    "FROM delivery_outbox WHERE outbox_id=? AND attempt_number >= 1 "
                     "ON CONFLICT(outbox_id) DO UPDATE SET "
                     "attempt_number=excluded.attempt_number, state=excluded.state",
                     (outbox_id,),
@@ -1448,6 +1481,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         expected_observation_count: int | None = None,
         expected_receipt_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
+        expected_observation_scope_count: int | None = None,
     ) -> bool:
         """Mark an outbox item as ``sent`` (terminal).
 
@@ -1469,6 +1503,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
             expected_observation_count=expected_observation_count,
             expected_receipt_count=expected_receipt_count,
             expected_checkpoint_revision=expected_checkpoint_revision,
+            expected_observation_scope_count=expected_observation_scope_count,
         )
 
     async def mark_outbox_queued(
@@ -1506,6 +1541,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         expected_observation_count: int | None = None,
         expected_receipt_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
+        expected_observation_scope_count: int | None = None,
     ) -> bool:
         """Mark an outbox item as ``retry_wait`` (transient failure).
 
@@ -1527,6 +1563,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
             expected_observation_count=expected_observation_count,
             expected_receipt_count=expected_receipt_count,
             expected_checkpoint_revision=expected_checkpoint_revision,
+            expected_observation_scope_count=expected_observation_scope_count,
         )
 
     async def mark_outbox_dead_lettered(
@@ -1542,6 +1579,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         expected_observation_count: int | None = None,
         expected_receipt_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
+        expected_observation_scope_count: int | None = None,
     ) -> bool:
         """Mark an outbox item as ``dead_lettered`` (terminal failure).
 
@@ -1566,6 +1604,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
             expected_observation_count=expected_observation_count,
             expected_receipt_count=expected_receipt_count,
             expected_checkpoint_revision=expected_checkpoint_revision,
+            expected_observation_scope_count=expected_observation_scope_count,
         )
 
     async def mark_outbox_cancelled(
@@ -1610,11 +1649,15 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         expected_observation_count: int | None = None,
         expected_receipt_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
+        expected_observation_scope_count: int | None = None,
     ) -> bool:
         """Mark an outbox item as ``abandoned`` (terminal).
 
         Authority: **mark** (terminal transition).  May be called from
-        ``pending``, ``in_progress``, ``retry_wait``, or ``queued``.
+        ``pending``, ``in_progress``, ``retry_wait``, or ``queued``. A
+        ``sent`` or ``queued`` receipt for the effective attempt refuses the
+        transition: a queued handoff is settled through deferred feedback,
+        never overwritten as abandoned.
         """
         return await self._update_outbox_status(
             outbox_id,
@@ -1633,6 +1676,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
             expected_observation_count=expected_observation_count,
             expected_receipt_count=expected_receipt_count,
             expected_checkpoint_revision=expected_checkpoint_revision,
+            expected_observation_scope_count=expected_observation_scope_count,
         )
 
     async def renew_outbox_lease(

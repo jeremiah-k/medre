@@ -1075,7 +1075,7 @@ async def test_content_denied_handoff_returns_unreadable_evidence() -> None:
     assert resolver.calls == [1]
 
 
-async def test_content_denied_handoff_settles_only_without_a_receipt(
+async def test_content_denied_handoff_settles_positive_evidence_with_receipts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     lifecycle = DeliveryLifecycleService()
@@ -1110,15 +1110,17 @@ async def test_content_denied_handoff_settles_only_without_a_receipt(
     )
     settle.assert_awaited_once()
     assert settle.await_args.args[1:] == (item, 1, resolution)
+    assert settle.await_args.kwargs == {"expected_receipt_count": 0}
 
     settle.reset_mock()
     assert (
         await lifecycle.reconcile_content_denied_handoff(
             MagicMock(), item, resolver, existing_receipt_count=1
         )
-        is resolution
+        is finalization
     )
-    settle.assert_not_awaited()
+    settle.assert_awaited_once()
+    assert settle.await_args.kwargs == {"expected_receipt_count": 1}
 
 
 async def test_attempt_receipt_list_is_scoped_to_one_generation() -> None:

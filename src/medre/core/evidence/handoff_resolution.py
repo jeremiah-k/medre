@@ -128,8 +128,11 @@ class UncertainHandoffResolution:
     populated when the radio checkpoint can be classified. The observation
     count fences settlement or the next reservation against appended evidence.
     ``checkpoint_revision=-1`` records the absence of a checkpoint; an actual
-    checkpoint carries its non-negative CAS revision. ``None`` means evidence
-    was unreadable and cannot authorize another transition.
+    checkpoint carries its non-negative CAS revision. The scope count is the
+    packet-correlation evidence version: the ceiling sweep can restore a
+    legacy packet scope without changing the observation count, so terminal
+    writes must fence it too. ``None`` means evidence was unreadable and
+    cannot authorize another transition.
     """
 
     verdict: HandoffResolutionVerdict
@@ -142,6 +145,7 @@ class UncertainHandoffResolution:
     unsent_parts: int | None = None
     observation_count: int | None = None
     checkpoint_revision: int | None = None
+    observation_scope_count: int | None = None
 
     def summary(self) -> str:
         """Return a bounded human-readable statement of what was decided."""
@@ -601,6 +605,14 @@ class EvidenceBackedHandoffResolver:
             observations = await self._storage.list_delivery_observations_for_attempt(
                 item.outbox_id, attempt_number
             )
+            scope_counter = getattr(
+                self._storage, "count_delivery_observation_scopes", None
+            )
+            scope_count = (
+                await scope_counter(item.outbox_id, attempt_number)
+                if scope_counter is not None
+                else None
+            )
         except StorageError:
             return _resolution(
                 "unresolved",
@@ -637,4 +649,5 @@ class EvidenceBackedHandoffResolver:
             resolution,
             observation_count=len(observations),
             checkpoint_revision=checkpoint.revision if checkpoint is not None else -1,
+            observation_scope_count=scope_count,
         )

@@ -178,6 +178,7 @@ class _ObservationGuard(TypedDict, total=False):
     expected_observation_count: int
     expected_receipt_count: int
     expected_checkpoint_revision: int
+    expected_observation_scope_count: int
 
 
 # Failed receipt evidence without a canonical taxonomy value is unsafe to
@@ -288,6 +289,7 @@ class DeliveryLifecycleStorage(Protocol):
         expected_observation_count: int | None = None,
         expected_receipt_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
+        expected_observation_scope_count: int | None = None,
     ) -> int | None:
         """Reserve the next attempt for the current claim owner.
 
@@ -324,6 +326,7 @@ class DeliveryLifecycleStorage(Protocol):
         expected_observation_count: int | None = None,
         expected_receipt_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
+        expected_observation_scope_count: int | None = None,
     ) -> bool:
         """Commit a sent outcome if the supplied attempt and owner still match.
 
@@ -362,6 +365,7 @@ class DeliveryLifecycleStorage(Protocol):
         expected_observation_count: int | None = None,
         expected_receipt_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
+        expected_observation_scope_count: int | None = None,
     ) -> bool:
         """Schedule the next attempt if the supplied attempt and owner match.
 
@@ -382,6 +386,7 @@ class DeliveryLifecycleStorage(Protocol):
         expected_observation_count: int | None = None,
         expected_receipt_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
+        expected_observation_scope_count: int | None = None,
     ) -> bool:
         """Commit terminal failure if the supplied attempt and owner match.
 
@@ -416,6 +421,7 @@ class DeliveryLifecycleStorage(Protocol):
         expected_observation_count: int | None = None,
         expected_receipt_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
+        expected_observation_scope_count: int | None = None,
     ) -> bool:
         """Abandon the row only while its optional claim owner still matches.
 
@@ -1288,12 +1294,16 @@ class DeliveryLifecycleService:
         resolution = await handoff_resolver.resolve(item, attempt)
         if resolution.observation_count is None:
             return resolution
-        if (
-            resolution.verdict == "delivered_with_evidence"
-            and not existing_receipt_count
-        ):
+        if resolution.verdict == "delivered_with_evidence":
+            # Positive exact-attempt evidence wins over historical failed
+            # receipts. A sent/queued receipt is settled from the receipt
+            # itself before this path; either way the counter is fenced.
             return await self._settle_resolved_handoff(
-                storage, item, attempt, resolution
+                storage,
+                item,
+                attempt,
+                resolution,
+                expected_receipt_count=existing_receipt_count,
             )
         return resolution
 
@@ -1305,9 +1315,15 @@ class DeliveryLifecycleService:
         error_summary: str,
         expected_observation_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
+        expected_observation_scope_count: int | None = None,
         expected_receipt_count: int | None = None,
     ) -> None:
         """Persist terminal abandonment only against unchanged attempt evidence."""
+        if expected_observation_count is not None and expected_receipt_count is None:
+            # An observation-only guard historically also required zero
+            # receipts. Preserve that implicit acceptance fence for callers
+            # that do not supply the observed receipt count directly.
+            expected_receipt_count = 0
         evidence_guard: _ObservationGuard = {}
         if expected_observation_count is not None:
             evidence_guard["expected_observation_count"] = expected_observation_count
@@ -1316,6 +1332,10 @@ class DeliveryLifecycleService:
         if expected_checkpoint_revision is not None:
             evidence_guard["expected_checkpoint_revision"] = (
                 expected_checkpoint_revision
+            )
+        if expected_observation_scope_count is not None:
+            evidence_guard["expected_observation_scope_count"] = (
+                expected_observation_scope_count
             )
         committed = await storage.mark_outbox_abandoned(
             item.outbox_id,
@@ -1678,6 +1698,7 @@ class DeliveryLifecycleService:
         expected_observation_count: int | None = None,
         expected_receipt_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
+        expected_observation_scope_count: int | None = None,
     ) -> int | None:
         """Durably reserve the next attempt on a row this worker claimed.
 
@@ -1703,6 +1724,10 @@ class DeliveryLifecycleService:
         if expected_checkpoint_revision is not None:
             evidence_guard["expected_checkpoint_revision"] = (
                 expected_checkpoint_revision
+            )
+        if expected_observation_scope_count is not None:
+            evidence_guard["expected_observation_scope_count"] = (
+                expected_observation_scope_count
             )
         return await storage.reserve_outbox_attempt(
             item.outbox_id,
@@ -1838,6 +1863,10 @@ class DeliveryLifecycleService:
                     evidence_guard["expected_observation_count"] = (
                         resolution.observation_count
                     )
+                if resolution.observation_scope_count is not None:
+                    evidence_guard["expected_observation_scope_count"] = (
+                        resolution.observation_scope_count
+                    )
                 if resolution.verdict == "definitively_not_submitted":
                     failure_detail = HANDOFF_NOT_SUBMITTED_DETAIL
                     error_summary = _NOT_SUBMITTED_DISPATCH_ERROR
@@ -1928,12 +1957,51 @@ class DeliveryLifecycleService:
             now=now,
         )
 
+    async def settle_committed_acceptance(
+        self,
+        storage: DeliveryLifecycleStorage,
+        item: DeliveryOutboxItem,
+        *,
+        attempt_number: int,
+        receipts: list[DeliveryReceipt],
+    ) -> RetryAttemptFinalization:
+        """Commit a ``sent`` transition from an already-persisted acceptance.
+
+        Content denial can follow a ``queued``/``sent`` receipt whose outbox
+        transition never committed. The receipt is authoritative native
+        acceptance; settle it without dispatching or fabricating evidence.
+        """
+        accepted = next(
+            receipt for receipt in receipts if receipt.status in {"sent", "queued"}
+        )
+        committed = await storage.mark_outbox_sent(
+            item.outbox_id,
+            receipt_id=accepted.receipt_id,
+            attempt_number=attempt_number,
+            expected_worker_id=item.worker_id,
+            expected_receipt_count=len(receipts),
+        )
+        self._require_retry_commit(
+            committed,
+            item,
+            transition="sent",
+            attempt_number=attempt_number,
+        )
+        return RetryAttemptFinalization(
+            outcome="accepted",
+            receipt_id=accepted.receipt_id,
+            failure_kind=accepted.failure_kind,
+            attempt_number=attempt_number,
+        )
+
     async def _settle_resolved_handoff(
         self,
         storage: DeliveryLifecycleStorage,
         item: DeliveryOutboxItem,
         attempt_number: int,
         resolution: UncertainHandoffResolution,
+        *,
+        expected_receipt_count: int = 0,
     ) -> RetryAttemptFinalization:
         """Commit a delivered-with-evidence settlement from the remediation pass.
 
@@ -1943,8 +2011,10 @@ class DeliveryLifecycleService:
         checkpoint and observation rows remain the evidence, and the settled
         row carries no receipt pointer — any stale pointer left on the row by
         an earlier attempt is cleared atomically with the settlement write.
-        The guarded CAS refuses a stolen or already-settled row, so re-running
-        resolution after a lost commit converges instead of double-committing.
+        Historical failed receipts are counted in the supply fence but do not
+        override positive native evidence. The guarded CAS refuses a stolen
+        or already-settled row, so re-running resolution after a lost commit
+        converges instead of double-committing.
         """
         if resolution.observation_count is None:
             raise StorageError("Cannot settle a handoff without an evidence revision")
@@ -1954,7 +2024,7 @@ class DeliveryLifecycleService:
             expected_worker_id=item.worker_id,
             clear_receipt_id=True,
             expected_observation_count=resolution.observation_count,
-            expected_receipt_count=0,
+            expected_receipt_count=expected_receipt_count,
             expected_checkpoint_revision=resolution.checkpoint_revision,
         )
         self._require_retry_commit(

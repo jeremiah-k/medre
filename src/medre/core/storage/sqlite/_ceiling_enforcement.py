@@ -409,6 +409,18 @@ def _radio_summary_provenance(
         ) from exc
 
 
+def _retain_unreadable_radio_checkpoint(
+    db: sqlite3.Connection, outbox_id: str, attempt_number: int
+) -> None:
+    """Retain a non-authorizing blocker for a checkpoint we cannot trust."""
+    _retain_radio_evidence_summary(
+        db,
+        _radio_summary_provenance(db, outbox_id, attempt_number),
+        json.loads(_UNREADABLE_RADIO_PARTS),
+        2,
+    )
+
+
 def _retain_radio_evidence_summary(
     db: sqlite3.Connection,
     provenance: DeliveryAttemptProvenance,
@@ -602,12 +614,12 @@ def _measure_and_purge(
         )
         INSERT INTO delivery_handoff_uncertainty (outbox_id, attempt_number, state)
         SELECT outbox_id, attempt_number,
-               CASE WHEN status='retry_wait' AND active_attempt IS NULL
+               CASE WHEN status IN ('retry_wait', 'in_progress')
                          AND diagnostic='uncertain_native_handoff'
                     THEN 'uncertain_native_handoff'
                     ELSE 'superseded_native_handoff' END
         FROM latest
-        WHERE diagnostic IS NOT NULL
+        WHERE diagnostic IS NOT NULL AND attempt_number >= 1
         ON CONFLICT(outbox_id) DO UPDATE SET
             attempt_number=excluded.attempt_number, state=excluded.state
         """,
@@ -640,15 +652,33 @@ def _measure_and_purge(
             # must survive. Without a retained blocker, a later whole-message
             # observation could settle through the no-checkpoint path as if
             # no native grant had ever been issued.
-            _retain_radio_evidence_summary(
+            _retain_unreadable_radio_checkpoint(
                 db,
-                _radio_summary_provenance(
-                    db,
-                    str(checkpoint_row["outbox_id"]),
-                    int(checkpoint_row["attempt_number"]),
-                ),
-                json.loads(_UNREADABLE_RADIO_PARTS),
-                2,
+                str(checkpoint_row["outbox_id"]),
+                int(checkpoint_row["attempt_number"]),
+            )
+            continue
+        # The checkpoint must describe the parent outbox's exact delivery
+        # identity. A decodable but mismatched provenance would otherwise
+        # become an original-acceptance fact for the wrong event after the
+        # wire plan is erased.
+        parent = db.execute(
+            "SELECT event_id, delivery_plan_id, target_adapter, target_channel, "
+            "replay_run_id FROM delivery_outbox WHERE outbox_id=?",
+            (saved.provenance.outbox_id,),
+        ).fetchone()
+        if parent is None or (
+            saved.provenance.event_id != parent["event_id"]
+            or saved.provenance.delivery_plan_id != parent["delivery_plan_id"]
+            or saved.provenance.target_adapter != parent["target_adapter"]
+            or (saved.provenance.target_channel or "")
+            != (parent["target_channel"] or "")
+            or saved.provenance.replay_run_id != parent["replay_run_id"]
+        ):
+            _retain_unreadable_radio_checkpoint(
+                db,
+                str(checkpoint_row["outbox_id"]),
+                int(checkpoint_row["attempt_number"]),
             )
             continue
         evidence_parts: list[dict[str, Any]] = []

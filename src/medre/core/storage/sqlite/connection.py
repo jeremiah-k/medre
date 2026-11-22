@@ -202,7 +202,14 @@ def sync_write(
     sql: str,
     params: tuple[Any, ...] = (),
 ) -> None:
-    """Execute a write, thread-safe via lock."""
+    """Execute a write, thread-safe via lock.
+
+    The ceiling clock is sampled under this Python lock but before SQLite
+    acquires the writer reservation. A write that waits behind another
+    connection can therefore land after the ceiling. Read mediation masks
+    that value and the residual sweep re-purges it; authorization decisions
+    that must be exact use the in-transaction SQL guards instead.
+    """
     with lock:
         try:
             db.execute(sql, _bind_execution_clock(params))

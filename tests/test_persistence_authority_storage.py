@@ -513,6 +513,31 @@ class TestDDLRequiredColumnsParity:
 # ===================================================================
 
 
+_DELETE_PATTERN = re.compile(r"\bDELETE\s+FROM\b", re.IGNORECASE)
+_DELETE_TARGET_PATTERN = re.compile(
+    r'\bDELETE\s+FROM\s+(?:"([^"]+)"|`([^`]+)`|\[([^\]]+)\]|([A-Za-z_][A-Za-z0-9_]*))',
+    re.IGNORECASE,
+)
+
+
+def _delete_targets(line: str) -> tuple[str, ...] | None:
+    """Parse every DELETE destination on one source line.
+
+    ``None`` means at least one ``DELETE FROM`` had no extractable target;
+    a mixed line is never accepted by its first recognizable destination.
+    """
+    deletes = list(_DELETE_PATTERN.finditer(line))
+    if not deletes:
+        return ()
+    targets = []
+    for match in _DELETE_TARGET_PATTERN.finditer(line):
+        target = next((group for group in match.groups() if group), None)
+        if target is None:
+            return None
+        targets.append(target)
+    return tuple(targets) if len(targets) == len(deletes) else None
+
+
 class TestNoDeleteInStorageModule:
     """Only the guarded content collector may delete isolated content rows.
 
@@ -522,10 +547,6 @@ class TestNoDeleteInStorageModule:
     """
 
     def test_only_classified_content_rows_are_deleted(self) -> None:
-        delete_pattern = re.compile(r"\bDELETE\s+FROM\b", re.IGNORECASE)
-        target_pattern = re.compile(
-            r"\bDELETE\s+FROM\s+([A-Za-z_][A-Za-z0-9_]*)", re.IGNORECASE
-        )
         permitted = {"event_body_content", "event_relation_excerpts"}
         # The guarded ceiling-enforcement transition deletes exactly the
         # census-declared content-potential rows of an elapsed-ceiling event
@@ -546,15 +567,16 @@ class TestNoDeleteInStorageModule:
         for py_file in _sqlite_source_files():
             for line_no, line in enumerate(py_file.read_text().split("\n"), 1):
                 stripped = line.lstrip()
-                if stripped.startswith("#") or not delete_pattern.search(line):
+                if stripped.startswith("#") or not _DELETE_PATTERN.search(line):
                     continue
-                targets = [match.group(1) for match in target_pattern.finditer(line)]
-                if not targets:
+                parsed = _delete_targets(line)
+                if parsed is None:
                     violations.append(
                         f"{py_file.name}:{line_no}: unparseable DELETE target: "
                         f"{line.strip()}"
                     )
                     continue
+                targets = list(parsed)
                 if py_file.name == "_collection.py" and all(
                     table in permitted for table in targets
                 ):
@@ -583,6 +605,18 @@ class TestNoDeleteInStorageModule:
         )
         assert found == permitted
         assert ceiling_found == ceiling_permitted
+
+    def test_delete_scanner_rejects_unparseable_or_mixed_destinations(self) -> None:
+        assert _delete_targets("DELETE FROM event_body_content WHERE id=?") == (
+            "event_body_content",
+        )
+        assert _delete_targets(
+            'DELETE FROM event_body_content; DELETE FROM "delivery_receipts"'
+        ) == ("event_body_content", "delivery_receipts")
+        assert _delete_targets('DELETE FROM "delivery_receipts"') == (
+            "delivery_receipts",
+        )
+        assert _delete_targets("DELETE FROM") is None
 
     def test_no_delete_method_on_storage(self) -> None:
         """SQLiteStorage has no delete/remove method.

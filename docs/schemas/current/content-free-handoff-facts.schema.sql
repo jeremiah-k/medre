@@ -12,9 +12,9 @@ CREATE TABLE IF NOT EXISTS delivery_handoff_uncertainty (
     state TEXT NOT NULL CHECK (state IN ('uncertain_native_handoff', 'superseded_native_handoff'))
 );
 
--- Acceptance facts survive deletion of radio wire plans at the ceiling.
--- Only a previously accepted, exact original packet is recorded. Retaining
--- the identity never reconstructs a payload or authorizes submission.
+-- Content-free attempt progress survives deletion of radio wire plans.
+-- States include accepted, submitting and unknown; the projection is
+-- evidence of progress, not by itself proof of acceptance.
 CREATE TABLE IF NOT EXISTS radio_attempt_evidence_summaries (
     outbox_id TEXT NOT NULL REFERENCES delivery_outbox(outbox_id),
     attempt_number INTEGER NOT NULL CHECK (attempt_number >= 1),
@@ -24,11 +24,15 @@ CREATE TABLE IF NOT EXISTS radio_attempt_evidence_summaries (
     PRIMARY KEY (outbox_id, attempt_number)
 );
 
+-- Non-authorizing packet scope survives clearing observation metadata.
 CREATE TABLE IF NOT EXISTS delivery_observation_scopes (
     observation_id TEXT NOT NULL PRIMARY KEY REFERENCES delivery_observations(observation_id),
     scope_json TEXT NOT NULL CHECK (json_valid(scope_json))
 );
 
+-- Acceptance facts survive deletion of radio wire plans at the ceiling.
+-- Only a previously accepted, exact original packet is recorded. Retaining
+-- the identity never reconstructs a payload or authorizes submission.
 CREATE TABLE IF NOT EXISTS radio_accepted_part_facts (
     outbox_id TEXT NOT NULL REFERENCES delivery_outbox(outbox_id),
     attempt_number INTEGER NOT NULL CHECK (attempt_number >= 1),

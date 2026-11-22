@@ -71,6 +71,16 @@ again. Before resuming a restored database, reconcile the provider and
 radio effects that landed after the backup was taken, or prefer the
 upgraded database when it holds work recorded since the backup.
 
+For an exact destination that the restored evidence still shows as
+`pending` or `retry_wait` with no reservation or claim, use
+[`medre resolve` exact cancellation](exact-cancellation.md) to fence it
+before starting the runtime: preview, verify the observed evidence, then
+apply with the observed outbox ID, generation, status, and update version.
+That command refuses `queued`, `in_progress`, uncertain, or accepted native
+attempts. If the restored row is in one of those states, do not start the
+restored build; reconcile the provider and radio outcome while it stays
+offline, or keep the upgraded database authoritative.
+
 ### How to tell if your database is stale
 
 Run `medre storage status --storage-path <path>` to assess the stored
