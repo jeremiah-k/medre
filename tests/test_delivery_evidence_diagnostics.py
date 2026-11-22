@@ -347,10 +347,11 @@ async def test_diagnostic_coalescing_chunks_large_identity_lists():
         async def _read_all(self, sql, params=()):
             self.calls.append(len(params))
             # One bound ceiling-read timestamp and the family label precede
-            # the identity chunk.
-            assert len(params) <= 502
+            # the identity chunk; the outbox family repeats the chunk for
+            # the typed-fact arm.
+            assert len(params) <= 999
             assert params[0] is CEILING_CLOCK_AT_EXECUTION
-            assert params[1] == "receipt"
+            assert params[1] == self.family
             return [
                 {
                     "diag_id": int(row_id.split("-")[1]) + 1,
@@ -361,6 +362,8 @@ async def test_diagnostic_coalescing_chunks_large_identity_lists():
                 }
                 for row_id in params[2:]
             ]
+
+        family = "receipt"
 
     rows = [
         {
@@ -375,8 +378,27 @@ async def test_diagnostic_coalescing_chunks_large_identity_lists():
     await fake._resolve_evidence_diagnostics(
         "receipt", rows, identity_column="receipt_id"
     )
-    assert fake.calls == [502, 502, 202]
+    assert fake.calls == [402, 402, 402]
     assert [r["error"] for r in rows] == [f"receipt-{i}" for i in range(1200)]
+
+    # The outbox resolution doubles the chunk for the typed-fact UNION arm;
+    # the doubled batch must stay within the legacy 999-variable limit.
+    outbox_rows = [
+        {
+            "outbox_id": f"obox-{i}",
+            "status": "retry_wait",
+            "failure_kind_detail": None,
+            "error_summary": None,
+        }
+        for i in range(1200)
+    ]
+    outbox_fake = _Fake()
+    outbox_fake.family = "outbox"
+    await outbox_fake._resolve_evidence_diagnostics(
+        "outbox", outbox_rows, identity_column="outbox_id"
+    )
+    assert outbox_fake.calls == [802, 802, 802]
+    assert max(outbox_fake.calls) <= 999
 
 
 # ---------------------------------------------------------------------------

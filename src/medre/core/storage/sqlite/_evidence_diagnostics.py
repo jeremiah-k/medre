@@ -37,7 +37,11 @@ _DIAGNOSTIC_FIELDS: dict[str, tuple[str, ...]] = {
 #: generation.  A superseded failure's diagnostics stay keyed to the attempt
 #: they belong to and never surface on a later settled attempt.
 _DIAGNOSTIC_ATTEMPT_COLUMNS: dict[str, str] = {"outbox": "attempt_number"}
-_LOOKUP_CHUNK_SIZE = 500
+#: Identity placeholder budget per lookup statement. The outbox resolution
+#: UNION repeats the chunk's placeholders once for the typed-fact arm, so
+#: the doubled batch must stay within the legacy 999-bound-variable SQLite
+#: limit (2 x 400 + 2 = 802); larger builds only lose batch width.
+_LOOKUP_CHUNK_SIZE = 400
 #: Closed schema-owned parent lookup for read-time ceiling redaction. A late
 #: diagnostic may be retained for immutable evidence but is never projected
 #: after an enforcement receipt has committed for its owner event.
