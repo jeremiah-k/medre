@@ -22,6 +22,11 @@ credentials, and run `medre run --config <path>`.
 
 ## Quick Start
 
+The fake adapters ship as separate distributions. Install the SDK-free
+compatibility set once per checkout with `medre dev sync` (see
+`docs/dev/environment.md`); until then the loader reports the config's
+transport groups as unknown.
+
 ```bash
 # 1. No hardware? Validate with fake adapters:
 medre run --config examples/configs/fake-bridge-smoke.yaml

@@ -656,7 +656,10 @@ def parse_runtime_config(data: dict[str, Any], paths: MedrePaths) -> RuntimeConf
         msg = (
             f"adapters: unknown transport group(s): "
             f"{sorted(unknown_transports, key=lambda k: repr(k))}. "
-            f"Accepted transports: {sorted(_KNOWN_TRANSPORTS)}"
+            f"Accepted transports: {sorted(_KNOWN_TRANSPORTS)}. Transport "
+            "groups come from installed adapter distributions: run "
+            "`medre dev sync` for this checkout's SDK-free compatibility "
+            "set, or `medre adapters install <transport>` for one."
         )
         raise ConfigValidationError(msg, section_path="adapters")
     adapter_groups = {
