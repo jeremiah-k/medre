@@ -119,7 +119,9 @@ def _decode(row: Mapping[str, Any]) -> StoredRadioAttempt:
 # Denial is evaluated in SQLite (including SQLite lock waits). No public
 # checkpoint read may return the wire plan after that instant.
 _RADIO_EVIDENCE_READ_SQL = (
-    "SELECT p.*, " + event_content_denied_sql("o.event_id") + " AS content_denied "
+    "SELECT p.*, "  # nosec B608 - closed module fragment and bound attempt keys
+    + event_content_denied_sql("o.event_id")
+    + " AS content_denied "
     "FROM radio_attempt_progress p JOIN delivery_outbox o "
     "ON o.outbox_id=p.outbox_id "
     "WHERE p.outbox_id=? AND p.attempt_number=?"

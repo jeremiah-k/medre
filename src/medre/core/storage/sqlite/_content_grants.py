@@ -425,14 +425,18 @@ _QUOTED_TARGET_EVENTS_SQL = (
     "AND n.native_message_id=r.target_native_message_id)"
 )
 _QUOTED_EXCERPT_READ_SQL = (
-    "SELECT r.*, x.excerpt AS resolved_fallback_text "
+    "SELECT r.*, x.excerpt AS resolved_fallback_text "  # nosec B608 - closed module fragments; bound target ids only
     "FROM event_relations r "
     "LEFT JOIN event_relation_excerpts x ON x.relation_id=r.id "
     "AND NOT EXISTS (SELECT 1 FROM event_content_access_policies p "
-    "WHERE p.event_id IN (" + _QUOTED_TARGET_EVENTS_SQL + ") "
+    "WHERE p.event_id IN ("
+    + _QUOTED_TARGET_EVENTS_SQL
+    + ") "  # nosec B608 - closed module fragment; bound target ids only
     "AND p.hard_ceiling<=?) "
     "AND NOT EXISTS (SELECT 1 FROM event_content_ceiling_log l "
-    "WHERE l.event_id IN (" + _QUOTED_TARGET_EVENTS_SQL + ")) "
+    "WHERE l.event_id IN ("
+    + _QUOTED_TARGET_EVENTS_SQL
+    + ")) "  # nosec B608 - closed module fragment; bound target ids only
     "WHERE r.event_id=? ORDER BY r.id ASC"
 )
 
