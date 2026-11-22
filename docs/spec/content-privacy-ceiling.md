@@ -188,7 +188,8 @@ The guarded ceiling-enforcement transition is a single mutation boundary:
 - When content is denied after a receipt was persisted, a committed `sent`
   receipt for the exact delivery identity may settle the outbox `sent`
   without another dispatch. A `queued` receipt proves only local queue
-  acceptance: reconciliation retains `queued` and leaves deferred completion
+  acceptance: reconciliation commits the row to the durable, content-free
+  confirmation-pending disposition and leaves deferred completion
   outstanding. Receipts with contradictory event, plan, adapter, destination,
   origin, or replay-run provenance cannot settle either state. Positive
   exact-attempt native evidence also settles `sent` alongside a historical
@@ -196,6 +197,13 @@ The guarded ceiling-enforcement transition is a single mutation boundary:
   settlement fences the exact-attempt packet-scope mutation revision so an
   in-place repair invalidates stale conclusions. No settlement fabricates a
   receipt or restores send authority.
+- A confirmation-pending row (outbox status `queued`) is never claimable,
+  never reclaimed, and never re-dispatched: queued never implies sent, and
+  no retry scan, resolver, or maintenance wake dispatches it. Its only
+  exits are evidence-driven settlement and the explicit operator
+  resolution to `delivered`, `failed`, or `cancelled`. The deadline sweep
+  never resolves a confirmation-pending row, so a pending row can outlive
+  its delivery deadline until the operator acts.
 - Before the first sweep, a checkpoint's wire plan is not returned by
   `get_radio_attempt` once its installed ceiling elapses. Evidence-only
   reconciliation can still inspect a validated, content-free projection of

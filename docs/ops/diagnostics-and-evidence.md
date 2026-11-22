@@ -810,7 +810,7 @@ No action needed. Outbox and receipts agree on the delivery state.
 Work is stalled or mid-flight. This is normal for recent events during startup recovery. If degraded persists well after startup, check whether:
 
 - The RetryWorker is enabled and processing due outbox work.
-- `claim_due_outbox_items()` is reclaiming expired leases and stale queued items.
+- `claim_due_outbox_items()` is reclaiming expired-lease `in_progress` rows; `queued` rows are the durable confirmation-pending disposition and are never reclaimed (see [Confirmation-pending recovery](confirmation-pending-recovery.md)).
 - The adapter is connected and accepting deliveries.
 
 For a live runtime snapshot, also check `retry.previous_run_in_progress` and

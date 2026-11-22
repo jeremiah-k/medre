@@ -20,7 +20,7 @@ Understanding what is permanent, what is mutable, and what is derived helps you 
 
 ### What is mutable
 
-- **Non-terminal outbox rows** (`pending`, `in_progress`, `queued`, `retry_wait`) are mutable operational work state. Delivery workers claim, update, and transition these rows. On crash recovery, expired leases and stale queued rows are automatically reclaimed.
+- **Non-terminal outbox rows** (`pending`, `in_progress`, `queued`, `retry_wait`) are mutable operational work state. Delivery workers claim, update, and transition these rows. On crash recovery, expired `in_progress` leases are automatically reclaimed; `queued` rows are the durable confirmation-pending disposition and are never reclaimed or re-dispatched (see [Confirmation-pending recovery](confirmation-pending-recovery.md)).
 - **Plugin state** is scoped key-value storage owned by individual plugins.
 
 ### What is derived (not authoritative lifecycle state)
@@ -1047,8 +1047,10 @@ sqlite3 {state}/medre.sqlite "SELECT status, COUNT(*) FROM delivery_outbox GROUP
 
 Deliveries without a persisted outbox row are lost on crash; deliveries with
 an outbox row survive and expired `in_progress` rows are reclaimed by the
-RetryWorker after restart. `queued` rows are ambiguous — freshly queued rows
-within the 300-second grace window are not reclaimed; stale ones are. The
+RetryWorker after restart. `queued` rows are the durable confirmation-pending
+disposition — they are never reclaimed or re-dispatched; they leave `queued`
+only through completion evidence or the explicit operator resolution (see
+[Confirmation-pending recovery](confirmation-pending-recovery.md)). The
 canonical crash-recovery procedure lives in
 [recovery-and-replay.md](recovery-and-replay.md).
 

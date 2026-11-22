@@ -10,7 +10,7 @@ Recovery operates within strict boundaries set by storage ownership:
 
 - **Recovery never invents delivery success.** A `sent` receipt only exists because a real delivery attempt produced it. Orphan detection identifies events without receipts, but producing a receipt requires an actual delivery attempt through replay or retry.
 - **Recovery never rewrites history.** Existing receipts, events, and native refs are immutable. Recovery can only produce new state: new delivery attempts through replay, new retry receipts through the RetryWorker, or reclaimed outbox rows through lease expiry.
-- **Outbox reclaim is not lifecycle success.** Reclaiming an expired `in_progress` row or stale `queued` row restores operational work state. It does not imply the delivery succeeded. The outbox row must still complete the delivery pipeline and produce a receipt.
+- **Outbox reclaim is not lifecycle success.** Reclaiming an expired `in_progress` row restores operational work state. It does not imply the delivery succeeded. The outbox row must still complete the delivery pipeline and produce a receipt. `queued` rows are never reclaimed: they are the durable confirmation-pending disposition (see [Confirmation-pending recovery](confirmation-pending-recovery.md)).
 - **Orphan detection is bookkeeping.** The orphan query (events with no receipts) is a diagnostic observation. It does not create, modify, or delete any storage rows. Re-delivering orphans requires explicit operator action via replay.
 - **Exact-target observations authorize nothing.** Selecting one `(event, plan, adapter, channel)` delivery for inspection reports its state and counts its excluded siblings, but never reserves, cancels, or replays it. See the [exact-target recovery observation contract](../spec/exact-target-recovery.md) for the closed category vocabulary and raw generation semantics.
 
@@ -820,7 +820,7 @@ When the runtime shuts down gracefully, non-terminal outbox items are not cancel
 
 - The RetryWorker claims due `retry_wait` outbox rows through `claim_due_outbox_items()` and processes them when `next_attempt_at` is due.
 - Expired `in_progress` outbox rows are reclaimed by `claim_due_outbox_items()`.
-- Stale `queued` outbox rows are reclaimed after the configured grace period.
+- `queued` outbox rows are never reclaimed or re-dispatched: they are the durable confirmation-pending disposition.
 
 This is an intentional design choice. Non-terminal outbox work (`pending`, `retry_wait`, `in_progress`, `queued`) is preserved, not cancelled. Cancellation is a distinct terminal state that requires explicit operator action.
 
@@ -950,13 +950,13 @@ When a queued outbox item has no receipt linkage, the reason-pending derivation 
 - No `outbox_id` and no receipt linkage:
 
 ```text
-Queued without queued receipt linkage — awaiting stale-grace reclaim or manual investigation
+Queued without queued receipt linkage — awaiting completion evidence, the explicit operator resolution, or manual investigation
 ```
 
 - `outbox_id` present but missing `delivery_plan_id`:
 
 ```text
-Queued with degraded plan metadata (missing delivery_plan_id) — awaiting stale-grace reclaim or exact outbox_id + attempt_number callback correlation
+Queued with degraded plan metadata (missing delivery_plan_id) — awaiting exact outbox_id + attempt_number callback correlation, the explicit operator resolution, or manual investigation
 ```
 
 - `outbox_id` and `delivery_plan_id` present but no receipt:
@@ -965,7 +965,7 @@ Queued with degraded plan metadata (missing delivery_plan_id) — awaiting stale
 Queued in adapter-local queue — awaiting outbox_id + attempt_number callback correlation
 ```
 
-Operators seeing these messages should check whether the adapter callback is expected to provide `outbox_id + attempt_number` linkage, or whether the stale-grace reclaim timer (`STALE_QUEUED_GRACE_SECONDS`, default 300 s) will eventually reclaim the item.
+Operators seeing these messages should check whether the adapter callback is expected to provide `outbox_id + attempt_number` linkage. The row rests in the durable confirmation-pending disposition — it is never reclaimed or re-dispatched — so completion evidence or the explicit operator resolution (see [Confirmation-pending recovery](confirmation-pending-recovery.md)) is the only way forward.
 
 ### Replay Does Not Mutate Live Recovery State
 
