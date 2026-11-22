@@ -50,6 +50,7 @@ _HANDOFF_SETTLEMENTS = "delivery_handoff_settlements"
 _CEILING_ADDITIONS = (
     ("table", "event_content_ceiling_log"),
     ("table", "delivery_handoff_uncertainty"),
+    ("table", "delivery_route_retry_bounds"),
     ("table", "radio_accepted_part_facts"),
     ("table", "delivery_observation_scopes"),
     ("table", "delivery_observation_scope_versions"),
@@ -337,7 +338,8 @@ def test_released_catalog_assessment_reports_upgrade_then_current(
             "index idx_ceiling_enforcement_order, "
             "table delivery_handoff_settlements, table delivery_handoff_uncertainty, "
             "table delivery_observation_scope_versions, table delivery_observation_scopes, "
-            "table event_content_ceiling_log, table radio_accepted_part_facts, "
+            "table delivery_route_retry_bounds, table event_content_ceiling_log, "
+            "table radio_accepted_part_facts, "
             "table radio_attempt_evidence_summaries, trigger trg_scope_version_delete, "
             "trigger trg_scope_version_insert, trigger trg_scope_version_update"
         )

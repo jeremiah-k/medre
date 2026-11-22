@@ -229,6 +229,7 @@ def test_d0_expected_state_allows_only_the_empty_approved_tables(
             "radio_attempt_evidence_summaries",
             "delivery_observation_scopes",
             "delivery_observation_scope_versions",
+            "delivery_route_retry_bounds",
         )
         approved_indexes = {
             "idx_ceiling_enforcement_order",
@@ -290,6 +291,7 @@ def test_released_010_database_reopens_on_current_wheel(tmp_path: Path) -> None:
         "delivery_handoff_uncertainty",
         "delivery_observation_scope_versions",
         "delivery_observation_scopes",
+        "delivery_route_retry_bounds",
         "event_content_ceiling_log",
         "radio_accepted_part_facts",
         "radio_attempt_evidence_summaries",

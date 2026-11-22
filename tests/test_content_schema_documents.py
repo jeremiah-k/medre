@@ -26,6 +26,10 @@ from medre.core.storage.sqlite.schema import _INDEXES, _SCHEMA
             },
         ),
         (
+            "current/route-retry-bounds.schema.sql",
+            {"delivery_route_retry_bounds"},
+        ),
+        (
             "event-content-ceiling-log.schema.sql",
             {"event_content_ceiling_log"},
         ),

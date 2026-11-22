@@ -71,7 +71,11 @@ receipt append watermark for receipt-less handoff settlement. The
 content-free enforcement receipt, and the pinned
 `current/content-free-handoff-facts.schema.sql` fragment publishes the
 exact-attempt uncertainty, accepted-packet, observation-scope, and radio
-evidence-summary tables that survive a ceiling purge. Their table constraints
+evidence-summary tables that survive a ceiling purge. The pinned
+`current/route-retry-bounds.schema.sql` fragment publishes the content-free
+admission-time retry bounds that survive a ceiling purge so post-erasure
+reconciliation uses the route's own historic limits instead of any current
+configuration. Their table constraints
 and declared indexes are checked against the authoritative SQLite DDL. None
 of these post-release fragments changes the frozen 0.1.0 catalog.
 

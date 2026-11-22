@@ -415,6 +415,7 @@ def _dump_state(path: Path) -> dict[str, Any]:
 def _d0_added_tables() -> tuple[tuple[str, str], ...]:
     _CEILING_LOG = "event_content_ceiling_log"
     _HANDOFF_FACTS = "docs/schemas/current/content-free-handoff-facts.schema.sql"
+    _ROUTE_BOUNDS = "docs/schemas/current/route-retry-bounds.schema.sql"
     return (
         (
             _HANDOFF_SETTLEMENTS,
@@ -429,6 +430,7 @@ def _d0_added_tables() -> tuple[tuple[str, str], ...]:
         ("radio_attempt_evidence_summaries", _HANDOFF_FACTS),
         ("delivery_observation_scopes", _HANDOFF_FACTS),
         ("delivery_observation_scope_versions", _HANDOFF_FACTS),
+        ("delivery_route_retry_bounds", _ROUTE_BOUNDS),
     )
 
 

@@ -492,6 +492,22 @@ CREATE TABLE IF NOT EXISTS radio_attempt_progress (
     PRIMARY KEY (outbox_id, attempt_number)
 );
 
+-- Content-free retry bounds for one outbox generation, captured at admission
+-- from the accepted route's resolved retry policy.  Written once atomically
+-- with the outbox row and never rewritten or purged: numeric/boolean policy
+-- facts carry no message content or content-derived bytes.  After ceiling
+-- enforcement retires the frozen dispatch context, post-erasure reconciliation
+-- reads these bounds instead of any current configuration.  Their presence
+-- governs retry-budget arithmetic only; it never authorizes another native
+-- send.
+CREATE TABLE IF NOT EXISTS delivery_route_retry_bounds (
+    outbox_id TEXT PRIMARY KEY REFERENCES delivery_outbox(outbox_id),
+    max_attempts INTEGER NOT NULL CHECK (max_attempts >= 1),
+    backoff_base REAL NOT NULL CHECK (backoff_base > 0),
+    max_delay_seconds REAL NOT NULL CHECK (max_delay_seconds > 0),
+    jitter INTEGER NOT NULL CHECK (jitter IN (0, 1))
+);
+
 -- Frozen outbox dispatch work snapshot: the privately owned accepted work
 -- context for one outbox generation.  Written atomically with its outbox row,
 -- read only under the exact outbox identity by the recovery path, and retired
@@ -1443,6 +1459,15 @@ _SNAPSHOTS_DDL = _SCHEMA[
     _SCHEMA.index("-- Frozen outbox dispatch work snapshot") : _SCHEMA.index(
         "CREATE TABLE IF NOT EXISTS durable_ingress_work ("
     )
+]
+
+# The approved additive route-retry-bounds fact table derives verbatim from
+# the same authoritative schema, exactly like the other content-free fact
+# tables above.
+_ROUTE_RETRY_BOUNDS_DDL = _SCHEMA[
+    _SCHEMA.index(
+        "-- Content-free retry bounds for one outbox generation"
+    ) : _SCHEMA.index("-- Frozen outbox dispatch work snapshot")
 ]
 
 _DIAGNOSTICS_INDEX_DDL = _INDEXES[

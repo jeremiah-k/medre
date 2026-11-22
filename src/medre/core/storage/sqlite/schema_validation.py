@@ -36,6 +36,7 @@ from medre.core.storage.sqlite.schema import (
     _REQUIRED_FOREIGN_KEYS,
     _REQUIRED_UNIQUE_CONSTRAINTS,
     _RETENTION_EPOCHS_DDL,
+    _ROUTE_RETRY_BOUNDS_DDL,
     _ROUTING_FACTS_DDL,
     _SCHEMA,
     _SCOPE_VERSIONS_DDL,
@@ -99,6 +100,7 @@ _ADDITIVE_OBJECTS: frozenset[tuple[str, str]] = frozenset(
         ("table", "delivery_outbox_snapshots"),
         ("table", "delivery_handoff_settlements"),
         ("table", "delivery_handoff_uncertainty"),
+        ("table", "delivery_route_retry_bounds"),
         ("table", "radio_accepted_part_facts"),
         ("table", "delivery_observation_scopes"),
         ("table", "delivery_observation_scope_versions"),
@@ -218,6 +220,8 @@ def apply_safe_additions(db: sqlite3.Connection) -> None:
         )
     ):
         execute_ddl(db, _SCOPE_VERSIONS_DDL)
+    if ("table", "delivery_route_retry_bounds") not in current:
+        execute_ddl(db, _ROUTE_RETRY_BOUNDS_DDL)
     if ("table", "inbound_pressure_outage_gaps") not in current:
         execute_ddl(db, _PRESSURE_OUTAGE_GAPS_DDL)
     if ("index", "idx_outbox_deadline_cleanup_order") not in current:

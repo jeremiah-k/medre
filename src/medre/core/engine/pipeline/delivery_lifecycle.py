@@ -143,6 +143,7 @@ from medre.core.storage.backend import (
     DeferredHandoffFinalization,
     DeliveryOutboxItem,
     OutboxDispatchSnapshot,
+    OutboxRouteRetryBounds,
     StorageError,
     TerminalOutboxFinalization,
 )
@@ -262,6 +263,17 @@ class DeliveryLifecycleStorage(Protocol):
         target_channel: str | None,
     ) -> OutboxDispatchSnapshot | None:
         """Read the frozen dispatch context under the exact outbox identity."""
+        ...
+
+    async def get_outbox_route_retry_bounds(
+        self,
+        outbox_id: str,
+    ) -> OutboxRouteRetryBounds | None:
+        """Read the persisted admission-time retry bounds for one generation.
+
+        Returns ``None`` for generations admitted without resolved route
+        bounds.  The bounds are content-free facts, not send authority.
+        """
         ...
 
     async def release_outbox_claim(

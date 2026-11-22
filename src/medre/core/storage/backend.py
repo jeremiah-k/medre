@@ -726,6 +726,49 @@ class OutboxDispatchSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
+class OutboxRouteRetryBoundsWrite:
+    """Content-free retry bounds to persist atomically with one outbox row.
+
+    Captured at admission from the accepted route's resolved retry policy.
+    The values are policy arithmetic facts only: they never carry message
+    content or content-derived bytes and they never authorize a transport
+    dispatch.
+    """
+
+    max_attempts: int
+    backoff_base: float
+    max_delay_seconds: float
+    jitter: bool
+
+    def __post_init__(self) -> None:
+        if self.max_attempts < 1:
+            raise ValueError("route retry bounds require max_attempts >= 1")
+        if self.backoff_base <= 0:
+            raise ValueError("route retry bounds require backoff_base > 0")
+        if self.max_delay_seconds <= 0:
+            raise ValueError("route retry bounds require max_delay_seconds > 0")
+
+
+@dataclass(frozen=True, slots=True)
+class OutboxRouteRetryBounds:
+    """Persisted admission-time retry bounds for one exact outbox generation.
+
+    Read back after ceiling enforcement has retired the frozen dispatch
+    context so post-erasure reconciliation uses the route's own historic
+    limits instead of any current configuration. Absence (``None`` from the
+    storage read) is the standing fact that the generation was admitted
+    without resolved route bounds; such rows reconcile without bounds and
+    never reconstruct policy from current configuration.
+    """
+
+    outbox_id: str
+    max_attempts: int
+    backoff_base: float
+    max_delay_seconds: float
+    jitter: bool
+
+
+@dataclass(frozen=True, slots=True)
 class DeferredHandoffFinalization:
     """Validated command for one atomic deferred-hand-off completion.
 
@@ -1665,6 +1708,7 @@ class StorageBackend(Protocol):
         *,
         allocate_new_generation: bool = False,
         dispatch_snapshot: OutboxDispatchSnapshotWrite | None = None,
+        route_retry_bounds: OutboxRouteRetryBoundsWrite | None = None,
     ) -> DeliveryOutboxItem:
         """Create a new outbox item or return an existing generation unchanged.
 
@@ -1684,6 +1728,12 @@ class StorageBackend(Protocol):
         transaction, keyed by the exact outbox identity and the row's committed
         creation generation.  Adopted existing rows never gain a snapshot from
         a later creator.
+
+        When *route_retry_bounds* is provided, the accepted route's resolved
+        content-free retry bounds are written to ``delivery_route_retry_bounds``
+        inside the same creation transaction, keyed by the exact outbox
+        identity.  Adopted existing rows never gain bounds from a later
+        creator: bounds are admission facts, not retrofit state.
 
         Production lifecycle policy:
           - Initial status MUST be ``pending`` (default) or ``in_progress``
@@ -1734,6 +1784,21 @@ class StorageBackend(Protocol):
         to current router configuration.
         Metadata-only projections never return snapshot bytes; this typed read
         is the only access path.
+        """
+        ...
+
+    async def get_outbox_route_retry_bounds(
+        self,
+        outbox_id: str,
+    ) -> OutboxRouteRetryBounds | None:
+        """Read the persisted admission-time retry bounds for one generation.
+
+        Authority: **list/get** (read-only, content-free).  Returns ``None``
+        when the generation was admitted without resolved route bounds
+        (historical/predecessor rows and routes without a resolved retry
+        policy).  The bounds survive ceiling enforcement: they are
+        content-free policy facts, not send authority, and post-erasure
+        reconciliation consumes them instead of any current configuration.
         """
         ...
 

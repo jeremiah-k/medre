@@ -359,6 +359,20 @@ STORAGE_COLUMN_CLASSES: dict[str, dict[str, ColumnClass]] = {
         "native_channel_id": ColumnClass.IMMUTABLE_IDENTITY,
         "native_message_id": ColumnClass.IMMUTABLE_IDENTITY,
     },
+    # Content-free admission-time retry bounds for one outbox generation,
+    # written once atomically with the outbox row and never rewritten or
+    # purged. Every column is a numeric/boolean policy fact with no message
+    # content or content-derived bytes; after ceiling enforcement retires the
+    # frozen dispatch context, post-erasure reconciliation reads these bounds
+    # instead of any current configuration. They govern retry-budget
+    # arithmetic only and never authorize another native send.
+    "delivery_route_retry_bounds": {
+        "outbox_id": ColumnClass.IMMUTABLE_IDENTITY,
+        "max_attempts": ColumnClass.IMMUTABLE_IDENTITY,
+        "backoff_base": ColumnClass.IMMUTABLE_IDENTITY,
+        "max_delay_seconds": ColumnClass.IMMUTABLE_IDENTITY,
+        "jitter": ColumnClass.IMMUTABLE_IDENTITY,
+    },
     "delivery_handoff_settlements": {
         "outbox_id": ColumnClass.IMMUTABLE_IDENTITY,
         "attempt_number": ColumnClass.IMMUTABLE_IDENTITY,

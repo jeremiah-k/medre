@@ -121,6 +121,7 @@ plus the SQLite-level remnants. Coverage classes:
 | `radio_attempt_evidence_summaries`                              | Exact attempt provenance, packet states and native correlation, revision, or a closed unreadable-checkpoint marker. No wire bytes, grants, diagnostic text, or payload fingerprints. | retained-identity         | Preserve only the typed evidence projection; an undecodable checkpoint keeps a non-authorizing blocker so it cannot become message-only proof.                                                                            |
 | `delivery_observation_scopes`                                   | Verified original outbox and attempt identity, packet ordinal, or an unreadable-scope marker.                                                                                        | retained-identity         | Preserve mutable, content-free operational scope while clearing provider metadata; changing scope advances its attempt revision.                                                                                          |
 | `delivery_observation_scope_versions`                           | Exact-attempt monotonic revision for every packet-scope mutation, without provider text.                                                                                             | retained-identity         | Three atomic triggers advance the revision on scope insertion, change, or deletion; a row count alone cannot fence an in-place rewrite.                                                                                   |
+| `delivery_route_retry_bounds`                                   | none (numeric/boolean retry-policy bounds captured at admission)                                                                                                                     | retained-identity         | retained; after enforcement retires the frozen dispatch context, post-erasure reconciliation reads these bounds instead of any current configuration; they never authorize another native send                            |
 
 The registry contract (`STORAGE_COLUMN_CLASSES`) is the column-level
 authority for "content-potential": the enforcement purge and the residual
@@ -165,6 +166,15 @@ The guarded ceiling-enforcement transition is a single mutation boundary:
   settlements, operator decisions, conversation projections, and the
   admission identity all survive as linkage, with census-declared content
   values cleared.
+- After enforcement retires an event's frozen dispatch context, remaining
+  retry decisions for its outbox generations MUST use the persisted
+  admission-time route bounds (`delivery_route_retry_bounds`) and MUST NOT
+  consult current global or route configuration for authority over the
+  erased route. Generations admitted without bounds reconcile without
+  them: persisted evidence settles exactly as before, and no further
+  attempt is scheduled. The bounds are content-free arithmetic facts, not
+  send authority: recovery may settle existing evidence through them, but
+  they never authorize another native send.
 - Receipt, observation, ingress and outbox writes MUST keep exact durable
   evidence after expiry without recreating free-form diagnostic content.
   Their diagnostic follow-ups check the installed ceiling and immutable

@@ -96,6 +96,16 @@ SELECT outbox_id, attempt_number, ?, ?, ?, ?
 FROM delivery_outbox WHERE outbox_id = ?
 """
 
+# Admission-time route retry bounds for the just-inserted outbox generation.
+# The SELECT form keys the fact to the committed row inside the same
+# creation transaction; adopted existing rows never run this op.
+_INSERT_OUTBOX_ROUTE_RETRY_BOUNDS = """
+INSERT INTO delivery_route_retry_bounds
+    (outbox_id, max_attempts, backoff_base, max_delay_seconds, jitter)
+SELECT outbox_id, ?, ?, ?, ?
+FROM delivery_outbox WHERE outbox_id = ?
+"""
+
 # Retirement of the frozen dispatch context happens ONLY inside guarded
 # terminal transitions, in the same transaction as the status change; a
 # rolled-back transition preserves the snapshot.

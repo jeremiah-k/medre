@@ -2001,8 +2001,9 @@ and the named rebuild steps in
   `delivery_outbox_snapshots`, `delivery_handoff_settlements`,
   `delivery_handoff_uncertainty`, `radio_accepted_part_facts`,
   `radio_attempt_evidence_summaries`, `delivery_observation_scopes`,
-  `delivery_observation_scope_versions` (with three mutation triggers), and
-  `inbound_pressure_outage_gaps`.
+  `delivery_observation_scope_versions` (with three mutation triggers),
+  `delivery_route_retry_bounds` (content-free admission-time route retry
+  bounds; never purged), and `inbound_pressure_outage_gaps`.
 - Recognized missing indexes: `idx_outbox_deadline_cleanup_order`,
   `idx_diagnostics_identity`, `idx_events_admission_order`,
   `idx_outbox_snapshot_owner_unique`, and

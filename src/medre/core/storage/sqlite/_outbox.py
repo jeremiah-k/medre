@@ -54,6 +54,8 @@ from medre.core.storage.backend import (
     DeliveryOutboxItem,
     OutboxDispatchSnapshot,
     OutboxDispatchSnapshotWrite,
+    OutboxRouteRetryBounds,
+    OutboxRouteRetryBoundsWrite,
     OutboxSnapshotIntegrityError,
     OutboxSnapshotReadError,
     StorageError,
@@ -77,6 +79,7 @@ from medre.core.storage.sqlite.serde import (
     _row_to_outbox_item,
 )
 from medre.core.storage.sqlite.statements import (
+    _INSERT_OUTBOX_ROUTE_RETRY_BOUNDS,
     _INSERT_OUTBOX_SNAPSHOT,
     _RETIRE_OUTBOX_SNAPSHOT,
 )
@@ -135,6 +138,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         *,
         allocate_new_generation: bool = False,
         dispatch_snapshot: OutboxDispatchSnapshotWrite | None = None,
+        route_retry_bounds: OutboxRouteRetryBoundsWrite | None = None,
     ) -> DeliveryOutboxItem:
         """Create a new outbox item, or return an existing generation unchanged.
 
@@ -159,6 +163,15 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         remains their frozen context. The snapshot's frozen plan deadline
         rides the same transaction as the content adoption fence, which
         enforces the earlier of the event ceiling and that deadline.
+
+        When *route_retry_bounds* is provided, the accepted route's resolved
+        content-free retry bounds are inserted into
+        ``delivery_route_retry_bounds`` inside the same creation transaction,
+        keyed by the exact outbox identity.  Adopted existing rows never gain
+        bounds from a later creator: bounds are admission facts, not retrofit
+        state.  The bounds survive ceiling enforcement — they carry no
+        content-potential value — and post-erasure reconciliation reads them
+        instead of any current configuration.
 
         Production lifecycle policy:
           - New rows may be created only as ``pending`` (default) or
@@ -309,7 +322,25 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                     ),
                 )
             )
-        post_insert_ops = [*diagnostic_ops, *snapshot_ops]
+        # The accepted route's content-free retry bounds join the same
+        # creation transaction.  The ops run only for a freshly inserted row:
+        # adopted existing rows return before any op executes and never gain
+        # bounds from a later creator, matching the snapshot ownership rule.
+        bounds_ops: list[tuple[str, tuple[Any, ...]]] = []
+        if route_retry_bounds is not None:
+            bounds_ops.append(
+                (
+                    _INSERT_OUTBOX_ROUTE_RETRY_BOUNDS,
+                    (
+                        route_retry_bounds.max_attempts,
+                        route_retry_bounds.backoff_base,
+                        route_retry_bounds.max_delay_seconds,
+                        1 if route_retry_bounds.jitter else 0,
+                        item.outbox_id,
+                    ),
+                )
+            )
+        post_insert_ops = [*diagnostic_ops, *snapshot_ops, *bounds_ops]
 
         generation_select_sql = (
             "SELECT MAX(COALESCE(active_attempt, attempt_number)) AS max_attempt"
@@ -626,6 +657,36 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
             snapshot_version=snapshot_version,
             kind=kind,
             context=context,
+        )
+
+    async def get_outbox_route_retry_bounds(
+        self,
+        outbox_id: str,
+    ) -> OutboxRouteRetryBounds | None:
+        """Read the persisted admission-time retry bounds for one generation.
+
+        Authority: **list/get** (read-only, content-free).  Returns ``None``
+        when the generation carries no bounds row: historical/predecessor
+        rows and routes admitted without a resolved retry policy.  The row
+        is written once at admission and never rewritten, so the read needs
+        no identity binding beyond the generation key.  A failed database
+        read raises :class:`StorageError` so callers keep the claim for
+        lease-based reclaim instead of making a terminal decision on a
+        transient I/O failure.
+        """
+        row = await self._read_one(
+            "SELECT max_attempts, backoff_base, max_delay_seconds, jitter"
+            " FROM delivery_route_retry_bounds WHERE outbox_id = ?",
+            (outbox_id,),
+        )
+        if row is None:
+            return None
+        return OutboxRouteRetryBounds(
+            outbox_id=outbox_id,
+            max_attempts=int(row["max_attempts"]),
+            backoff_base=float(row["backoff_base"]),
+            max_delay_seconds=float(row["max_delay_seconds"]),
+            jitter=bool(row["jitter"]),
         )
 
     async def list_outbox_items_for_delivery(
