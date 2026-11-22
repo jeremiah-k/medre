@@ -364,17 +364,18 @@ class RetryWorker:
         self._next_ceiling_sweep_at: datetime | None = None
         # Uncertain-native-handoff remediation: claim reconciliation resolves
         # an ambiguous reserved dispatch from evidence the backend already
-        # holds (retained radio checkpoints and append-only delivery
-        # observations). The evidence reads are a backend-specific surface;
-        # backends without them leave resolution dormant and reconciliation
-        # keeps the merged ambiguous-dispatch behavior unchanged.
+        # holds (retained radio checkpoints and an atomic delivery-observation
+        # snapshot with its packet-scope evidence version). The evidence reads
+        # are a backend-specific surface; backends without them leave
+        # resolution dormant and reconciliation keeps the merged
+        # ambiguous-dispatch behavior unchanged.
         handoff_evidence_store = cast(
             "HandoffEvidenceStore | None",
             (
                 storage
                 if (
                     getattr(storage, "get_radio_attempt", None) is not None
-                    and getattr(storage, "list_delivery_observations_for_attempt", None)
+                    and getattr(storage, "read_handoff_observation_snapshot", None)
                     is not None
                 )
                 else None

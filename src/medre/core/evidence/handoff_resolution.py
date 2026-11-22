@@ -549,17 +549,22 @@ class UncertainNativeHandoffResolver(Protocol):
 class HandoffEvidenceStore(Protocol):
     """Narrow read surface the evidence-backed resolver needs.
 
-    Backends without both surfaces leave resolution dormant at the runtime
-    composition boundary, mirroring the optional deadline-sweep policy.
+    Backends without these surfaces leave resolution dormant at the runtime
+    composition boundary, mirroring the optional deadline-sweep policy. The
+    observation snapshot returns the evidence rows together with the
+    retained packet-scope count that terminal-write fences require: a
+    backend that cannot supply that version in one atomic read cannot arm
+    resolution at all, because an unfenced scope version could silently
+    weaken the terminal evidence guarantee.
     """
 
     async def get_radio_attempt(
         self, outbox_id: str, attempt_number: int
     ) -> StoredRadioAttempt | None: ...
 
-    async def list_delivery_observations_for_attempt(
+    async def read_handoff_observation_snapshot(
         self, outbox_id: str, attempt_number: int
-    ) -> list[DeliveryObservation]: ...
+    ) -> tuple[list[DeliveryObservation], int]: ...
 
 
 class EvidenceBackedHandoffResolver:
@@ -602,27 +607,11 @@ class EvidenceBackedHandoffResolver:
                 )
                 if evidence_reader is not None:
                     checkpoint = await evidence_reader(item.outbox_id, attempt_number)
-            snapshot_reader = getattr(
-                self._storage, "read_handoff_observation_snapshot", None
-            )
-            if snapshot_reader is not None:
-                observations, scope_count = await snapshot_reader(
+            observations, scope_count = (
+                await self._storage.read_handoff_observation_snapshot(
                     item.outbox_id, attempt_number
                 )
-            else:
-                observations = (
-                    await self._storage.list_delivery_observations_for_attempt(
-                        item.outbox_id, attempt_number
-                    )
-                )
-                scope_counter = getattr(
-                    self._storage, "count_delivery_observation_scopes", None
-                )
-                scope_count = (
-                    await scope_counter(item.outbox_id, attempt_number)
-                    if scope_counter is not None
-                    else None
-                )
+            )
         except StorageError:
             return _resolution(
                 "unresolved",

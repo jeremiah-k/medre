@@ -64,7 +64,7 @@ def _gated_item(**overrides) -> DeliveryOutboxItem:
 
 def _retained_storage(
     *,
-    evidence_methods=("get_radio_attempt", "list_delivery_observations_for_attempt"),
+    evidence_methods=("get_radio_attempt", "read_handoff_observation_snapshot"),
 ):
     """Expose only explicit evidence-read surfaces, not dynamic mock attributes."""
     storage = MagicMock(
@@ -151,7 +151,7 @@ async def _run_with_emit(worker, item) -> MagicMock:
 
 @pytest.mark.parametrize(
     "evidence_methods",
-    [(), ("get_radio_attempt",), ("list_delivery_observations_for_attempt",)],
+    [(), ("get_radio_attempt",), ("read_handoff_observation_snapshot",)],
 )
 async def test_recheck_gate_resolver_absent_skips_recheck(evidence_methods):
     """Backends without the evidence-store surface leave the gate dormant."""

@@ -586,13 +586,13 @@ async def test_recheck_uses_historical_checkpoint_source_after_newer_reservation
     )
     provider = SimpleNamespace(
         get_radio_attempt=AsyncMock(return_value=checkpoint),
-        list_delivery_observations_for_attempt=AsyncMock(return_value=[]),
+        read_handoff_observation_snapshot=AsyncMock(return_value=([], 0)),
     )
     resolved = await EvidenceBackedHandoffResolver(provider).resolve(current, 1)
     assert resolved.verdict == "delivered_with_evidence"
     assert resolved.checkpoint_revision == checkpoint.revision
     provider.get_radio_attempt.assert_awaited_once_with(stored.outbox_id, 1)
-    provider.list_delivery_observations_for_attempt.assert_awaited_once_with(
+    provider.read_handoff_observation_snapshot.assert_awaited_once_with(
         stored.outbox_id, 1
     )
 
