@@ -121,6 +121,23 @@ CREATE TABLE IF NOT EXISTS event_content_collection_log (
     logical_bytes_removed INTEGER NOT NULL CHECK (logical_bytes_removed >= 0)
 );
 
+-- Immutable hard-ceiling enforcement receipt. Written by the guarded
+-- ceiling-enforcement transition when one event's immutable hard ceiling
+-- elapsed and the ceiling purge of every enumerated content store committed
+-- and verified. Content-free counters only; presence is the durable fact
+-- that enforcement completed for this event and no content may be
+-- resurrected for it. It does not claim physical erasure of SQLite free
+-- pages, WAL, provider copies, or backups.
+CREATE TABLE IF NOT EXISTS event_content_ceiling_log (
+    event_id TEXT NOT NULL PRIMARY KEY REFERENCES canonical_events(event_id),
+    enforced_at TEXT NOT NULL,
+    ceiling TEXT NOT NULL,
+    rows_removed INTEGER NOT NULL CHECK (rows_removed >= 0),
+    logical_bytes_removed INTEGER NOT NULL CHECK (logical_bytes_removed >= 0),
+    blobs_removed INTEGER NOT NULL CHECK (blobs_removed >= 0),
+    blob_bytes_removed INTEGER NOT NULL CHECK (blob_bytes_removed >= 0)
+);
+
 -- Durable content-retention activation epochs. One append-only row per
 -- relay-only policy activation; the admission watermark is the store's
 -- maximum local admission created_at observed inside the activation
@@ -345,6 +362,48 @@ CREATE TABLE IF NOT EXISTS delivery_handoff_settlements (
     receipt_watermark INTEGER NOT NULL CHECK (receipt_watermark >= 0)
 );
 
+-- Content-free exact-attempt uncertainty evidence. The free-form diagnostic
+-- can be purged at the hard ceiling without losing late-ACK correlation.
+-- An explicit non-uncertain failure classification durably transitions the
+-- same attempt to ``superseded_native_handoff`` so a later purge of the
+-- diagnostic cannot revive closed uncertainty. Neither state grants another
+-- transport dispatch.
+CREATE TABLE IF NOT EXISTS delivery_handoff_uncertainty (
+    outbox_id TEXT NOT NULL PRIMARY KEY REFERENCES delivery_outbox(outbox_id),
+    attempt_number INTEGER NOT NULL CHECK (attempt_number >= 1),
+    state TEXT NOT NULL CHECK (state IN ('uncertain_native_handoff', 'superseded_native_handoff'))
+);
+
+-- Acceptance facts survive deletion of radio wire plans at the ceiling.
+-- Only a previously accepted, exact original packet is recorded. Retaining
+-- the identity never reconstructs a payload or authorizes submission.
+CREATE TABLE IF NOT EXISTS radio_accepted_part_facts (
+    outbox_id TEXT NOT NULL REFERENCES delivery_outbox(outbox_id),
+    attempt_number INTEGER NOT NULL CHECK (attempt_number >= 1),
+    ordinal INTEGER NOT NULL CHECK (ordinal BETWEEN 1 AND 128),
+    native_channel_id TEXT,
+    native_message_id TEXT NOT NULL CHECK (length(native_message_id) > 0),
+    PRIMARY KEY (outbox_id, attempt_number, ordinal)
+);
+
+-- Non-authorizing packet scope survives clearing observation metadata.
+-- Event-scoped evidence-only radio progress survives loss of all wire plans;
+-- states include accepted, submitting and unknown, so the projection is
+-- evidence of progress, not by itself proof of acceptance.
+CREATE TABLE IF NOT EXISTS radio_attempt_evidence_summaries (
+    outbox_id TEXT NOT NULL REFERENCES delivery_outbox(outbox_id),
+    attempt_number INTEGER NOT NULL CHECK (attempt_number >= 1),
+    provenance_json TEXT NOT NULL CHECK (json_valid(provenance_json)),
+    parts_json TEXT NOT NULL CHECK (json_valid(parts_json)),
+    revision INTEGER NOT NULL CHECK (revision >= 0),
+    PRIMARY KEY (outbox_id, attempt_number)
+);
+
+CREATE TABLE IF NOT EXISTS delivery_observation_scopes (
+    observation_id TEXT NOT NULL PRIMARY KEY REFERENCES delivery_observations(observation_id),
+    scope_json TEXT NOT NULL CHECK (json_valid(scope_json))
+);
+
 CREATE TABLE IF NOT EXISTS delivery_observations (
     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
     observation_id TEXT UNIQUE NOT NULL,
@@ -364,6 +423,45 @@ CREATE TABLE IF NOT EXISTS delivery_observations (
     CHECK (state IN ('delivered', 'failed', 'rejected', 'cancelled')),
     CHECK (confirmation_level IN ('unknown', 'local_queue', 'local_transport', 'remote_service', 'end_to_end'))
 );
+
+-- An exact-attempt serial for every stored packet-scope insertion, repair, or
+-- removal. A scope row count cannot fence an in-place repair: revisions are
+-- advanced by triggers in the same transaction as every scope mutation.
+-- Only content-free identities and a monotone integer are retained.
+CREATE TABLE IF NOT EXISTS delivery_observation_scope_versions (
+    outbox_id TEXT NOT NULL REFERENCES delivery_outbox(outbox_id),
+    attempt_number INTEGER NOT NULL CHECK (attempt_number >= 1),
+    revision INTEGER NOT NULL CHECK (revision >= 1),
+    PRIMARY KEY (outbox_id, attempt_number)
+);
+
+CREATE TRIGGER IF NOT EXISTS trg_scope_version_insert
+AFTER INSERT ON delivery_observation_scopes
+BEGIN
+    INSERT INTO delivery_observation_scope_versions (outbox_id, attempt_number, revision)
+    SELECT o.outbox_id, o.attempt_number, 1 FROM delivery_observations o
+    WHERE o.observation_id=NEW.observation_id
+    ON CONFLICT(outbox_id, attempt_number) DO UPDATE SET revision=revision+1;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_scope_version_update
+AFTER UPDATE OF scope_json ON delivery_observation_scopes
+WHEN OLD.scope_json IS NOT NEW.scope_json
+BEGIN
+    INSERT INTO delivery_observation_scope_versions (outbox_id, attempt_number, revision)
+    SELECT o.outbox_id, o.attempt_number, 1 FROM delivery_observations o
+    WHERE o.observation_id=NEW.observation_id
+    ON CONFLICT(outbox_id, attempt_number) DO UPDATE SET revision=revision+1;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_scope_version_delete
+AFTER DELETE ON delivery_observation_scopes
+BEGIN
+    INSERT INTO delivery_observation_scope_versions (outbox_id, attempt_number, revision)
+    SELECT o.outbox_id, o.attempt_number, 1 FROM delivery_observations o
+    WHERE o.observation_id=OLD.observation_id
+    ON CONFLICT(outbox_id, attempt_number) DO UPDATE SET revision=revision+1;
+END;
 
 -- Free-form delivery diagnostic text, separated at write time from the durable
 -- delivery facts that remain inline in the evidence rows.  One append-only row
@@ -392,6 +490,22 @@ CREATE TABLE IF NOT EXISTS radio_attempt_progress (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     PRIMARY KEY (outbox_id, attempt_number)
+);
+
+-- Content-free retry bounds for one outbox generation, captured at admission
+-- from the accepted route's resolved retry policy.  Written once atomically
+-- with the outbox row and never rewritten or purged: numeric/boolean policy
+-- facts carry no message content or content-derived bytes.  After ceiling
+-- enforcement retires the frozen dispatch context, post-erasure reconciliation
+-- reads these bounds instead of any current configuration.  Their presence
+-- governs retry-budget arithmetic only; it never authorizes another native
+-- send.
+CREATE TABLE IF NOT EXISTS delivery_route_retry_bounds (
+    outbox_id TEXT PRIMARY KEY REFERENCES delivery_outbox(outbox_id),
+    max_attempts INTEGER NOT NULL CHECK (max_attempts >= 1),
+    backoff_base REAL NOT NULL CHECK (backoff_base >= 0),
+    max_delay_seconds REAL NOT NULL CHECK (max_delay_seconds >= 0),
+    jitter INTEGER NOT NULL CHECK (jitter IN (0, 1))
 );
 
 -- Frozen outbox dispatch work snapshot: the privately owned accepted work
@@ -618,6 +732,11 @@ CREATE INDEX IF NOT EXISTS idx_ingress_work_claim
 CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_null_channel_unique
     ON delivery_outbox(event_id, delivery_plan_id, target_adapter, attempt_number)
     WHERE target_channel IS NULL;
+-- Hard-ceiling enforcement resumes in ceiling order without sorting the
+-- whole policy table: elapsed ceilings page in a stable (hard_ceiling,
+-- event_id) keyset ordering.
+CREATE INDEX IF NOT EXISTS idx_ceiling_enforcement_order ON event_content_access_policies(hard_ceiling, event_id);
+CREATE INDEX IF NOT EXISTS idx_attachment_associations_content_ref ON event_attachment_associations(content_ref);
 """
 
 # ---------------------------------------------------------------------------
@@ -674,6 +793,17 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
     ),
     "event_content_collection_log": frozenset(
         {"event_id", "collected_at", "policy", "rows_removed", "logical_bytes_removed"}
+    ),
+    "event_content_ceiling_log": frozenset(
+        {
+            "event_id",
+            "enforced_at",
+            "ceiling",
+            "rows_removed",
+            "logical_bytes_removed",
+            "blobs_removed",
+            "blob_bytes_removed",
+        }
     ),
     "content_retention_epochs": frozenset(
         {
@@ -785,6 +915,32 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
             "outbox_id",
             "confirmation_level",
             "created_at",
+        }
+    ),
+    "delivery_handoff_uncertainty": frozenset({"outbox_id", "attempt_number", "state"}),
+    "delivery_route_retry_bounds": frozenset(
+        {
+            "outbox_id",
+            "max_attempts",
+            "backoff_base",
+            "max_delay_seconds",
+            "jitter",
+        }
+    ),
+    "radio_attempt_evidence_summaries": frozenset(
+        {"outbox_id", "attempt_number", "provenance_json", "parts_json", "revision"}
+    ),
+    "delivery_observation_scopes": frozenset({"observation_id", "scope_json"}),
+    "delivery_observation_scope_versions": frozenset(
+        {"outbox_id", "attempt_number", "revision"}
+    ),
+    "radio_accepted_part_facts": frozenset(
+        {
+            "outbox_id",
+            "attempt_number",
+            "ordinal",
+            "native_channel_id",
+            "native_message_id",
         }
     ),
     "delivery_handoff_settlements": frozenset(
@@ -970,6 +1126,9 @@ _REQUIRED_UNIQUE_CONSTRAINTS: dict[str, frozenset[tuple[str, ...]]] = {
 
 _REQUIRED_FOREIGN_KEYS: dict[str, frozenset[tuple[str, str, str]]] = {
     "event_routing_facts": frozenset({("event_id", "canonical_events", "event_id")}),
+    "event_content_ceiling_log": frozenset(
+        {("event_id", "canonical_events", "event_id")}
+    ),
     "delivery_handoff_settlements": frozenset(
         {("outbox_id", "delivery_outbox", "outbox_id")}
     ),
@@ -1005,6 +1164,12 @@ _REQUIRED_FOREIGN_KEYS: dict[str, frozenset[tuple[str, str, str]]] = {
         }
     ),
     "delivery_outbox": frozenset({("event_id", "canonical_events", "event_id")}),
+    "delivery_handoff_uncertainty": frozenset(
+        {("outbox_id", "delivery_outbox", "outbox_id")}
+    ),
+    "radio_accepted_part_facts": frozenset(
+        {("outbox_id", "delivery_outbox", "outbox_id")}
+    ),
     "delivery_observations": frozenset(
         {
             ("event_id", "canonical_events", "event_id"),
@@ -1247,6 +1412,15 @@ _REQUIRED_CHECK_CONSTRAINTS: dict[str, tuple[tuple[str, str], ...]] = {
 # This prevents fresh and additive-upgraded databases from diverging.
 _COLLECTION_LOG_DDL = _SCHEMA[
     _SCHEMA.index("-- Immutable logical-collection receipt.") : _SCHEMA.index(
+        "-- Immutable hard-ceiling enforcement receipt."
+    )
+]
+
+# The approved additive hard-ceiling enforcement receipt derives verbatim
+# from the same authoritative schema, ending at the collection log's
+# successor object.
+_CEILING_LOG_DDL = _SCHEMA[
+    _SCHEMA.index("-- Immutable hard-ceiling enforcement receipt.") : _SCHEMA.index(
         "-- Durable content-retention activation epochs."
     )
 ]
@@ -1269,8 +1443,23 @@ _DIAGNOSTICS_DDL = _SCHEMA[
 # existing row or guessing the ordering of historical settlements.
 _HANDOFF_SETTLEMENTS_DDL = _SCHEMA[
     _SCHEMA.index("-- Receipt-less handoff settlement:") : _SCHEMA.index(
-        "CREATE TABLE IF NOT EXISTS delivery_observations ("
+        "-- Content-free exact-attempt uncertainty evidence."
     )
+]
+
+_HANDOFF_FACTS_DDL = _SCHEMA[
+    _SCHEMA.index(
+        "-- Content-free exact-attempt uncertainty evidence."
+    ) : _SCHEMA.index("CREATE TABLE IF NOT EXISTS delivery_observations (")
+]
+
+# Scope revision objects extend the existing content-free evidence tables
+# without editing any released schema bytes. Existing scope rows start at
+# revision zero; their first subsequent mutation advances to one.
+_SCOPE_VERSIONS_DDL = _SCHEMA[
+    _SCHEMA.index(
+        "-- An exact-attempt serial for every stored packet-scope"
+    ) : _SCHEMA.index("-- Free-form delivery diagnostic text, separated")
 ]
 
 # Derive the approved additive snapshot-table DDL verbatim from the
@@ -1279,6 +1468,15 @@ _SNAPSHOTS_DDL = _SCHEMA[
     _SCHEMA.index("-- Frozen outbox dispatch work snapshot") : _SCHEMA.index(
         "CREATE TABLE IF NOT EXISTS durable_ingress_work ("
     )
+]
+
+# The approved additive route-retry-bounds fact table derives verbatim from
+# the same authoritative schema, exactly like the other content-free fact
+# tables above.
+_ROUTE_RETRY_BOUNDS_DDL = _SCHEMA[
+    _SCHEMA.index(
+        "-- Content-free retry bounds for one outbox generation"
+    ) : _SCHEMA.index("-- Frozen outbox dispatch work snapshot")
 ]
 
 _DIAGNOSTICS_INDEX_DDL = _INDEXES[
@@ -1351,3 +1549,15 @@ _PRESSURE_OUTAGE_GAPS_DDL = _SCHEMA[
         "-- Accounting-gap records for admission-gate refusal"
     ) : _SCHEMA.index("CREATE TABLE IF NOT EXISTS plugin_state")
 ]
+
+# Exact additive index for bounded ceiling-enforcement candidate discovery,
+# derived verbatim from the same index catalog.
+_ATTACHMENT_INDEX_START = _INDEXES.index(
+    "CREATE INDEX IF NOT EXISTS idx_attachment_associations_content_ref"
+)
+_CEILING_ORDER_INDEX_DDL = _INDEXES[
+    _INDEXES.index(
+        "-- Hard-ceiling enforcement resumes in ceiling order"
+    ) : _ATTACHMENT_INDEX_START
+]
+_ATTACHMENT_CONTENT_REF_INDEX_DDL = _INDEXES[_ATTACHMENT_INDEX_START:]

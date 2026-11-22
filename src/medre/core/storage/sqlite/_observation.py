@@ -25,17 +25,76 @@ from medre.core.events import (
     DELIVERY_OBSERVATION_STATE_VALUES,
     DeliveryObservation,
 )
+from medre.core.events.delivery import DeliveryAttemptProvenance
+from medre.core.rendering.radio_progress import RadioPartProgress
 from medre.core.storage.backend import StorageError
+from medre.core.storage.radio import RadioAttemptEvidenceSummary
 from medre.core.storage.radio_handoff import RadioLocalHandoff
+from medre.core.storage.sqlite._content_identity import (
+    CEILING_CLOCK_AT_EXECUTION,
+    event_content_denied_sql,
+)
 from medre.core.storage.sqlite._evidence_diagnostics import (
     _EvidenceDiagnosticsReadMixin,
     diagnostic_write_ops,
 )
+from medre.core.storage.sqlite._handoff_facts import observation_scope
 from medre.core.storage.sqlite._projections import inspection_sql
 from medre.core.storage.sqlite._radio import _decode
 from medre.core.storage.sqlite.serde import _encode_json, _row_to_delivery_observation
 
 _T = TypeVar("_T")
+
+
+def _current_summary_supports_accepted_part(
+    db: sqlite3.Connection,
+    outbox_id: str,
+    attempt_number: int,
+    ordinal: int,
+    native_channel_id: str | None,
+    native_message_id: str | None,
+) -> bool:
+    """Fence a late ACK against the current, non-authorizing radio evidence.
+
+    The original accepted-part fact is append-only, but a later conflicting
+    checkpoint can make its summary unreadable. An obsolete fact alone cannot
+    authenticate a packet after the full checkpoint has been erased.
+    """
+    if native_message_id is None:
+        return False
+    row = db.execute(
+        "SELECT provenance_json, parts_json, revision "
+        "FROM radio_attempt_evidence_summaries "
+        "WHERE outbox_id=? AND attempt_number=?",
+        (outbox_id, attempt_number),
+    ).fetchone()
+    if row is None:
+        return False
+    try:
+        provenance = msgspec.json.decode(
+            row["provenance_json"], type=DeliveryAttemptProvenance
+        )
+        parts = tuple(
+            RadioPartProgress(**part) for part in msgspec.json.decode(row["parts_json"])
+        )
+        summary = RadioAttemptEvidenceSummary(provenance, parts, int(row["revision"]))
+        if (
+            provenance.outbox_id != outbox_id
+            or provenance.attempt_number != attempt_number
+            or not 1 <= ordinal <= len(summary.parts)
+        ):
+            return False
+        handoff = RadioLocalHandoff.from_part(summary.parts[ordinal - 1], provenance)
+    except (TypeError, ValueError, KeyError, msgspec.DecodeError):
+        return False
+    return (
+        handoff.origin is not None
+        and handoff.origin.outbox_id == outbox_id
+        and handoff.origin.attempt_number == attempt_number
+        and handoff.native_channel_id == native_channel_id
+        and handoff.native_message_id == native_message_id
+    )
+
 
 _INSERT_OBSERVATION = """
 INSERT INTO delivery_observations (
@@ -47,7 +106,9 @@ SELECT
     ?, o.event_id, o.delivery_plan_id, o.target_adapter,
     o.target_channel, ?, o.outbox_id,
     COALESCE(o.active_attempt, o.attempt_number), ?,
-    ?, ?, ?, ?
+    ?, ?, CASE WHEN EXISTS (
+        SELECT 1 FROM event_content_ceiling_log l WHERE l.event_id=o.event_id
+    ) THEN '{}' ELSE ? END, ?
 FROM delivery_outbox AS o
 WHERE o.outbox_id = ?
   AND o.event_id = ?
@@ -58,29 +119,64 @@ WHERE o.outbox_id = ?
       o.status IN ('in_progress', 'queued', 'sent')
       OR (
           o.status = 'retry_wait' AND o.active_attempt IS NULL
-          AND (
+          AND ((
               SELECT d.diagnostic FROM delivery_evidence_diagnostics d
               WHERE d.family = 'outbox' AND d.row_id = o.outbox_id
                 AND d.attempt = o.attempt_number
                 AND d.field = 'failure_kind_detail'
               ORDER BY d.diag_id DESC LIMIT 1
           ) = 'uncertain_native_handoff'
+          OR (
+              (SELECT d.diagnostic FROM delivery_evidence_diagnostics d
+               WHERE d.family='outbox' AND d.row_id=o.outbox_id
+                 AND d.attempt=o.attempt_number
+                 AND d.field='failure_kind_detail'
+               ORDER BY d.diag_id DESC LIMIT 1) IS NULL
+              AND EXISTS (
+                  SELECT 1 FROM delivery_handoff_uncertainty u
+                  WHERE u.outbox_id=o.outbox_id
+                    AND u.attempt_number=o.attempt_number
+                    AND u.state='uncertain_native_handoff'
+              )
+          ))
       )
   )
 ON CONFLICT(observation_id) DO NOTHING
 """
 
-_SELECT_OBSERVATIONS_FOR_EVENT = """
-SELECT * FROM delivery_observations
-WHERE event_id = ?
-ORDER BY sequence ASC
-"""
+#: Keep the typed observation fields and exact attempt identity; mask only
+#: content-potential metadata before values cross the SQLite read boundary.
+#: A legacy packet claim without a retained scope stays unreadable before
+#: the first purge rather than being promoted to whole-message evidence.
+_OBSERVATION_CONTENT_SAFE_FROM = f"""
+FROM (SELECT
+    CASE WHEN {event_content_denied_sql("o.event_id")} THEN COALESCE((
+        SELECT s.scope_json FROM delivery_observation_scopes s
+        WHERE s.observation_id=o.observation_id
+    ), CASE WHEN json_valid(o.metadata) THEN CASE
+        WHEN json_type(o.metadata)='object'
+         AND json_type(o.metadata, '$.radio_packet') IS NULL THEN '{{}}'
+        ELSE '{{"radio_packet":null}}' END
+        ELSE '{{"radio_packet":null}}' END)
+    ELSE o.metadata END AS metadata,
+    o.sequence, o.observation_id, o.event_id, o.delivery_plan_id,
+    o.target_adapter, o.target_channel, o.native_channel_id, o.outbox_id,
+    o.attempt_number, o.adapter_message_id, o.state, o.confirmation_level,
+    o.observed_at
+FROM delivery_observations o) AS observed
+"""  # nosec B608 - static SQL fragments and bound values
 
-_SELECT_OBSERVATIONS_FOR_OUTBOX = """
-SELECT * FROM delivery_observations
-WHERE outbox_id = ?
-ORDER BY sequence ASC
-"""
+_SELECT_OBSERVATIONS_FOR_EVENT = (
+    "SELECT * "
+    + _OBSERVATION_CONTENT_SAFE_FROM
+    + "WHERE event_id = ? ORDER BY sequence ASC"
+)
+
+_SELECT_OBSERVATIONS_FOR_OUTBOX = (
+    "SELECT * "
+    + _OBSERVATION_CONTENT_SAFE_FROM
+    + "WHERE outbox_id = ? ORDER BY sequence ASC"
+)
 
 
 def _observation_insert_params(observation: DeliveryObservation) -> tuple[object, ...]:
@@ -160,10 +256,29 @@ class _ObservationMixin(_EvidenceDiagnosticsReadMixin):
         the row keeps the column ``NULL`` and the text lands in
         ``delivery_evidence_diagnostics`` in the same transaction.
         """
+        scope = observation_scope(
+            observation.metadata,
+            outbox_id=observation.outbox_id,
+            attempt_number=observation.attempt_number,
+        )
         rowcount = await self._write_rowcount_with_followups(
             _INSERT_OBSERVATION,
             _observation_insert_params(observation),
-            diagnostic_write_ops(
+            (
+                [
+                    (
+                        "INSERT INTO delivery_observation_scopes "
+                        "(observation_id, scope_json) VALUES (?, ?)",
+                        (
+                            observation.observation_id,
+                            scope,
+                        ),
+                    )
+                ]
+                if scope is not None
+                else []
+            )
+            + diagnostic_write_ops(
                 "observation",
                 observation.observation_id,
                 observation.attempt_number,
@@ -214,46 +329,84 @@ class _ObservationMixin(_EvidenceDiagnosticsReadMixin):
                 (observation.outbox_id, observation.attempt_number),
             ).fetchone()
             if row is None:
-                return False
-            checkpoint = _decode(row)
-            provenance = checkpoint.provenance
+                provenance = None
+                accepted_fact = db.execute(
+                    "SELECT native_channel_id, native_message_id "
+                    "FROM radio_accepted_part_facts WHERE "
+                    "outbox_id=? AND attempt_number=? AND ordinal=?",
+                    (observation.outbox_id, observation.attempt_number, ordinal),
+                ).fetchone()
+                if (
+                    accepted_fact is None
+                    or (
+                        accepted_fact["native_channel_id"]
+                        != observation.native_channel_id
+                        or accepted_fact["native_message_id"]
+                        != observation.adapter_message_id
+                    )
+                    or not _current_summary_supports_accepted_part(
+                        db,
+                        observation.outbox_id,
+                        observation.attempt_number,
+                        ordinal,
+                        observation.native_channel_id,
+                        observation.adapter_message_id,
+                    )
+                ):
+                    return False
+            else:
+                checkpoint = _decode(row)
+                provenance = checkpoint.provenance
             parent = db.execute(
                 "SELECT * FROM delivery_outbox WHERE outbox_id=?",
                 (observation.outbox_id,),
             ).fetchone()
             if parent is None or (
-                provenance.event_id != parent["event_id"]
-                or provenance.delivery_plan_id != parent["delivery_plan_id"]
-                or provenance.target_adapter != parent["target_adapter"]
-                or (provenance.target_channel or "") != (parent["target_channel"] or "")
-                or observation.event_id != provenance.event_id
-                or observation.delivery_plan_id != provenance.delivery_plan_id
-                or observation.target_adapter != provenance.target_adapter
-                or observation.target_channel != provenance.target_channel
-                or not 1 <= ordinal <= len(checkpoint.progress.parts)
+                observation.event_id != parent["event_id"]
+                or observation.delivery_plan_id != parent["delivery_plan_id"]
+                or observation.target_adapter != parent["target_adapter"]
+                or (observation.target_channel or "")
+                != (parent["target_channel"] or "")
+                or (
+                    provenance is not None
+                    and (
+                        provenance.event_id != parent["event_id"]
+                        or provenance.delivery_plan_id != parent["delivery_plan_id"]
+                        or provenance.target_adapter != parent["target_adapter"]
+                        or (provenance.target_channel or "")
+                        != (parent["target_channel"] or "")
+                        or not 1 <= ordinal <= len(checkpoint.progress.parts)
+                    )
+                )
             ):
                 return False
-            part = checkpoint.progress.parts[ordinal - 1]
-            if part.state != "accepted":
-                return False
-            # A copied acceptance belongs to its source checkpoint. Never
-            # assign it a second origin merely because a retry inherited it.
-            try:
-                evidence = RadioLocalHandoff.from_part(part, provenance)
-            except (ValueError, TypeError, msgspec.DecodeError) as exc:
-                raise StorageError(
-                    "Retained radio attempt evidence is invalid"
-                ) from exc
-            origin = evidence.origin
-            if origin is None or (
-                origin.outbox_id != provenance.outbox_id
-                or origin.attempt_number != provenance.attempt_number
-                or evidence.native_message_id != observation.adapter_message_id
-                or evidence.native_channel_id != observation.native_channel_id
-            ):
-                return False
-            # Checkpoint decoding validates immutable plan + progress. The
-            # parent identity above fences a stale or foreign attempt.
+            if provenance is not None:
+                part = checkpoint.progress.parts[ordinal - 1]
+                if part.state != "accepted":
+                    return False
+                # An inherited acceptance is not a fact about this attempt.
+                try:
+                    handoff = RadioLocalHandoff.from_part(part, provenance)
+                except (ValueError, TypeError, msgspec.DecodeError) as exc:
+                    raise StorageError(
+                        "Retained radio attempt evidence is invalid"
+                    ) from exc
+                if handoff.origin is None or (
+                    handoff.origin.outbox_id != observation.outbox_id
+                    or handoff.origin.attempt_number != observation.attempt_number
+                    or handoff.native_channel_id != observation.native_channel_id
+                    or handoff.native_message_id != observation.adapter_message_id
+                ):
+                    return False
+            # Both the original checkpoint and its content-free post-ceiling
+            # acceptance fact are append-only evidence, never send grants.
+            purged = (
+                db.execute(
+                    "SELECT 1 FROM event_content_ceiling_log WHERE event_id=?",
+                    (observation.event_id,),
+                ).fetchone()
+                is not None
+            )
             db.execute(
                 """INSERT INTO delivery_observations (
                     observation_id, event_id, delivery_plan_id, target_adapter,
@@ -264,17 +417,17 @@ class _ObservationMixin(_EvidenceDiagnosticsReadMixin):
                 ON CONFLICT(observation_id) DO NOTHING""",
                 (
                     observation.observation_id,
-                    provenance.event_id,
-                    provenance.delivery_plan_id,
-                    provenance.target_adapter,
-                    provenance.target_channel,
+                    parent["event_id"],
+                    parent["delivery_plan_id"],
+                    parent["target_adapter"],
+                    parent["target_channel"],
                     observation.native_channel_id,
-                    provenance.outbox_id,
-                    provenance.attempt_number,
+                    observation.outbox_id,
+                    observation.attempt_number,
                     observation.adapter_message_id,
                     observation.state,
                     observation.confirmation_level,
-                    _encode_json(dict(observation.metadata)),
+                    "{}" if purged else _encode_json(dict(observation.metadata)),
                     observation.observed_at.isoformat(),
                 ),
             )
@@ -282,10 +435,21 @@ class _ObservationMixin(_EvidenceDiagnosticsReadMixin):
             if inserted == 1:
                 # Same transaction: the separated diagnostic text lands only
                 # with its committed parent observation row.
+                scope = observation_scope(
+                    observation.metadata,
+                    outbox_id=observation.outbox_id,
+                    attempt_number=observation.attempt_number,
+                )
+                if scope is not None:
+                    db.execute(
+                        "INSERT INTO delivery_observation_scopes "
+                        "(observation_id, scope_json) VALUES (?, ?)",
+                        (observation.observation_id, scope),
+                    )
                 for diagnostic_sql, diagnostic_params in diagnostic_write_ops(
                     "observation",
                     observation.observation_id,
-                    provenance.attempt_number,
+                    observation.attempt_number,
                     {"error": observation.error},
                     observation.observed_at.isoformat(),
                 ):
@@ -299,10 +463,16 @@ class _ObservationMixin(_EvidenceDiagnosticsReadMixin):
     ) -> list[DeliveryObservation]:
         """Return observations for an event in append order."""
         rows = await self._read_all(
-            inspection_sql(
-                _SELECT_OBSERVATIONS_FOR_EVENT, "delivery_observations", metadata_only
+            (
+                inspection_sql(
+                    "SELECT * FROM delivery_observations WHERE event_id = ? ORDER BY sequence ASC",
+                    "delivery_observations",
+                    True,
+                )
+                if metadata_only
+                else _SELECT_OBSERVATIONS_FOR_EVENT
             ),
-            (event_id,),
+            (event_id,) if metadata_only else (CEILING_CLOCK_AT_EXECUTION, event_id),
         )
         if not metadata_only:
             rows = await self._resolve_evidence_diagnostics(
@@ -315,10 +485,16 @@ class _ObservationMixin(_EvidenceDiagnosticsReadMixin):
     ) -> list[DeliveryObservation]:
         """Return observations for one exact outbox item in append order."""
         rows = await self._read_all(
-            inspection_sql(
-                _SELECT_OBSERVATIONS_FOR_OUTBOX, "delivery_observations", metadata_only
+            (
+                inspection_sql(
+                    "SELECT * FROM delivery_observations WHERE outbox_id = ? ORDER BY sequence ASC",
+                    "delivery_observations",
+                    True,
+                )
+                if metadata_only
+                else _SELECT_OBSERVATIONS_FOR_OUTBOX
             ),
-            (outbox_id,),
+            (outbox_id,) if metadata_only else (CEILING_CLOCK_AT_EXECUTION, outbox_id),
         )
         if not metadata_only:
             rows = await self._resolve_evidence_diagnostics(
@@ -331,8 +507,38 @@ class _ObservationMixin(_EvidenceDiagnosticsReadMixin):
     ) -> list[DeliveryObservation]:
         """Read one attempt before decoding, independently of older evidence."""
         rows = await self._read_all(
-            "SELECT * FROM delivery_observations "
-            "WHERE outbox_id = ? AND attempt_number = ? ORDER BY sequence ASC",
-            (outbox_id, attempt_number),
+            "SELECT * "
+            + _OBSERVATION_CONTENT_SAFE_FROM
+            + "WHERE outbox_id = ? AND attempt_number = ? ORDER BY sequence ASC",
+            (CEILING_CLOCK_AT_EXECUTION, outbox_id, attempt_number),
         )
         return [_row_to_delivery_observation(row) for row in rows]
+
+    async def read_handoff_observation_snapshot(
+        self, outbox_id: str, attempt_number: int
+    ) -> tuple[list[DeliveryObservation], int]:
+        """Read observations and their packet-scope revision in one snapshot.
+
+        The resolver needs both the evidence and the version that a sweep can
+        change. A single statement prevents a scope repair from landing
+        between the two reads.
+        """
+        rows = await self._read_all(
+            "SELECT *, ("  # nosec B608 - closed module-owned fragments and bound identities
+            "SELECT revision FROM delivery_observation_scope_versions "
+            "WHERE outbox_id=? AND attempt_number=?"
+            ") AS observation_scope_revision "
+            + _OBSERVATION_CONTENT_SAFE_FROM
+            + "WHERE outbox_id = ? AND attempt_number = ? ORDER BY sequence ASC",
+            (
+                outbox_id,
+                attempt_number,
+                CEILING_CLOCK_AT_EXECUTION,
+                outbox_id,
+                attempt_number,
+            ),
+        )
+        if not rows:
+            return [], 0
+        scope_revision = int(rows[0]["observation_scope_revision"] or 0)
+        return [_row_to_delivery_observation(row) for row in rows], scope_revision

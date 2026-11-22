@@ -224,7 +224,7 @@ MEDRE shuts down in reverse dependency order: adapters → pipeline runner → s
 | Other pending outbox items                                             | Preserved — remain in storage, reclaimable on next startup                          |
 | Non-terminal outbox (`pending`, `retry_wait`, `in_progress`, `queued`) | Preserved as resumable work. `ShutdownEvidence.resume_expected=True` when present.  |
 
-Non-terminal outbox items survive shutdown in SQLite. On next startup, due retry work is claimed from the durable outbox by the RetryWorker (if retry is enabled). Pending, expired-lease, and stale queued outbox items are reclaimed through `claim_due_outbox_items()` or the normal dispatch path. Receipts remain immutable evidence rather than scheduling authority. Eligible work can be retried under a fresh claim. Radio recovery continues only a proven-unsent suffix; accepted parts are not replayed, and unknown or submitting native handoffs remain held. Non-terminal outbox work is intentionally preserved as resumable work, not cancelled. The `ShutdownEvidence` record reports `resume_expected=True` when pending work was left at shutdown, and `outbox_shutdown_policy="resumable"` signals that the resumable policy is active.
+Non-terminal outbox items survive shutdown in SQLite. On next startup, due retry work is claimed from the durable outbox by the RetryWorker (if retry is enabled). Pending and expired-lease outbox items are reclaimed through `claim_due_outbox_items()` or the normal dispatch path; `queued` rows are the durable confirmation-pending disposition and are never claimed or re-dispatched. Receipts remain immutable evidence rather than scheduling authority. Eligible work can be retried under a fresh claim. Radio recovery continues only a proven-unsent suffix; accepted parts are not replayed, and unknown or submitting native handoffs remain held. Non-terminal outbox work is intentionally preserved as resumable work, not cancelled. The `ShutdownEvidence` record reports `resume_expected=True` when pending work was left at shutdown, and `outbox_shutdown_policy="resumable"` signals that the resumable policy is active.
 
 ### Signal Handling
 
@@ -580,9 +580,10 @@ refs, and the delivery outbox persist in local SQLite
 (`{state}/medre.sqlite`); Matrix E2EE keys and LXMF
 identities persist under `{state}/adapters/`. In-flight deliveries without an
 outbox row are lost on termination. Non-terminal outbox rows survive restart;
-`pending`/`retry_wait` work is claimable when due, expired `in_progress` work and
-stale `queued` work are reclaimed under their lease/grace rules. Terminal outbox
-rows persist as history and are never reclaimed. Runtime counters, RouteStats,
+`pending`/`retry_wait` work is claimable when due and expired `in_progress` work is
+reclaimed under its lease rule; `queued` work is the durable confirmation-pending
+disposition and is never claimed or re-dispatched. Terminal outbox rows persist as
+history and are never reclaimed. Runtime counters, RouteStats,
 gauges, and the runtime event buffer reset on startup (capture the buffer with
 `--snapshot-on-shutdown PATH`).
 

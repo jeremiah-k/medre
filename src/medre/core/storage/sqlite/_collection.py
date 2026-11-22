@@ -27,6 +27,7 @@ from medre.core.storage.backend import (
 )
 from medre.core.storage.content import UNMEASURED_CONTENT_SCOPES
 from medre.core.storage.content_retention import normalize_admission_watermark
+from medre.core.storage.sqlite._ceiling_enforcement import _CEILING_RESIDUAL_SQL
 from medre.core.storage.sqlite._count import (
     _ALL_EVENT_COPY_PROBES,
     _EVENT_COPY_SQL,
@@ -44,7 +45,10 @@ if TYPE_CHECKING:
 
 
 def _read_collection_state(
-    db: sqlite3.Connection, event_id: str
+    db: sqlite3.Connection,
+    event_id: str,
+    *,
+    is_worker: bool = False,
 ) -> tuple[str, list[str], int, int]:
     """Read the collector's decision inputs for one event in the caller's snapshot.
 
@@ -87,8 +91,25 @@ def _read_collection_state(
     ).fetchone()
     if identity is None or type(identity[0]) is not int or identity[0] not in (0, 1):
         raise StorageError("Collection requires a valid admission identity")
+    ceiling_receipt = db.execute(
+        "SELECT 1 FROM event_content_ceiling_log WHERE event_id=?", (event_id,)
+    ).fetchone()
+    if (
+        ceiling_receipt is not None
+        and int(db.execute(_CEILING_RESIDUAL_SQL, {"ev": event_id}).fetchone()[0]) != 0
+    ):
+        if is_worker:
+            # A receipt makes the ceiling sweep the only owner of this repair.
+            # It is a blocked collection, so later retention candidates can run.
+            return "blocked", blockers, rows, logical_bytes
+        raise StorageError("Ceiling-purged content was unexpectedly recreated")
     if previous is not None and rows:
         raise StorageError("Collected content was unexpectedly recreated")
+    if ceiling_receipt is not None:
+        # The hard-ceiling enforcement transition already removed this
+        # event's content and recorded its own immutable receipt; nothing
+        # remains for the relay-only collector to collect.
+        return "already_collected", blockers, rows, logical_bytes
     if previous is None and identity[0] == 0 and measure[0]:
         raise StorageError("Body row exists but admission recorded no body")
     if previous is None and identity[0] and not measure[0]:
@@ -167,7 +188,7 @@ def sync_collect_event_content(
                         "Candidate is outside the current activation boundary"
                     )
             base_state, blockers, rows, logical_bytes = _read_collection_state(
-                db, event_id
+                db, event_id, is_worker=retention_epoch is not None
             )
             if base_state == "already_collected":
                 state = "already_collected"

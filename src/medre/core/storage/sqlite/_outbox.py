@@ -8,10 +8,17 @@ Authority surface:
   - list_all_outbox_items:      **list/get** (read-only).
   - list_outbox_items_for_event: **list/get** (read-only).
   - list_outbox_items_by_replay_run: **list/get** (read-only).
-  - claim_due_outbox_items:     **claim** (atomic).
+  - claim_due_outbox_items:     **claim** (atomic). Queued rows are never
+                                claimable: a queued receipt records only
+                                adapter-local acceptance, so the row rests in
+                                the durable confirmation-pending disposition
+                                until evidence settles it or the operator
+                                resolves it.
   - reserve_outbox_attempt:     **claim** (atomic attempt-identity reservation).
   - mark_outbox_sent:           **mark** (terminal transition, in_progress|queued -> sent).
-  - mark_outbox_queued:         **mark** (non-terminal, in_progress -> queued).
+  - mark_outbox_queued:         **mark** (non-terminal, in_progress -> queued; the
+                                durable confirmation-pending disposition — never
+                                claimable, never reclaimed for redispatch).
   - mark_outbox_retry_wait:     **mark** (non-terminal, in_progress -> retry_wait).
   - mark_outbox_dead_lettered:  **mark** (terminal, in_progress|retry_wait -> dead_lettered).
   - mark_outbox_cancelled:      **mark** (terminal, any non-terminal -> cancelled).
@@ -32,7 +39,6 @@ Key invariants:
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from medre.core.delivery_authority import DeliveryIdentity
@@ -48,6 +54,8 @@ from medre.core.storage.backend import (
     DeliveryOutboxItem,
     OutboxDispatchSnapshot,
     OutboxDispatchSnapshotWrite,
+    OutboxRouteRetryBounds,
+    OutboxRouteRetryBoundsWrite,
     OutboxSnapshotIntegrityError,
     OutboxSnapshotReadError,
     StorageError,
@@ -62,7 +70,6 @@ from medre.core.storage.sqlite._evidence_diagnostics import (
 )
 from medre.core.storage.sqlite._projections import inspection_sql
 from medre.core.storage.sqlite.connection import sync_transition_outbox_and_settle
-from medre.core.storage.sqlite.constants import STALE_QUEUED_GRACE_SECONDS
 from medre.core.storage.sqlite.serde import (
     _add_seconds_iso,
     _decode_json,
@@ -72,6 +79,7 @@ from medre.core.storage.sqlite.serde import (
     _row_to_outbox_item,
 )
 from medre.core.storage.sqlite.statements import (
+    _INSERT_OUTBOX_ROUTE_RETRY_BOUNDS,
     _INSERT_OUTBOX_SNAPSHOT,
     _RETIRE_OUTBOX_SNAPSHOT,
 )
@@ -85,10 +93,99 @@ if TYPE_CHECKING:
     _T = TypeVar("_T")
 
 
-def _stale_queued_cutoff(now: str) -> str:
-    return (
-        datetime.fromisoformat(now) - timedelta(seconds=STALE_QUEUED_GRACE_SECONDS)
-    ).isoformat()
+def _append_evidence_guard_clauses(
+    where_clauses: list[str],
+    params: list[Any],
+    *,
+    outbox_id: str,
+    attempt_number: int | None,
+    expected_observation_count: int | None = None,
+    expected_receipt_count: int | None = None,
+    expected_checkpoint_revision: int | None = None,
+    expected_observation_scope_revision: int | None = None,
+) -> None:
+    """Append exact-attempt evidence guard WHERE clauses for a transition.
+
+    Shared by the dynamic status transitions and the terminal finalization
+    statement so both fence the row's effective attempt against the same
+    stored evidence. Appends each armed guard's clause and its bound
+    parameters, in field order, to *where_clauses* and *params*. Every
+    clause is a static module-owned SQL fragment; caller values bind only
+    through parameters.
+    """
+    if any(
+        value is not None
+        for value in (
+            expected_observation_count,
+            expected_receipt_count,
+            expected_checkpoint_revision,
+            expected_observation_scope_revision,
+        )
+    ):
+        if attempt_number is None or attempt_number < 0:
+            raise ValueError("An evidence guard requires an exact attempt")
+        where_clauses.append("COALESCE(active_attempt, attempt_number) = ?")
+        params.append(attempt_number)
+    if expected_observation_count is not None:
+        if expected_observation_count < 0 or (
+            attempt_number == 0 and expected_observation_count
+        ):
+            raise ValueError("An observation guard requires a valid count")
+        # A concurrent callback can append evidence without changing the
+        # claim. Fence the exact attempt's append-only set in this write.
+        where_clauses.append(
+            "(SELECT COUNT(*) FROM delivery_observations "
+            "WHERE outbox_id = ? AND attempt_number = ?) = ?"
+        )
+        params.extend((outbox_id, attempt_number, expected_observation_count))
+    if expected_receipt_count is not None:
+        if expected_receipt_count < 0 or (
+            attempt_number == 0 and expected_receipt_count
+        ):
+            raise ValueError("A receipt guard requires a valid count")
+        where_clauses.append(
+            "(SELECT COUNT(*) FROM delivery_receipts "
+            "WHERE outbox_id = ? AND attempt_number = ?) = ?"
+        )
+        params.extend((outbox_id, attempt_number, expected_receipt_count))
+    if expected_observation_scope_revision is not None:
+        if expected_observation_scope_revision < 0 or (
+            attempt_number == 0 and expected_observation_scope_revision
+        ):
+            raise ValueError("A scope guard requires a valid count")
+        # The ceiling sweep can restore packet correlation for a legacy
+        # acknowledgement without changing the observation count. Fence
+        # the exact attempt's scope revision so a terminal write captured
+        # before that repair cannot commit after it.
+        where_clauses.append(
+            "COALESCE((SELECT revision FROM delivery_observation_scope_versions "
+            "WHERE outbox_id = ? AND attempt_number = ?), 0) = ?"
+        )
+        params.extend((outbox_id, attempt_number, expected_observation_scope_revision))
+    if expected_checkpoint_revision is not None:
+        if (
+            attempt_number is None
+            or attempt_number < 1
+            or expected_checkpoint_revision < -1
+        ):
+            raise ValueError(
+                "A checkpoint guard requires an exact attempt and revision"
+            )
+        where_clauses.append(
+            "COALESCE((SELECT revision FROM radio_attempt_progress "
+            "WHERE outbox_id=? AND attempt_number=?), "
+            "(SELECT revision FROM radio_attempt_evidence_summaries "
+            "WHERE outbox_id=? AND attempt_number=?), -1)=?"
+        )
+        params.extend(
+            (
+                outbox_id,
+                attempt_number,
+                outbox_id,
+                attempt_number,
+                expected_checkpoint_revision,
+            )
+        )
 
 
 class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
@@ -136,6 +233,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         *,
         allocate_new_generation: bool = False,
         dispatch_snapshot: OutboxDispatchSnapshotWrite | None = None,
+        route_retry_bounds: OutboxRouteRetryBoundsWrite | None = None,
     ) -> DeliveryOutboxItem:
         """Create a new outbox item, or return an existing generation unchanged.
 
@@ -160,6 +258,15 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         remains their frozen context. The snapshot's frozen plan deadline
         rides the same transaction as the content adoption fence, which
         enforces the earlier of the event ceiling and that deadline.
+
+        When *route_retry_bounds* is provided, the accepted route's resolved
+        content-free retry bounds are inserted into
+        ``delivery_route_retry_bounds`` inside the same creation transaction,
+        keyed by the exact outbox identity.  Adopted existing rows never gain
+        bounds from a later creator: bounds are admission facts, not retrofit
+        state.  The bounds survive ceiling enforcement — they carry no
+        content-potential value — and post-erasure reconciliation reads them
+        instead of any current configuration.
 
         Production lifecycle policy:
           - New rows may be created only as ``pending`` (default) or
@@ -310,7 +417,25 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                     ),
                 )
             )
-        post_insert_ops = [*diagnostic_ops, *snapshot_ops]
+        # The accepted route's content-free retry bounds join the same
+        # creation transaction.  The ops run only for a freshly inserted row:
+        # adopted existing rows return before any op executes and never gain
+        # bounds from a later creator, matching the snapshot ownership rule.
+        bounds_ops: list[tuple[str, tuple[Any, ...]]] = []
+        if route_retry_bounds is not None:
+            bounds_ops.append(
+                (
+                    _INSERT_OUTBOX_ROUTE_RETRY_BOUNDS,
+                    (
+                        route_retry_bounds.max_attempts,
+                        route_retry_bounds.backoff_base,
+                        route_retry_bounds.max_delay_seconds,
+                        1 if route_retry_bounds.jitter else 0,
+                        item.outbox_id,
+                    ),
+                )
+            )
+        post_insert_ops = [*diagnostic_ops, *snapshot_ops, *bounds_ops]
 
         generation_select_sql = (
             "SELECT MAX(COALESCE(active_attempt, attempt_number)) AS max_attempt"
@@ -629,6 +754,36 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
             context=context,
         )
 
+    async def get_outbox_route_retry_bounds(
+        self,
+        outbox_id: str,
+    ) -> OutboxRouteRetryBounds | None:
+        """Read the persisted admission-time retry bounds for one generation.
+
+        Authority: **list/get** (read-only, content-free).  Returns ``None``
+        when the generation carries no bounds row: historical/predecessor
+        rows and routes admitted without a resolved retry policy.  The row
+        is written once at admission and never rewritten, so the read needs
+        no identity binding beyond the generation key.  A failed database
+        read raises :class:`StorageError` so callers keep the claim for
+        lease-based reclaim instead of making a terminal decision on a
+        transient I/O failure.
+        """
+        row = await self._read_one(
+            "SELECT max_attempts, backoff_base, max_delay_seconds, jitter"
+            " FROM delivery_route_retry_bounds WHERE outbox_id = ?",
+            (outbox_id,),
+        )
+        if row is None:
+            return None
+        return OutboxRouteRetryBounds(
+            outbox_id=outbox_id,
+            max_attempts=int(row["max_attempts"]),
+            backoff_base=float(row["backoff_base"]),
+            max_delay_seconds=float(row["max_delay_seconds"]),
+            jitter=bool(row["jitter"]),
+        )
+
     async def list_outbox_items_for_delivery(
         self,
         identity: DeliveryIdentity,
@@ -786,10 +941,15 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         UPDATE equivalent (rowid-based) and updates in one step.  Claims items that are:
 
         - ``status IN ('pending', 'retry_wait')`` — directly claimable;
-        - ``status = 'in_progress' AND (lease_until IS NULL OR lease_until <= now)`` — missing or expired leases;
-        - ``status = 'queued' AND updated_at <= now - GRACE`` — stale
-          queued items past the grace threshold
-          (:data:`STALE_QUEUED_GRACE_SECONDS`).
+        - ``status = 'in_progress' AND (lease_until IS NULL OR lease_until <= now)`` — missing or expired leases.
+
+        Rows in ``queued`` status are the durable confirmation-pending
+        disposition: a queued receipt records only adapter-local queue
+        acceptance, so the row is never claimable and never reclaimed for
+        redispatch. It leaves ``queued`` only through evidence-driven
+        settlement (deferred completion, a provenance-matched ``sent``
+        receipt, or terminal lifecycle evidence) or the explicit operator
+        confirmation-pending resolution.
 
         ``one_per_adapter`` selects the oldest eligible row for each adapter
         before applying the global limit, and excludes adapters with an
@@ -823,7 +983,6 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         observe fewer rows than its initial ``SELECT`` saw.
         """
         lease_until = _add_seconds_iso(now, lease_seconds)
-        stale_cutoff = _stale_queued_cutoff(now)
         claimable_ph = ",".join("?" for _ in CLAIMABLE_OUTBOX_STATUSES)
         claimable_params = tuple(CLAIMABLE_OUTBOX_STATUSES)
         # Use a two-step approach: SELECT candidates, then UPDATE matching.
@@ -871,8 +1030,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
             ) AS adapter_rank
             FROM delivery_outbox
             WHERE (status IN ({claimable_ph})
-                   OR (status = 'in_progress' AND (lease_until IS NULL OR lease_until <= ?))
-                   OR (status = 'queued' AND updated_at <= ?))
+                   OR (status = 'in_progress' AND (lease_until IS NULL OR lease_until <= ?)))
               AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
               AND (lease_until IS NULL OR lease_until <= ?)
               AND {_no_newer_generation} {filters}
@@ -885,7 +1043,6 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
             (
                 *claimable_params,
                 now,
-                stale_cutoff,
                 now,
                 now,
                 *filter_params,
@@ -908,8 +1065,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                     next_attempt_at = NULL
                 WHERE outbox_id IN ({placeholders})
                   AND (status IN ({claimable_ph})
-                       OR (status = 'in_progress' AND (lease_until IS NULL OR lease_until <= ?))
-                       OR (status = 'queued' AND updated_at <= ?))
+                       OR (status = 'in_progress' AND (lease_until IS NULL OR lease_until <= ?)))
                   AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
                   AND (lease_until IS NULL OR lease_until <= ?)
                   AND {_no_newer_generation} {filters}""",  # nosec: interpolated fragments are static SQL or ? placeholders
@@ -921,7 +1077,6 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                 *outbox_ids,
                 *claimable_params,
                 now,
-                stale_cutoff,
                 now,
                 now,
                 *filter_params,
@@ -989,12 +1144,15 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         )
 
     async def health_backlog_adapters(
-        self, candidates: tuple[str, ...], *, queued_as_of: str | None = None
+        self, candidates: tuple[str, ...]
     ) -> tuple[str, ...]:
-        """Probe each unhealthy lane for current nonterminal work using its index."""
+        """Probe each unhealthy lane for dispatchable nonterminal work.
+
+        A ``queued`` row is the durable confirmation-pending disposition: it
+        never dispatches again, so it never makes a lane a wake candidate.
+        """
         if not candidates:
             return ()
-        stale_cutoff = _stale_queued_cutoff(queued_as_of) if queued_as_of else None
         values = ",".join("(?)" for _ in candidates)
         rows = await self._read_all(
             f"""WITH candidates(target_adapter) AS (VALUES {values})
@@ -1002,8 +1160,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                WHERE EXISTS (
                  SELECT 1 FROM delivery_outbox
                  WHERE delivery_outbox.target_adapter=candidates.target_adapter
-                   AND (status IN ('pending','retry_wait','in_progress')
-                        OR (status='queued' AND updated_at<=?))
+                   AND status IN ('pending','retry_wait','in_progress')
                    AND NOT EXISTS (
                        SELECT 1 FROM delivery_outbox sibling
                        WHERE sibling.outbox_id<>delivery_outbox.outbox_id
@@ -1014,7 +1171,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                          AND COALESCE(sibling.active_attempt,sibling.attempt_number)>=
                              COALESCE(delivery_outbox.active_attempt,delivery_outbox.attempt_number))
                )""",  # nosec B608 - values contains only parameter placeholders
-            (*candidates, stale_cutoff),
+            candidates,
         )
         return tuple(sorted(row["target_adapter"] for row in rows))
 
@@ -1027,6 +1184,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         expected_observation_count: int | None = None,
         expected_receipt_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
+        expected_observation_scope_revision: int | None = None,
     ) -> int | None:
         """Durably reserve the next attempt on a row this worker claimed.
 
@@ -1056,6 +1214,10 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
             raise ValueError(
                 "An observation guard requires a finalized attempt and count"
             )
+        if expected_observation_scope_revision is not None and (
+            from_attempt < 1 or expected_observation_scope_revision < 0
+        ):
+            raise ValueError("A scope guard requires a finalized attempt and count")
         if (
             expected_receipt_count is not None
             or expected_checkpoint_revision is not None
@@ -1088,6 +1250,12 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                      SELECT COUNT(*) FROM delivery_observations
                      WHERE outbox_id = delivery_outbox.outbox_id
                        AND attempt_number = delivery_outbox.attempt_number
+                 ) = ?)
+                 AND (? IS NULL OR (
+                     SELECT COALESCE((SELECT revision FROM
+                         delivery_observation_scope_versions v
+                         WHERE v.outbox_id=delivery_outbox.outbox_id
+                           AND v.attempt_number=delivery_outbox.attempt_number), 0)
                  ) = ?)
                  AND (? IS NULL OR (
                      SELECT COUNT(*) FROM delivery_receipts
@@ -1125,6 +1293,8 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                 from_attempt,
                 expected_observation_count,
                 expected_observation_count,
+                expected_observation_scope_revision,
+                expected_observation_scope_revision,
                 expected_receipt_count,
                 expected_receipt_count,
                 expected_checkpoint_revision,
@@ -1153,6 +1323,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         expected_observation_count: int | None = None,
         expected_receipt_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
+        expected_observation_scope_revision: int | None = None,
     ) -> bool:
         """Shared helper for status transitions.
 
@@ -1265,57 +1436,46 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                 "OR active_attempt = ?)"
             )
             params.extend((attempt_number, attempt_number))
-        if expected_observation_count is not None:
-            if (
-                attempt_number is None
-                or attempt_number < 1
-                or expected_observation_count < 0
-            ):
-                raise ValueError(
-                    "An observation guard requires an exact attempt and count"
-                )
-            where_clauses.append("COALESCE(active_attempt, attempt_number) = ?")
-            params.append(attempt_number)
-            # A concurrent callback can append evidence without changing the
-            # claim. Fence the exact attempt's append-only set in this write.
+        _append_evidence_guard_clauses(
+            where_clauses,
+            params,
+            outbox_id=outbox_id,
+            attempt_number=attempt_number,
+            expected_observation_count=expected_observation_count,
+            expected_receipt_count=expected_receipt_count,
+            expected_checkpoint_revision=expected_checkpoint_revision,
+            expected_observation_scope_revision=expected_observation_scope_revision,
+        )
+        if new_status == "abandoned":
+            # A second receipt read after reconciliation is not evidence
+            # authority: it can see an acceptance that reconciliation did
+            # not. Refuse a fresh abandonment even when the supplied count
+            # matches, and only when the write finalizes the row's current
+            # effective attempt: an earlier generation's acceptance receipt
+            # must stop a caller stamping a newer attempt over it.
+            # Recording an explicit terminal receipt is exempt:
+            # that abandonment decision is already durable evidence on
+            # this outbox, and committing it cannot discard acceptance.
             where_clauses.append(
-                "(SELECT COUNT(*) FROM delivery_observations "
-                "WHERE outbox_id = ? AND attempt_number = ?) = ?"
+                "((? IS NOT NULL AND EXISTS ("
+                "SELECT 1 FROM delivery_receipts terminal "
+                "WHERE terminal.receipt_id=? "
+                "AND terminal.outbox_id=delivery_outbox.outbox_id "
+                "AND terminal.attempt_number = COALESCE(?, "
+                "delivery_outbox.active_attempt, delivery_outbox.attempt_number) "
+                "AND terminal.status='abandoned')) "
+                "OR ("
+                "COALESCE(delivery_outbox.active_attempt, "
+                "delivery_outbox.attempt_number) "
+                "= COALESCE(?, delivery_outbox.active_attempt, "
+                "delivery_outbox.attempt_number) "
+                "AND NOT EXISTS (SELECT 1 FROM delivery_receipts accepted "
+                "WHERE accepted.outbox_id=delivery_outbox.outbox_id "
+                "AND accepted.attempt_number = COALESCE("
+                "delivery_outbox.active_attempt, delivery_outbox.attempt_number) "
+                "AND accepted.status IN ('sent', 'queued'))))"
             )
-            params.extend((outbox_id, attempt_number, expected_observation_count))
-        if expected_receipt_count is not None:
-            if (
-                attempt_number is None
-                or attempt_number < 1
-                or expected_receipt_count < 0
-            ):
-                raise ValueError("A receipt guard requires an exact attempt and count")
-            where_clauses.append(
-                "(SELECT COUNT(*) FROM delivery_receipts "
-                "WHERE outbox_id = ? AND attempt_number = ?) = ?"
-            )
-            params.extend((outbox_id, attempt_number, expected_receipt_count))
-        if expected_checkpoint_revision is not None:
-            if (
-                attempt_number is None
-                or attempt_number < 1
-                or expected_checkpoint_revision < -1
-            ):
-                raise ValueError(
-                    "A checkpoint guard requires an exact attempt and revision"
-                )
-            if expected_checkpoint_revision == -1:
-                where_clauses.append(
-                    "NOT EXISTS (SELECT 1 FROM radio_attempt_progress "
-                    "WHERE outbox_id = ? AND attempt_number = ?)"
-                )
-                params.extend((outbox_id, attempt_number))
-            else:
-                where_clauses.append(
-                    "EXISTS (SELECT 1 FROM radio_attempt_progress "
-                    "WHERE outbox_id = ? AND attempt_number = ? AND revision = ?)"
-                )
-                params.extend((outbox_id, attempt_number, expected_checkpoint_revision))
+            params.extend((receipt_id, receipt_id, attempt_number, attempt_number))
         if expected_worker_id is not None:
             where_clauses.append("worker_id = ?")
             params.append(expected_worker_id)
@@ -1331,6 +1491,43 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         # transition's transaction, so the diagnostic lands on the exact
         # generation the failure text describes.
         follow_ups = outbox_diagnostic_ops(diagnostics, now, outbox_id)
+        if (
+            failure_kind_detail == "uncertain_native_handoff"
+            and new_status == "retry_wait"
+        ):
+            follow_ups.append(
+                (
+                    "INSERT INTO delivery_handoff_uncertainty "
+                    "(outbox_id, attempt_number, state) "
+                    "SELECT outbox_id, attempt_number, 'uncertain_native_handoff' "
+                    "FROM delivery_outbox WHERE outbox_id=? AND attempt_number >= 1 "
+                    "ON CONFLICT(outbox_id) DO UPDATE SET "
+                    "attempt_number=excluded.attempt_number, state=excluded.state",
+                    (outbox_id,),
+                )
+            )
+        # An explicitly changed failure detail supersedes an older typed
+        # uncertainty fact. Record that supersession in the content-free
+        # ledger, not only in the free-form diagnostic: the ceiling purge
+        # deletes diagnostic text, and a stale ``uncertain`` state would
+        # otherwise become the only surviving (and wrongly reviving) fact.
+        # Terminal settlement retains historical attempt facts; they cannot
+        # reopen the terminal row. A newer reservation changes the attempt
+        # identity and cannot consume an older fact.
+        failure_detail = diagnostics.get("failure_kind_detail")
+        if isinstance(failure_detail, str) and not (
+            failure_detail == "uncertain_native_handoff" and new_status == "retry_wait"
+        ):
+            follow_ups.append(
+                (
+                    "UPDATE delivery_handoff_uncertainty "
+                    "SET state='superseded_native_handoff' "
+                    "WHERE outbox_id=? AND attempt_number="
+                    "(SELECT attempt_number FROM delivery_outbox "
+                    "WHERE outbox_id=?)",
+                    (outbox_id, outbox_id),
+                )
+            )
         if new_status == "sent" and clear_receipt_id and receipt_id is None:
             # Capture receipt append order under the same write lock as the
             # successful evidence settlement. An outbox-less receipt's
@@ -1383,6 +1580,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         expected_observation_count: int | None = None,
         expected_receipt_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
+        expected_observation_scope_revision: int | None = None,
     ) -> bool:
         """Mark an outbox item as ``sent`` (terminal).
 
@@ -1404,6 +1602,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
             expected_observation_count=expected_observation_count,
             expected_receipt_count=expected_receipt_count,
             expected_checkpoint_revision=expected_checkpoint_revision,
+            expected_observation_scope_revision=expected_observation_scope_revision,
         )
 
     async def mark_outbox_queued(
@@ -1412,6 +1611,8 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         receipt_id: str | None = None,
         attempt_number: int | None = None,
         expected_worker_id: str | None = None,
+        *,
+        expected_receipt_count: int | None = None,
     ) -> bool:
         """Mark an outbox item as ``queued`` (adapter-local queue acceptance).
 
@@ -1425,6 +1626,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
             receipt_id=receipt_id,
             attempt_number=attempt_number,
             expected_worker_id=expected_worker_id,
+            expected_receipt_count=expected_receipt_count,
         )
 
     async def mark_outbox_retry_wait(
@@ -1441,6 +1643,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         expected_observation_count: int | None = None,
         expected_receipt_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
+        expected_observation_scope_revision: int | None = None,
     ) -> bool:
         """Mark an outbox item as ``retry_wait`` (transient failure).
 
@@ -1462,6 +1665,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
             expected_observation_count=expected_observation_count,
             expected_receipt_count=expected_receipt_count,
             expected_checkpoint_revision=expected_checkpoint_revision,
+            expected_observation_scope_revision=expected_observation_scope_revision,
         )
 
     async def mark_outbox_dead_lettered(
@@ -1477,6 +1681,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         expected_observation_count: int | None = None,
         expected_receipt_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
+        expected_observation_scope_revision: int | None = None,
     ) -> bool:
         """Mark an outbox item as ``dead_lettered`` (terminal failure).
 
@@ -1501,6 +1706,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
             expected_observation_count=expected_observation_count,
             expected_receipt_count=expected_receipt_count,
             expected_checkpoint_revision=expected_checkpoint_revision,
+            expected_observation_scope_revision=expected_observation_scope_revision,
         )
 
     async def mark_outbox_cancelled(
@@ -1545,11 +1751,15 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
         expected_observation_count: int | None = None,
         expected_receipt_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
+        expected_observation_scope_revision: int | None = None,
     ) -> bool:
         """Mark an outbox item as ``abandoned`` (terminal).
 
         Authority: **mark** (terminal transition).  May be called from
-        ``pending``, ``in_progress``, ``retry_wait``, or ``queued``.
+        ``pending``, ``in_progress``, ``retry_wait``, or ``queued``. A
+        ``sent`` or ``queued`` receipt for the effective attempt refuses the
+        transition: a queued handoff is settled through deferred feedback,
+        never overwritten as abandoned.
         """
         return await self._update_outbox_status(
             outbox_id,
@@ -1568,6 +1778,7 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
             expected_observation_count=expected_observation_count,
             expected_receipt_count=expected_receipt_count,
             expected_checkpoint_revision=expected_checkpoint_revision,
+            expected_observation_scope_revision=expected_observation_scope_revision,
         )
 
     async def renew_outbox_lease(

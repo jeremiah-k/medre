@@ -61,6 +61,8 @@ from medre.core.storage.backend import (
     DeliveryOutboxItem,
     OutboxDispatchSnapshot,
     OutboxDispatchSnapshotWrite,
+    OutboxRouteRetryBounds,
+    OutboxRouteRetryBoundsWrite,
     StorageError,
     TerminalOutboxFinalization,
 )
@@ -101,6 +103,7 @@ class _MemoryStorage(FrozenOutboxSnapshotFakeMixin):
         self._native_refs: list[NativeMessageRef] = []
         self._outbox: dict[str, DeliveryOutboxItem] = {}
         self._dispatch_snapshots: dict[str, OutboxDispatchSnapshot] = {}
+        self._route_retry_bounds: dict[str, dict] = {}
 
     async def append_receipt(self, receipt: DeliveryReceipt) -> None:
         self._receipts.append(receipt)
@@ -262,6 +265,7 @@ class _MemoryStorage(FrozenOutboxSnapshotFakeMixin):
         *,
         allocate_new_generation: bool = False,
         dispatch_snapshot: OutboxDispatchSnapshotWrite | None = None,
+        route_retry_bounds: OutboxRouteRetryBoundsWrite | None = None,
     ) -> DeliveryOutboxItem:
         dispatch_source = item.dispatch_source or (
             "replay" if allocate_new_generation else "live"
@@ -286,6 +290,13 @@ class _MemoryStorage(FrozenOutboxSnapshotFakeMixin):
                 return existing
         self._save_outbox_snapshot(item, dispatch_snapshot)
         self._outbox[item.outbox_id] = item
+        if route_retry_bounds is not None:
+            self._route_retry_bounds[item.outbox_id] = {
+                "max_attempts": route_retry_bounds.max_attempts,
+                "backoff_base": route_retry_bounds.backoff_base,
+                "max_delay_seconds": route_retry_bounds.max_delay_seconds,
+                "jitter": route_retry_bounds.jitter,
+            }
         return item
 
     async def get_outbox_item(
@@ -294,6 +305,14 @@ class _MemoryStorage(FrozenOutboxSnapshotFakeMixin):
         return inspection_rows(
             self._outbox.get(outbox_id), "delivery_outbox", metadata_only
         )
+
+    async def get_outbox_route_retry_bounds(
+        self, outbox_id: str
+    ) -> OutboxRouteRetryBounds | None:
+        bounds = self._route_retry_bounds.get(outbox_id)
+        if bounds is None:
+            return None
+        return OutboxRouteRetryBounds(outbox_id=outbox_id, **bounds)
 
     async def defer_unsubmitted_outbox_attempt(
         self,

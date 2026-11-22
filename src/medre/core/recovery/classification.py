@@ -22,7 +22,7 @@ lifecycle transitions.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any
 
 from ._helpers import _get, _parse_as_utc, _to_str
@@ -58,6 +58,7 @@ _ALL_KNOWN_STATUSES: frozenset[str] = _OUTBOX_STATUSES
 
 CLASS_IMMEDIATELY_CLAIMABLE = "immediately_claimable"
 CLASS_RETRY_ELIGIBLE = "retry_eligible"
+CLASS_CONFIRMATION_PENDING = "confirmation_pending"
 CLASS_STALE = "stale"
 CLASS_ORPHANED = "orphaned"
 CLASS_TERMINAL = "terminal"
@@ -67,6 +68,7 @@ _ALL_LABELS: frozenset[str] = frozenset(
     {
         CLASS_IMMEDIATELY_CLAIMABLE,
         CLASS_RETRY_ELIGIBLE,
+        CLASS_CONFIRMATION_PENDING,
         CLASS_STALE,
         CLASS_ORPHANED,
         CLASS_TERMINAL,
@@ -78,15 +80,12 @@ _ALL_LABELS: frozenset[str] = frozenset(
 # Public API
 # ---------------------------------------------------------------------------
 
-_DEFAULT_STALE_QUEUED_GRACE: timedelta = timedelta(minutes=5)
-
 
 def classify_startup_reclamation(
     outbox_item: Any,
     *,
     known_event_ids: set[str] | frozenset[str] | None = None,
     now: datetime | None = None,
-    stale_queued_grace: timedelta | None = None,
 ) -> tuple[str, str]:
     """Classify a single outbox item for startup reclamation.
 
@@ -115,9 +114,6 @@ def classify_startup_reclamation(
     now:
         Reference time for deterministic timestamp comparisons.
         Defaults to ``datetime.now(timezone.utc)`` when ``None``.
-    stale_queued_grace:
-        Grace period before a ``queued`` item with ``updated_at`` is
-        considered stale.  Defaults to 5 minutes when ``None``.
 
     Returns
     -------
@@ -126,11 +122,6 @@ def classify_startup_reclamation(
         is one of the ``CLASS_*`` constants.
     """
     _now = now if now is not None else datetime.now(timezone.utc)
-    _grace = (
-        stale_queued_grace
-        if stale_queued_grace is not None
-        else _DEFAULT_STALE_QUEUED_GRACE
-    )
 
     status = _to_str(_get(outbox_item, "status")).lower()
     event_id = _to_str(_get(outbox_item, "event_id"))
@@ -188,37 +179,34 @@ def classify_startup_reclamation(
             f"lease — reclaimable",
         )
 
-    # -- queued: stale grace check ------------------------------------------
+    # -- queued: durable confirmation-pending disposition --------------------
     if status == "queued":
+        # A queued receipt records only adapter-local queue acceptance, so
+        # the row is the durable confirmation-pending disposition whether
+        # fresh or stale: never claimable, never reclaimed for redispatch.
+        # Deferred completion evidence settles it; otherwise the operator
+        # resolves it explicitly.
         if not updated_at:
             return (
-                CLASS_STALE,
+                CLASS_CONFIRMATION_PENDING,
                 f"Outbox item {outbox_id!r} is queued with no updated_at "
-                f"— treat as stale",
+                f"— confirmation pending",
             )
         try:
-            updated_dt = _parse_as_utc(updated_at)
-            age = _now - updated_dt
-            if age <= _grace:
-                # Recently queued — within grace period, not stale.
-                return (
-                    CLASS_RETRY_ELIGIBLE,
-                    f"Outbox item {outbox_id!r} is queued and recently updated "
-                    f"({updated_at}) — within stale grace period",
-                )
-            # Stale queued — grace period exceeded.
-            return (
-                CLASS_IMMEDIATELY_CLAIMABLE,
-                f"Outbox item {outbox_id!r} is queued and stale "
-                f"(updated_at {updated_at} exceeds grace) — claimable",
-            )
+            _parse_as_utc(updated_at)
         except (ValueError, TypeError):
-            # Unparseable updated_at — treat as stale conservatively.
+            # Unparseable updated_at cannot make the row claimable either.
             return (
-                CLASS_STALE,
+                CLASS_CONFIRMATION_PENDING,
                 f"Outbox item {outbox_id!r} is queued with unparseable "
-                f"updated_at — treat as stale",
+                f"updated_at — confirmation pending",
             )
+        return (
+            CLASS_CONFIRMATION_PENDING,
+            f"Outbox item {outbox_id!r} is queued (updated_at {updated_at}) "
+            f"— confirmation pending; await completion evidence or the "
+            f"explicit operator resolution",
+        )
 
     # -- retry_wait with future next_attempt_at -----------------------------
     if status == "retry_wait":

@@ -19,6 +19,10 @@ from medre.core.storage.content import (
     UNMEASURED_CONTENT_SCOPES,
     inventory_sql,
 )
+from medre.core.storage.sqlite._ceiling_enforcement import (
+    _INCOMING_EXCERPTS_PREDICATE,
+    _residual_fragments,
+)
 
 # The relation type is a closed core enum; a corrupted/free-form value is
 # not assumed to be content-free structured identity.
@@ -34,7 +38,7 @@ _EVENT_COPY_PROBES: dict[str, str] = {
     # collectable.  Evaluate the same row-presence rules as the guarded
     # collector without reading content or acquiring any new authority.
     "inconsistent_admission_identity": (
-        "SELECT CASE WHEN NOT EXISTS ("
+        "SELECT CASE WHEN NOT EXISTS ("  # nosec B608 - closed module-owned probe fragments; bound values only
         "SELECT 1 FROM event_body_identity i WHERE i.event_id=e.event_id "
         "AND i.present_at_admission IN (0,1)) "
         "OR EXISTS (SELECT 1 FROM event_body_identity i "
@@ -44,24 +48,25 @@ _EVENT_COPY_PROBES: dict[str, str] = {
         "OR (i.present_at_admission=1 AND NOT EXISTS ("
         "SELECT 1 FROM event_body_content b WHERE b.event_id=e.event_id) "
         "AND NOT EXISTS (SELECT 1 FROM event_content_collection_log l "
-        "WHERE l.event_id=e.event_id)))) "
-        "OR (EXISTS (SELECT 1 FROM event_content_collection_log l "
-        "WHERE l.event_id=e.event_id) AND ("
+        "WHERE l.event_id=e.event_id) "
+        "AND NOT EXISTS (SELECT 1 FROM event_content_ceiling_log cl "
+        "WHERE cl.event_id=e.event_id)))) "
+        "OR ((EXISTS (SELECT 1 FROM event_content_collection_log l "
+        "WHERE l.event_id=e.event_id) OR EXISTS ("
+        "SELECT 1 FROM event_content_ceiling_log cl "
+        "WHERE cl.event_id=e.event_id)) AND ("
         "EXISTS (SELECT 1 FROM event_body_content b WHERE b.event_id=e.event_id) "
         "OR EXISTS (SELECT 1 FROM event_relation_excerpts x "
         "JOIN event_relations r ON r.id=x.relation_id WHERE r.event_id=e.event_id))) "
-        "THEN 1 ELSE 0 END"
+        "OR (EXISTS (SELECT 1 FROM event_content_ceiling_log cl "
+        "WHERE cl.event_id=e.event_id) AND ("
+        + " OR ".join(_residual_fragments("e.event_id"))
+        + ")) THEN 1 ELSE 0 END"
     ),
     "relation_excerpts": "SELECT COUNT(*) FROM event_relation_excerpts x JOIN event_relations r ON r.id=x.relation_id WHERE r.event_id=e.event_id",
     "incoming_relation_excerpts": (
-        "SELECT COUNT(*) FROM event_relation_excerpts x "
-        "JOIN event_relations r ON r.id=x.relation_id "
-        "WHERE r.event_id<>e.event_id AND (r.target_event_id=e.event_id "
-        "OR EXISTS (SELECT 1 FROM native_message_refs n "
-        "WHERE n.event_id=e.event_id "
-        "AND n.adapter=r.target_native_adapter "
-        "AND n.native_channel_id IS r.target_native_channel_id "
-        "AND n.native_message_id=r.target_native_message_id))"
+        "SELECT COUNT(*) FROM event_relation_excerpts x WHERE "  # nosec B608 - module-owned predicate; the event reference is a column name from this module
+        + _INCOMING_EXCERPTS_PREDICATE.format(ev="e.event_id")
     ),
     "opaque_envelope": "SELECT COUNT(*) FROM canonical_events c WHERE c.event_id=e.event_id AND (c.payload<>'{}' OR c.metadata<>'{}')",
     "relation_records": "SELECT COUNT(*) FROM event_relations r WHERE r.event_id=e.event_id",

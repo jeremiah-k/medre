@@ -480,7 +480,22 @@ class TestAllowedFromAlignment:
     method — ``pending`` is set by ``create_outbox_item`` and ``in_progress``
     by ``claim_due_outbox_items`` (SQL-path transitions, not mark methods).
     See ``test_no_mark_method_for_pending_or_in_progress`` below.
+
+    A second SQL-path carve-out: ``queued -> dead_lettered`` finalizes via
+    ``finalize_outbox_terminal``'s eligibility guard (``status IN
+    ('queued', 'in_progress')`` in the terminal statement), never via
+    ``mark_outbox_dead_lettered``. Keeping ``queued`` out of that mark
+    method's allowed_from is deliberate: a confirmation-pending row leaves
+    its disposition only through operator resolution, provenance-matched
+    terminal feedback, or the terminal finalize path — broadening the mark
+    method would widen direct write authority over it.
     """
+
+    #: Map sources that reach a target through the terminal finalize path
+    #: rather than a mark method, keyed by target status.
+    _TERMINAL_FINALIZE_SOURCES: dict[str, frozenset[str]] = {
+        "dead_lettered": frozenset({"queued"}),
+    }
 
     @staticmethod
     def _sources_for_target(target: str) -> frozenset[str]:
@@ -505,8 +520,11 @@ class TestAllowedFromAlignment:
         self, target: str, allowed_from: tuple[str, ...]
     ) -> None:
         """Each mark method's allowed_from must equal the set of sources
-        that can transition to *target* per OUTBOX_TRANSITIONS."""
-        expected_sources = self._sources_for_target(target)
+        that can transition to *target* per OUTBOX_TRANSITIONS, minus the
+        sources that reach the target through the terminal finalize path."""
+        expected_sources = self._sources_for_target(target) - (
+            self._TERMINAL_FINALIZE_SOURCES.get(target, frozenset())
+        )
         actual_sources = frozenset(allowed_from)
         assert actual_sources == expected_sources, (
             f"allowed_from for {target!r} ({sorted(actual_sources)}) "

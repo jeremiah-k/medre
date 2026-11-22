@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 import threading
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from medre.core.storage.backend import (
     DeferredHandoffFinalization,
@@ -16,6 +16,7 @@ from medre.core.storage.sqlite._native_ref import (
     _native_ref_identity,
     _native_ref_insert_params,
 )
+from medre.core.storage.sqlite._outbox import _append_evidence_guard_clauses
 from medre.core.storage.sqlite._receipt import (
     _receipt_diagnostic_ops,
     _receipt_insert_params,
@@ -141,6 +142,11 @@ class _DeliveryFinalizationMixin:
         outbox ``error_summary``) is separated at write time: it lands
         only in ``delivery_evidence_diagnostics`` inside the same
         transaction.
+
+        When the command carries ``expected_*`` evidence guards, the shared
+        guard builder's clauses fence the guarded ``UPDATE`` to the
+        exact-attempt evidence revision the caller read; a stale guard
+        matches no row and the transaction commits nothing.
         """
         receipt = command.lifecycle_receipt
         attempt_receipt = command.attempt_receipt
@@ -174,6 +180,20 @@ class _DeliveryFinalizationMixin:
             command.require_unsubmitted_replay,
             receipt.replay_run_id,
         )
+        guard_clauses: list[str] = []
+        guard_params: list[Any] = []
+        _append_evidence_guard_clauses(
+            guard_clauses,
+            guard_params,
+            outbox_id=command.outbox_id,
+            attempt_number=command.attempt_number,
+            expected_observation_count=command.expected_observation_count,
+            expected_receipt_count=command.expected_receipt_count,
+            expected_checkpoint_revision=command.expected_checkpoint_revision,
+            expected_observation_scope_revision=(
+                command.expected_observation_scope_revision
+            ),
+        )
         outbox_diagnostics = outbox_diagnostic_ops(
             {
                 "error_summary": command.error_summary or "",
@@ -198,6 +218,8 @@ class _DeliveryFinalizationMixin:
                 attempt_receipt_diagnostic_ops=attempt_receipt_diagnostics,
                 outbox_diagnostic_ops=outbox_diagnostics,
                 outbox_update_params=outbox_params,
+                evidence_guard_clauses=tuple(guard_clauses),
+                evidence_guard_params=tuple(guard_params),
             )
 
         except StorageError:

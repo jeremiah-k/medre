@@ -37,6 +37,7 @@ from medre.core.storage.sqlite._content_identity import (
     ingress_dependency_op,
 )
 from medre.core.storage.sqlite._evidence_diagnostics import ingress_diagnostic_ops
+from medre.core.storage.sqlite._native_ref import _native_ref_insert_params
 from medre.core.storage.sqlite.connection import (
     AttachmentAdmissionPlan,
     sync_admit_ingress,
@@ -51,7 +52,10 @@ from medre.core.storage.sqlite.serde import (
     _serialize_metadata,
     routing_facts_op,
 )
-from medre.core.storage.sqlite.statements import _INSERT_EVENT
+from medre.core.storage.sqlite.statements import (
+    _INSERT_EVENT,
+    _INSERT_NATIVE_REF_STRICT,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -225,25 +229,12 @@ class _IngressMixin:
                 inbound_ref.native_channel_id,
                 inbound_ref.native_message_id,
             )
+            # Ingress admission is strict: a duplicate reference identity
+            # must roll the whole admission back, unlike the idempotent
+            # ordinary native-reference create.
             native_insert = (
-                """
-                INSERT INTO native_message_refs
-                    (id, event_id, adapter, native_channel_id, native_message_id,
-                     native_thread_id, native_relation_id, direction, metadata, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    inbound_ref.id,
-                    inbound_ref.event_id,
-                    inbound_ref.adapter,
-                    inbound_ref.native_channel_id,
-                    inbound_ref.native_message_id,
-                    inbound_ref.native_thread_id,
-                    inbound_ref.native_relation_id,
-                    inbound_ref.direction,
-                    _encode_json(inbound_ref.metadata),
-                    inbound_ref.created_at.isoformat(),
-                ),
+                _INSERT_NATIVE_REF_STRICT,
+                _native_ref_insert_params(inbound_ref),
             )
         db = self._require_db()
         try:

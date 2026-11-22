@@ -7,6 +7,8 @@ execution APIs.
 
 from __future__ import annotations
 
+from medre.core.storage.sqlite._content_identity import event_content_denied_sql
+
 # ---------------------------------------------------------------------------
 # INSERT statements
 # ---------------------------------------------------------------------------
@@ -37,7 +39,18 @@ INSERT OR IGNORE INTO native_message_refs
     (id, event_id, adapter, native_channel_id,
      native_message_id, native_thread_id, native_relation_id,
      direction, metadata, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+SELECT ?, ?, ?, ?, ?, ?, ?, ?,
+    CASE WHEN EXISTS (
+        SELECT 1 FROM event_content_access_policies p
+        WHERE p.event_id=? AND p.hard_ceiling<=?
+    ) OR EXISTS (
+        SELECT 1 FROM event_content_ceiling_log WHERE event_id=?
+    ) THEN '{}' ELSE ? END, ?
+WHERE NOT EXISTS (
+    SELECT 1 FROM native_message_refs prior
+    WHERE prior.adapter=? AND prior.native_channel_id IS ?
+      AND prior.native_message_id=?
+)
 """
 
 _INSERT_NATIVE_REF_STRICT = """
@@ -45,7 +58,18 @@ INSERT INTO native_message_refs
     (id, event_id, adapter, native_channel_id,
      native_message_id, native_thread_id, native_relation_id,
      direction, metadata, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+SELECT ?, ?, ?, ?, ?, ?, ?, ?,
+    CASE WHEN EXISTS (
+        SELECT 1 FROM event_content_access_policies p
+        WHERE p.event_id=? AND p.hard_ceiling<=?
+    ) OR EXISTS (
+        SELECT 1 FROM event_content_ceiling_log WHERE event_id=?
+    ) THEN '{}' ELSE ? END, ?
+WHERE NOT EXISTS (
+    SELECT 1 FROM native_message_refs prior
+    WHERE prior.adapter=? AND prior.native_channel_id IS ?
+      AND prior.native_message_id=?
+)
 """
 
 _INSERT_RECEIPT = """
@@ -69,6 +93,16 @@ INSERT INTO delivery_outbox_snapshots
     (outbox_id, attempt_number, snapshot_version, snapshot_kind, context_json,
      created_at)
 SELECT outbox_id, attempt_number, ?, ?, ?, ?
+FROM delivery_outbox WHERE outbox_id = ?
+"""
+
+# Admission-time route retry bounds for the just-inserted outbox generation.
+# The SELECT form keys the fact to the committed row inside the same
+# creation transaction; adopted existing rows never run this op.
+_INSERT_OUTBOX_ROUTE_RETRY_BOUNDS = """
+INSERT INTO delivery_route_retry_bounds
+    (outbox_id, max_attempts, backoff_base, max_delay_seconds, jitter)
+SELECT outbox_id, ?, ?, ?, ?
 FROM delivery_outbox WHERE outbox_id = ?
 """
 
@@ -252,14 +286,36 @@ SELECT * FROM delivery_receipts
 ORDER BY sequence ASC
 """
 
-_SELECT_NREFS_FOR_EVENT = """
-SELECT * FROM native_message_refs
-WHERE event_id = ?
-ORDER BY created_at ASC, id ASC
-"""
+_NATIVE_REFERENCE_SAFE_FROM = f"""
+FROM (SELECT
+    n.id, n.event_id, n.adapter, n.native_channel_id,
+    n.native_message_id, n.native_thread_id, n.native_relation_id,
+    n.direction, n.created_at,
+    CASE WHEN {event_content_denied_sql("n.event_id")}
+    THEN '{{}}' ELSE n.metadata END AS metadata
+FROM native_message_refs n) AS safe_refs
+"""  # nosec B608 - static SQL fragments and bound values
 
-_GET_NATIVE_REF = """
-SELECT * FROM native_message_refs
-WHERE adapter = ? AND native_channel_id IS ? AND native_message_id = ?
-LIMIT 1
-"""
+_SELECT_NREFS_FOR_EVENT = (
+    "SELECT * "
+    + _NATIVE_REFERENCE_SAFE_FROM
+    + "WHERE event_id = ? ORDER BY created_at ASC, id ASC"
+)
+_GET_NATIVE_REF = (
+    "SELECT * "
+    + _NATIVE_REFERENCE_SAFE_FROM
+    + "WHERE adapter = ? AND native_channel_id IS ? AND native_message_id = ? LIMIT 1"
+)
+
+# Inspection variants carry no derived subquery: the metadata-only projection
+# rewrites the base-table column list directly, so the stored metadata column
+# is never referenced — not even inside an ELSE branch a column authorizer
+# would deny. Ordinary reads above keep the enforcement-receipt masking.
+_SELECT_NREFS_FOR_EVENT_PLAIN = (
+    "SELECT * FROM native_message_refs "
+    "WHERE event_id = ? ORDER BY created_at ASC, id ASC"
+)
+_GET_NATIVE_REF_PLAIN = (
+    "SELECT * FROM native_message_refs "
+    "WHERE adapter = ? AND native_channel_id IS ? AND native_message_id = ? LIMIT 1"
+)

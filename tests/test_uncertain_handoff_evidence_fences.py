@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import replace as dataclass_replace
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from msgspec.structs import force_setattr, replace
@@ -13,6 +14,7 @@ from medre.core.delivery_authority import dispatch_source_matches_attempt
 from medre.core.engine.pipeline.delivery_lifecycle import (
     DeliveryLifecycleService,
     RetryAttemptCommitRejected,
+    RetryAttemptFinalization,
 )
 from medre.core.events import DeliveryReceipt
 from medre.core.evidence.handoff_resolution import (
@@ -22,8 +24,9 @@ from medre.core.evidence.handoff_resolution import (
     resolve_uncertain_handoff,
 )
 from medre.core.planning.delivery_plan import RetryPolicy
-from medre.core.storage.backend import StorageError
+from medre.core.storage.backend import DeliveryOutboxItem, StorageError
 from medre.core.storage.sqlite.storage import SQLiteStorage
+from tests.helpers.ceiling_audit import _install_elapsed_policy
 from tests.helpers.handoff_resolution import (
     _WORKER,
     _bind_and_progress,
@@ -415,6 +418,63 @@ async def test_content_denied_abandonment_fences_new_evidence(temp_storage) -> N
     assert row is not None and row.status == "in_progress"
 
 
+async def test_terminal_abandoned_receipt_records_despite_later_acceptance(
+    temp_storage,
+) -> None:
+    """Recording an explicit abandoned terminal commits even beside acceptance.
+
+    A fresh abandonment decision must never discard an observed acceptance,
+    but committing a terminal receipt that already records abandonment is
+    durable evidence, not a decision — the transition is exempt from the
+    acceptance fence. Without a terminal receipt pointer the same
+    abandonment is still refused.
+    """
+    stored, provenance = await _seed_reserved_claim(temp_storage)
+    item = await _claimed_row(temp_storage, stored.outbox_id, "reclaimer")
+    await append_receipt_with_parent(
+        temp_storage,
+        DeliveryReceipt(
+            receipt_id="late-sent-receipt",
+            event_id=provenance.event_id,
+            delivery_plan_id=provenance.delivery_plan_id,
+            target_adapter=provenance.target_adapter,
+            target_channel=provenance.target_channel,
+            status="sent",
+            outbox_id=provenance.outbox_id,
+            attempt_number=1,
+            source="retry",
+        ),
+    )
+    await append_receipt_with_parent(
+        temp_storage,
+        DeliveryReceipt(
+            receipt_id="explicit-abandoned-receipt",
+            event_id=provenance.event_id,
+            delivery_plan_id=provenance.delivery_plan_id,
+            target_adapter=provenance.target_adapter,
+            target_channel=provenance.target_channel,
+            status="abandoned",
+            outbox_id=provenance.outbox_id,
+            attempt_number=1,
+            source="retry",
+        ),
+    )
+    assert not await temp_storage.mark_outbox_abandoned(
+        item.outbox_id,
+        attempt_number=1,
+        expected_worker_id=item.worker_id,
+    )
+    assert await temp_storage.mark_outbox_abandoned(
+        item.outbox_id,
+        receipt_id="explicit-abandoned-receipt",
+        attempt_number=1,
+        expected_worker_id=item.worker_id,
+    )
+    row = await temp_storage.get_outbox_item(item.outbox_id)
+    assert row is not None and row.status == "abandoned"
+    assert row.receipt_id == "explicit-abandoned-receipt"
+
+
 async def test_receipt_fence_rejects_terminal_transition_after_late_append(
     temp_storage,
 ) -> None:
@@ -526,13 +586,13 @@ async def test_recheck_uses_historical_checkpoint_source_after_newer_reservation
     )
     provider = SimpleNamespace(
         get_radio_attempt=AsyncMock(return_value=checkpoint),
-        list_delivery_observations_for_attempt=AsyncMock(return_value=[]),
+        read_handoff_observation_snapshot=AsyncMock(return_value=([], 0)),
     )
     resolved = await EvidenceBackedHandoffResolver(provider).resolve(current, 1)
     assert resolved.verdict == "delivered_with_evidence"
     assert resolved.checkpoint_revision == checkpoint.revision
     provider.get_radio_attempt.assert_awaited_once_with(stored.outbox_id, 1)
-    provider.list_delivery_observations_for_attempt.assert_awaited_once_with(
+    provider.read_handoff_observation_snapshot.assert_awaited_once_with(
         stored.outbox_id, 1
     )
 
@@ -567,3 +627,589 @@ async def test_uncertain_backoff_accepts_exact_finalized_observation(temp_storag
     assert final is not None and final.outcome == "accepted"
     settled = await temp_storage.get_outbox_item(stored.outbox_id)
     assert settled is not None and settled.status == "sent"
+
+
+async def test_ceiling_preserves_uncertain_attempt_admission_without_diagnostic(
+    temp_storage,
+):
+    stored, provenance = await _seed_reserved_claim(temp_storage)
+    assert await temp_storage.mark_outbox_retry_wait(
+        stored.outbox_id,
+        next_attempt_at=(
+            datetime.now(timezone.utc) + timedelta(seconds=60)
+        ).isoformat(),
+        attempt_number=1,
+        expected_worker_id=_WORKER,
+        failure_kind_detail=UNCERTAIN_NATIVE_HANDOFF_DETAIL,
+    )
+    now = await _install_elapsed_policy(temp_storage, provenance.event_id)
+    await temp_storage.enforce_content_ceilings(now=now)
+    remaining = await temp_storage.get_outbox_item(stored.outbox_id)
+    assert remaining is not None
+    assert remaining.failure_kind_detail == UNCERTAIN_NATIVE_HANDOFF_DETAIL
+    assert (
+        await temp_storage._read_one(
+            "SELECT 1 FROM delivery_evidence_diagnostics WHERE family='outbox' "
+            "AND row_id=?",
+            (stored.outbox_id,),
+        )
+        is None
+    )
+    assert await temp_storage.append_delivery_observation(
+        _observation("late-after-ceiling", provenance)
+    )
+    observed = await temp_storage.list_delivery_observations_for_attempt(
+        stored.outbox_id, 1
+    )
+    assert len(observed) == 1 and observed[0].metadata == {}
+    assert observed[0].confirmation_level == "end_to_end"
+    assert await temp_storage.append_delivery_observation(
+        _observation(
+            "late-malformed-scope",
+            provenance,
+            radio_packet={
+                "ordinal": 1,
+                "origin_attempt_number": 1,
+                "origin_outbox_id": "unverified provider text",
+            },
+        )
+    )
+    scope = await temp_storage._read_one(
+        "SELECT scope_json FROM delivery_observation_scopes "
+        "WHERE observation_id='late-malformed-scope'"
+    )
+    assert scope == {"scope_json": '{"radio_packet":null}'}
+    assert await temp_storage.mark_outbox_cancelled(stored.outbox_id)
+    assert not await temp_storage.append_delivery_observation(
+        _observation("late-after-cancel", provenance)
+    )
+
+
+async def test_ceiling_keeps_accepted_packet_scope_but_erases_wire_plan(temp_storage):
+    stored, provenance = await _seed_reserved_claim(temp_storage)
+    await _bind_and_progress(temp_storage, provenance, ["accepted", "unsent", "unsent"])
+    now = await _install_elapsed_policy(temp_storage, provenance.event_id)
+    await temp_storage.enforce_content_ceilings(now=now)
+    assert await temp_storage.get_radio_attempt(stored.outbox_id, 1) is None
+    fact = await temp_storage._read_one(
+        "SELECT native_message_id FROM radio_accepted_part_facts "
+        "WHERE outbox_id=? AND attempt_number=1 AND ordinal=1",
+        (stored.outbox_id,),
+    )
+    assert fact is not None and fact["native_message_id"] == "native-1"
+    ack = _observation(
+        "late-radio-packet",
+        provenance,
+        radio_packet={
+            "ordinal": 1,
+            "origin_attempt_number": 1,
+            "origin_outbox_id": stored.outbox_id,
+            "provider_secret": "sensitive",
+        },
+    )
+    assert await temp_storage.append_radio_packet_observation(ack)
+    assert not await temp_storage.append_radio_packet_observation(
+        _observation(
+            "false-packet",
+            provenance,
+            adapter_message_id="wrong",
+            radio_packet={
+                "ordinal": 1,
+                "origin_attempt_number": 1,
+                "origin_outbox_id": stored.outbox_id,
+            },
+        )
+    )
+    read = await temp_storage.list_delivery_observations_for_attempt(
+        stored.outbox_id, 1
+    )
+    assert len(read) == 1
+    assert read[0].metadata == {
+        "radio_packet": {
+            "ordinal": 1,
+            "origin_attempt_number": 1,
+            "origin_outbox_id": stored.outbox_id,
+        }
+    }
+    assert "sensitive" not in repr(read)
+    raw = await temp_storage._read_one(
+        "SELECT metadata FROM delivery_observations WHERE observation_id='late-radio-packet'"
+    )
+    assert raw is not None and raw["metadata"] == "{}"
+    resolved = await EvidenceBackedHandoffResolver(temp_storage).resolve(stored, 1)
+    assert resolved.verdict == "unresolved"
+
+
+async def test_complete_radio_handoff_still_settles_after_wire_plan_erasure(
+    temp_storage,
+):
+    stored, provenance = await _seed_reserved_claim(temp_storage)
+    fingerprint = "fa" * 32
+    await _bind_and_progress(
+        temp_storage,
+        provenance,
+        ["accepted", "accepted", "accepted"],
+        payload_fingerprint=fingerprint,
+    )
+    now = await _install_elapsed_policy(temp_storage, provenance.event_id)
+    await temp_storage.enforce_content_ceilings(now=now)
+    assert await temp_storage.get_radio_attempt(stored.outbox_id, 1) is None
+    summary = await temp_storage.get_radio_attempt_evidence(stored.outbox_id, 1)
+    assert summary is not None
+    assert all(part.state == "accepted" for part in summary.parts)
+    assert all(
+        "payload_fingerprint" not in (part.handoff_id or "") for part in summary.parts
+    )
+    retained = await temp_storage._read_one(
+        "SELECT parts_json, provenance_json FROM radio_attempt_evidence_summaries "
+        "WHERE outbox_id=? AND attempt_number=1",
+        (stored.outbox_id,),
+    )
+    assert retained is not None
+    assert fingerprint not in repr(retained)
+    # The retained projection is identity-only: no wire text from the plan.
+    assert "café α" not in repr(retained)
+
+    claimed = await _claimed_row(temp_storage, stored.outbox_id, "reclaimer")
+    verdict = await DeliveryLifecycleService().reconcile_retry_claim(
+        temp_storage,
+        claimed,
+        RetryPolicy(max_attempts=4),
+        handoff_resolver=EvidenceBackedHandoffResolver(temp_storage),
+    )
+    assert verdict is not None and verdict.outcome == "accepted"
+    settled = await temp_storage.get_outbox_item(stored.outbox_id)
+    assert settled is not None and settled.status == "sent"
+    assert await temp_storage.list_receipts_for_outbox(stored.outbox_id) == []
+
+
+async def test_expired_attempt_cannot_rebind_erased_wire_plan(temp_storage):
+    stored, provenance = await _seed_reserved_claim(temp_storage)
+    await _bind_and_progress(temp_storage, provenance, ["accepted", "unsent", "unsent"])
+    now = await _install_elapsed_policy(temp_storage, provenance.event_id)
+    await temp_storage.enforce_content_ceilings(now=now)
+    assert await temp_storage.bind_radio_attempt(provenance, _WORKER, _plan()) is None
+    assert await temp_storage.get_radio_attempt(stored.outbox_id, 1) is None
+
+
+async def test_staged_abandonment_cannot_consume_a_newer_active_attempt(temp_storage):
+    stored, _ = await _seed_reserved_claim(temp_storage)
+    active = await temp_storage.get_outbox_item(stored.outbox_id)
+    assert active is not None and active.active_attempt == 1
+    stale = dataclass_replace(active, active_attempt=None, attempt_number=0)
+    with pytest.raises(RetryAttemptCommitRejected):
+        await DeliveryLifecycleService().abandon_retry_outbox(
+            temp_storage,
+            stale,
+            error_summary="content_authority_denied",
+            expected_observation_count=0,
+            expected_receipt_count=0,
+        )
+    assert (await temp_storage.get_outbox_item(stored.outbox_id)) == active
+
+
+async def test_in_flight_native_completion_survives_wire_plan_erasure(temp_storage):
+    """An already-granted call can finish, but erasure cannot start another call."""
+    from medre.core.storage.radio_handoff import RadioLocalHandoff
+
+    stored, provenance = await _seed_reserved_claim(temp_storage)
+    bound = await temp_storage.bind_radio_attempt(provenance, _WORKER, _plan())
+    assert bound is not None
+    started = await temp_storage.begin_radio_part(bound, _WORKER, 1)
+    assert started is not None
+    now = await _install_elapsed_policy(temp_storage, provenance.event_id)
+    await temp_storage.enforce_content_ceilings(now=now)
+    assert await temp_storage.get_radio_attempt(stored.outbox_id, 1) is None
+    handoff = RadioLocalHandoff(1, "native-after-erasure", "ch-0", "local_transport")
+    finished = await temp_storage.observe_radio_part(
+        started, _WORKER, 1, handoff_id=handoff.encode()
+    )
+    assert finished is not None
+    summary = await temp_storage.get_radio_attempt_evidence(stored.outbox_id, 1)
+    assert summary is not None
+    assert summary.parts[0].state == "accepted"
+    assert summary.revision == 2
+    assert await temp_storage.begin_radio_part(finished, _WORKER, 2) is None
+    assert await temp_storage.append_radio_packet_observation(
+        _observation(
+            "packet-after-erasure",
+            provenance,
+            adapter_message_id="native-after-erasure",
+            radio_packet={
+                "ordinal": 1,
+                "origin_attempt_number": 1,
+                "origin_outbox_id": stored.outbox_id,
+            },
+        )
+    )
+    assert (
+        await temp_storage.observe_radio_part(
+            started, _WORKER, 1, handoff_id=handoff.encode()
+        )
+        is None
+    )
+
+
+async def test_malformed_accepted_reference_does_not_disappear_at_ceiling(temp_storage):
+    """A corrupt handoff never becomes message-only proof after erasure."""
+    import json
+
+    stored, provenance = await _seed_reserved_claim(temp_storage)
+    await _bind_and_progress(temp_storage, provenance, ["accepted"] * 3)
+    raw = await temp_storage._read_one(
+        "SELECT parts_json FROM radio_attempt_progress WHERE outbox_id=?",
+        (stored.outbox_id,),
+    )
+    assert raw is not None
+    parts = json.loads(raw["parts_json"])
+    parts[0]["handoff_id"] = "{not-a-valid-reference}"
+    await temp_storage._write(
+        "UPDATE radio_attempt_progress SET parts_json=? WHERE outbox_id=?",
+        (json.dumps(parts), stored.outbox_id),
+    )
+    now = await _install_elapsed_policy(temp_storage, provenance.event_id)
+    await temp_storage.enforce_content_ceilings(now=now)
+    assert await temp_storage.append_delivery_observation(
+        _observation("whole-message-after-invalid-part", provenance)
+    )
+    verdict = await EvidenceBackedHandoffResolver(temp_storage).resolve(stored, 1)
+    assert verdict.verdict == "unresolved"
+    assert verdict.reasons == ("unreadable_handoff_reference",)
+
+
+async def test_explicit_new_retry_failure_supersedes_stale_uncertainty_fact(
+    temp_storage,
+):
+    """Supersession must be durable, not only a newer diagnostic row."""
+    stored, provenance = await _seed_reserved_claim(temp_storage)
+    await temp_storage._write(
+        "INSERT INTO delivery_handoff_uncertainty "
+        "(outbox_id, attempt_number, state) "
+        "VALUES (?, 1, 'uncertain_native_handoff')",
+        (stored.outbox_id,),
+    )
+    assert await temp_storage.mark_outbox_retry_wait(
+        stored.outbox_id,
+        next_attempt_at=(
+            datetime.now(timezone.utc) + timedelta(seconds=60)
+        ).isoformat(),
+        attempt_number=1,
+        expected_worker_id=_WORKER,
+        failure_kind_detail="adapter_transient",
+    )
+    historical = await temp_storage._read_one(
+        "SELECT attempt_number, state FROM delivery_handoff_uncertainty "
+        "WHERE outbox_id=?",
+        (stored.outbox_id,),
+    )
+    assert historical == {"attempt_number": 1, "state": "superseded_native_handoff"}
+    row = await temp_storage.get_outbox_item(stored.outbox_id)
+    assert row is not None and row.failure_kind_detail == "adapter_transient"
+    assert not await temp_storage.append_delivery_observation(
+        _observation("late-not-uncertain", provenance)
+    )
+
+    # The ceiling deletes the free-form override. The supersession must
+    # remain the only surviving fact and must not revive uncertainty.
+    now = await _install_elapsed_policy(temp_storage, provenance.event_id)
+    await temp_storage.enforce_content_ceilings(now=now)
+    surviving = await temp_storage._read_one(
+        "SELECT attempt_number, state FROM delivery_handoff_uncertainty "
+        "WHERE outbox_id=?",
+        (stored.outbox_id,),
+    )
+    assert surviving == {"attempt_number": 1, "state": "superseded_native_handoff"}
+    assert (
+        await temp_storage._read_one(
+            "SELECT 1 FROM delivery_evidence_diagnostics "
+            "WHERE family='outbox' AND row_id=?",
+            (stored.outbox_id,),
+        )
+        is None
+    )
+    purged = await temp_storage.get_outbox_item(stored.outbox_id)
+    assert purged is not None and purged.failure_kind_detail is None
+    assert not await temp_storage.append_delivery_observation(
+        _observation("late-after-purge", provenance)
+    )
+
+
+@pytest.mark.parametrize("completion", ["unknown", "accepted"])
+async def test_in_flight_completion_with_prior_unreadable_handoff_stays_recordable(
+    temp_storage, completion
+):
+    """Unreadable earlier evidence cannot erase an independently granted completion."""
+    import json
+
+    from medre.core.storage.radio import StoredRadioAttempt
+    from medre.core.storage.radio_handoff import RadioLocalHandoff
+
+    stored, provenance = await _seed_reserved_claim(temp_storage)
+    bound = await temp_storage.bind_radio_attempt(provenance, _WORKER, _plan())
+    assert bound is not None
+    first = await temp_storage.begin_radio_part(bound, _WORKER, 1)
+    assert first is not None
+    accepted = await temp_storage.observe_radio_part(
+        first,
+        _WORKER,
+        1,
+        handoff_id=RadioLocalHandoff(1, "native-1", "ch-0", "local_transport").encode(),
+    )
+    assert accepted is not None
+    started = await temp_storage.begin_radio_part(accepted, _WORKER, 2)
+    assert started is not None
+    corrupted_parts = list(started.progress.parts)
+    corrupted_parts[0] = dataclass_replace(
+        corrupted_parts[0], handoff_id="{bad-handoff}"
+    )
+    corrupted_progress = dataclass_replace(
+        started.progress, parts=tuple(corrupted_parts)
+    )
+    corrupted_started = StoredRadioAttempt(
+        provenance, corrupted_progress, started.revision
+    )
+    await temp_storage._write(
+        "UPDATE radio_attempt_progress SET parts_json=? WHERE outbox_id=?",
+        (
+            json.dumps(
+                [
+                    {
+                        "ordinal": part.ordinal,
+                        "state": part.state,
+                        "handoff_id": part.handoff_id,
+                    }
+                    for part in corrupted_parts
+                ]
+            ),
+            stored.outbox_id,
+        ),
+    )
+    now = await _install_elapsed_policy(temp_storage, provenance.event_id)
+    await temp_storage.enforce_content_ceilings(now=now)
+    handoff = (
+        RadioLocalHandoff(2, "native-2", "ch-0", "local_transport").encode()
+        if completion == "accepted"
+        else None
+    )
+    finished = await temp_storage.observe_radio_part(
+        corrupted_started, _WORKER, 2, handoff_id=handoff
+    )
+    assert finished is not None
+    summary = await temp_storage.get_radio_attempt_evidence(stored.outbox_id, 1)
+    assert summary is not None
+    assert summary.parts[0].handoff_id == "{}"
+    assert summary.parts[1].state == completion
+    verdict = await EvidenceBackedHandoffResolver(temp_storage).resolve(stored, 1)
+    assert verdict.verdict == "unresolved"
+    assert verdict.reasons == ("unreadable_handoff_reference",)
+
+
+class _FixedResolutionResolver:
+    """Return one prepared resolution and record the requested attempt."""
+
+    def __init__(self, resolution):
+        self.resolution = resolution
+        self.calls: list[int] = []
+
+    async def resolve(self, item, attempt_number):
+        self.calls.append(attempt_number)
+        return self.resolution
+
+
+def _denied_item(**overrides) -> DeliveryOutboxItem:
+    fields = {
+        "outbox_id": "obox-content-denied",
+        "event_id": "evt-content-denied",
+        "route_id": "route-content-denied",
+        "delivery_plan_id": "plan-content-denied",
+        "target_adapter": "radio",
+        "target_channel": "ch-0",
+        "attempt_number": 1,
+        "status": "retry_wait",
+    }
+    fields.update(overrides)
+    return DeliveryOutboxItem(**fields)
+
+
+async def test_content_denied_handoff_skips_an_unstarted_generation() -> None:
+    lifecycle = DeliveryLifecycleService()
+    resolver = _FixedResolutionResolver(None)
+    item = _denied_item(attempt_number=0)
+    assert (
+        await lifecycle.reconcile_content_denied_handoff(
+            MagicMock(), item, resolver, attempt_receipts=[]
+        )
+        is None
+    )
+    assert resolver.calls == []
+
+
+async def test_content_denied_handoff_returns_unreadable_evidence() -> None:
+    lifecycle = DeliveryLifecycleService()
+    resolution = UncertainHandoffResolution(
+        verdict="unresolved",
+        attempt_number=1,
+        uncertain=True,
+        reasons=("resolution_evidence_unavailable",),
+        has_checkpoint=False,
+    )
+    resolver = _FixedResolutionResolver(resolution)
+    result = await lifecycle.reconcile_content_denied_handoff(
+        MagicMock(), _denied_item(), resolver, attempt_receipts=[]
+    )
+    assert result is resolution
+    assert resolver.calls == [1]
+
+
+async def test_content_denied_handoff_settles_positive_evidence_with_receipts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lifecycle = DeliveryLifecycleService()
+    resolution = UncertainHandoffResolution(
+        verdict="delivered_with_evidence",
+        attempt_number=1,
+        uncertain=False,
+        reasons=("radio_handoff_complete",),
+        has_checkpoint=True,
+        accepted_parts=1,
+        uncertain_parts=0,
+        unsent_parts=0,
+        observation_count=0,
+        checkpoint_revision=2,
+    )
+    finalization = RetryAttemptFinalization(
+        outcome="accepted",
+        receipt_id="rcpt-content-denied",
+        failure_kind=None,
+        attempt_number=1,
+    )
+    settle = AsyncMock(return_value=finalization)
+    monkeypatch.setattr(lifecycle, "_settle_resolved_handoff", settle)
+    resolver = _FixedResolutionResolver(resolution)
+    item = _denied_item()
+
+    assert (
+        await lifecycle.reconcile_content_denied_handoff(
+            MagicMock(), item, resolver, attempt_receipts=[]
+        )
+        is finalization
+    )
+    settle.assert_awaited_once()
+    assert settle.await_args.args[1:] == (item, 1, resolution)
+    assert settle.await_args.kwargs == {"expected_receipt_count": 0}
+
+    settle.reset_mock()
+    attributed = [
+        DeliveryReceipt(
+            receipt_id="rcpt-content-denied-failed",
+            event_id="evt-content-denied",
+            delivery_plan_id="plan-content-denied",
+            target_adapter="radio",
+            target_channel="ch-0",
+            outbox_id="obox-content-denied",
+            attempt_number=1,
+            status="failed",
+            source="live",
+        )
+    ]
+    assert (
+        await lifecycle.reconcile_content_denied_handoff(
+            MagicMock(), item, resolver, attempt_receipts=attributed
+        )
+        is finalization
+    )
+    settle.assert_awaited_once()
+    assert settle.await_args.kwargs == {"expected_receipt_count": 1}
+
+    settle.reset_mock()
+    foreign_run = [
+        DeliveryReceipt(
+            receipt_id="rcpt-content-denied-foreign-run",
+            event_id="evt-content-denied",
+            delivery_plan_id="plan-content-denied",
+            target_adapter="radio",
+            target_channel="ch-0",
+            outbox_id="obox-content-denied",
+            attempt_number=1,
+            status="failed",
+            source="replay",
+            replay_run_id="run-other",
+        )
+    ]
+    replay_item = _denied_item(dispatch_source="replay", replay_run_id="run-a")
+    assert (
+        await lifecycle.reconcile_content_denied_handoff(
+            MagicMock(), replay_item, resolver, attempt_receipts=foreign_run
+        )
+        is resolution
+    )
+    settle.assert_not_awaited()
+
+
+async def test_attempt_receipt_list_is_scoped_to_one_generation() -> None:
+    receipts = [
+        DeliveryReceipt(
+            receipt_id="rcpt-attempt-1",
+            event_id="evt-content-denied",
+            delivery_plan_id="plan-content-denied",
+            target_adapter="radio",
+            outbox_id="obox-content-denied",
+            attempt_number=1,
+            status="failed",
+        ),
+        DeliveryReceipt(
+            receipt_id="rcpt-attempt-2",
+            event_id="evt-content-denied",
+            delivery_plan_id="plan-content-denied",
+            target_adapter="radio",
+            outbox_id="obox-content-denied",
+            attempt_number=2,
+            status="failed",
+        ),
+    ]
+    storage = MagicMock()
+    storage.list_receipts_for_outbox = AsyncMock(return_value=receipts)
+    listed = await DeliveryLifecycleService().list_attempt_receipts(
+        storage, "obox-content-denied", 1
+    )
+    assert [receipt.receipt_id for receipt in listed] == ["rcpt-attempt-1"]
+    storage.list_receipts_for_outbox.assert_awaited_once_with("obox-content-denied")
+
+
+async def test_expired_unpurged_radio_plan_is_not_readable_but_acceptance_still_settles(
+    temp_storage,
+):
+    """An elapsed ceiling denies wire reads before maintenance gets its turn."""
+    stored, provenance = await _seed_reserved_claim(temp_storage)
+    fingerprint = "cd" * 32
+    await _bind_and_progress(
+        temp_storage,
+        provenance,
+        ["accepted", "accepted", "accepted"],
+        payload_fingerprint=fingerprint,
+    )
+    await _install_elapsed_policy(temp_storage, provenance.event_id)
+    assert await temp_storage.get_radio_attempt(stored.outbox_id, 1) is None
+    compact = await temp_storage.get_radio_attempt_evidence(stored.outbox_id, 1)
+    assert compact is not None
+    assert all(part.state == "accepted" for part in compact.parts)
+    assert fingerprint not in repr(compact)
+    assert "café α" not in repr(compact)
+    assert (
+        await temp_storage._read_one(
+            "SELECT 1 FROM event_content_ceiling_log WHERE event_id=?",
+            (provenance.event_id,),
+        )
+        is None
+    )
+    claimed = await _claimed_row(temp_storage, stored.outbox_id, "reclaimer")
+    verdict = await DeliveryLifecycleService().reconcile_retry_claim(
+        temp_storage,
+        claimed,
+        RetryPolicy(max_attempts=4),
+        handoff_resolver=EvidenceBackedHandoffResolver(temp_storage),
+    )
+    assert verdict is not None and verdict.outcome == "accepted"
+    after = await temp_storage.get_outbox_item(stored.outbox_id)
+    assert after is not None and after.status == "sent"
+    assert await temp_storage.list_receipts_for_outbox(stored.outbox_id) == []

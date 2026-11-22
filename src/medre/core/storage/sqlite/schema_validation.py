@@ -8,6 +8,7 @@ from functools import lru_cache
 from medre.core.storage.backend import (
     PreReleaseSchemaConstraintMismatchError,
     PreReleaseSchemaMismatchError,
+    StorageDowngradeRefusedError,
     StorageInitializationError,
 )
 from medre.core.storage.sqlite._prerelease_migrate import (
@@ -20,11 +21,15 @@ from medre.core.storage.sqlite._prerelease_migrate import (
 )
 from medre.core.storage.sqlite.schema import (
     _ADMISSION_ORDER_INDEX_DDL,
+    _ATTACHMENT_CONTENT_REF_INDEX_DDL,
+    _CEILING_LOG_DDL,
+    _CEILING_ORDER_INDEX_DDL,
     _COLLECTION_LOG_DDL,
     _DEADLINE_CLEANUP_INDEX_DDL,
     _DIAGNOSTICS_DDL,
     _DIAGNOSTICS_INDEX_DDL,
     _EXPECTED_SCHEMA_VERSION,
+    _HANDOFF_FACTS_DDL,
     _HANDOFF_SETTLEMENTS_DDL,
     _INDEXES,
     _PRESSURE_OUTAGE_GAPS_DDL,
@@ -32,8 +37,10 @@ from medre.core.storage.sqlite.schema import (
     _REQUIRED_FOREIGN_KEYS,
     _REQUIRED_UNIQUE_CONSTRAINTS,
     _RETENTION_EPOCHS_DDL,
+    _ROUTE_RETRY_BOUNDS_DDL,
     _ROUTING_FACTS_DDL,
     _SCHEMA,
+    _SCOPE_VERSIONS_DDL,
     _SNAPSHOT_OWNER_INDEX_DDL,
     _SNAPSHOTS_DDL,
 )
@@ -87,16 +94,28 @@ def _known_grant_table_forms() -> tuple[str, str]:
 _ADDITIVE_OBJECTS: frozenset[tuple[str, str]] = frozenset(
     {
         ("table", "event_content_collection_log"),
+        ("table", "event_content_ceiling_log"),
         ("table", "content_retention_epochs"),
         ("table", "delivery_evidence_diagnostics"),
         ("table", "event_routing_facts"),
         ("table", "delivery_outbox_snapshots"),
         ("table", "delivery_handoff_settlements"),
+        ("table", "delivery_handoff_uncertainty"),
+        ("table", "delivery_route_retry_bounds"),
+        ("table", "radio_accepted_part_facts"),
+        ("table", "delivery_observation_scopes"),
+        ("table", "delivery_observation_scope_versions"),
+        ("trigger", "trg_scope_version_insert"),
+        ("trigger", "trg_scope_version_update"),
+        ("trigger", "trg_scope_version_delete"),
+        ("table", "radio_attempt_evidence_summaries"),
         ("table", "inbound_pressure_outage_gaps"),
         ("index", "idx_outbox_deadline_cleanup_order"),
         ("index", "idx_diagnostics_identity"),
         ("index", "idx_events_admission_order"),
         ("index", "idx_outbox_snapshot_owner_unique"),
+        ("index", "idx_ceiling_enforcement_order"),
+        ("index", "idx_attachment_associations_content_ref"),
     }
 )
 
@@ -166,6 +185,23 @@ def safe_additive_state(db: sqlite3.Connection) -> bool:
     return True
 
 
+def downgrade_refusal(
+    db: sqlite3.Connection, path: str | None, unexpected: list[str]
+) -> StorageDowngradeRefusedError:
+    """Build the explicit downgrade refusal from one connection's catalog.
+
+    Shared by the exact-catalog validator and the read-only startup preflight
+    so both refusal sites name the same two catalog states.
+    """
+    return StorageDowngradeRefusedError(
+        path,
+        unexpected,
+        stored_count=len(_definitions(db)),
+        expected_count=len(_expected_definitions()),
+        expected_version=_EXPECTED_SCHEMA_VERSION,
+    )
+
+
 def apply_safe_additions(db: sqlite3.Connection) -> None:
     """Apply allowlisted additive DDL inside the caller's IMMEDIATE transaction."""
     if not safe_additive_state(db):
@@ -173,6 +209,8 @@ def apply_safe_additions(db: sqlite3.Connection) -> None:
     current = _definitions(db)
     if ("table", "event_content_collection_log") not in current:
         execute_ddl(db, _COLLECTION_LOG_DDL)
+    if ("table", "event_content_ceiling_log") not in current:
+        execute_ddl(db, _CEILING_LOG_DDL)
     if ("table", "content_retention_epochs") not in current:
         execute_ddl(db, _RETENTION_EPOCHS_DDL)
     if ("table", "delivery_evidence_diagnostics") not in current:
@@ -183,6 +221,25 @@ def apply_safe_additions(db: sqlite3.Connection) -> None:
         execute_ddl(db, _SNAPSHOTS_DDL)
     if ("table", "delivery_handoff_settlements") not in current:
         execute_ddl(db, _HANDOFF_SETTLEMENTS_DDL)
+    if (
+        ("table", "delivery_handoff_uncertainty") not in current
+        or ("table", "radio_accepted_part_facts") not in current
+        or ("table", "delivery_observation_scopes") not in current
+        or ("table", "radio_attempt_evidence_summaries") not in current
+    ):
+        execute_ddl(db, _HANDOFF_FACTS_DDL)
+    if any(
+        key not in current
+        for key in (
+            ("table", "delivery_observation_scope_versions"),
+            ("trigger", "trg_scope_version_insert"),
+            ("trigger", "trg_scope_version_update"),
+            ("trigger", "trg_scope_version_delete"),
+        )
+    ):
+        execute_ddl(db, _SCOPE_VERSIONS_DDL)
+    if ("table", "delivery_route_retry_bounds") not in current:
+        execute_ddl(db, _ROUTE_RETRY_BOUNDS_DDL)
     if ("table", "inbound_pressure_outage_gaps") not in current:
         execute_ddl(db, _PRESSURE_OUTAGE_GAPS_DDL)
     if ("index", "idx_outbox_deadline_cleanup_order") not in current:
@@ -193,6 +250,10 @@ def apply_safe_additions(db: sqlite3.Connection) -> None:
         execute_ddl(db, _ADMISSION_ORDER_INDEX_DDL)
     if ("index", "idx_outbox_snapshot_owner_unique") not in current:
         execute_ddl(db, _SNAPSHOT_OWNER_INDEX_DDL)
+    if ("index", "idx_ceiling_enforcement_order") not in current:
+        execute_ddl(db, _CEILING_ORDER_INDEX_DDL)
+    if ("index", "idx_attachment_associations_content_ref") not in current:
+        execute_ddl(db, _ATTACHMENT_CONTENT_REF_INDEX_DDL)
     if (
         current[("table", "event_content_access_grants")]
         == _known_grant_table_forms()[0]
@@ -224,6 +285,10 @@ def validate_schema_definition(db: sqlite3.Connection, path: str) -> bool:
     actions, CHECK/UNIQUE constraints, expression/partial indexes, views and
     triggers. Semantically equivalent hand-written DDL is deliberately outside
     the exact catalog contract; no independent fingerprint inventory can drift.
+
+    A stored catalog declaring objects this build does not declare raises
+    :class:`StorageDowngradeRefusedError` naming both catalog states: such a
+    database may hold a newer catalog, and no automatic downgrade is planned.
     """
     actual = _definitions(db)
     # SQLite writes an ALTER-added nullable column at the end of the stored
@@ -265,10 +330,24 @@ def validate_schema_definition(db: sqlite3.Connection, path: str) -> bool:
             "or silent reset is performed. Preserve the database and verify a backup "
             "before using a compatible build or choosing an explicit reset."
         )
+    expected = _expected_definitions()
+    # A catalog declaring objects this build does not declare may be a NEWER
+    # catalog written by a newer build. Opening it against the declared schema
+    # would plan a downgrade, so refuse explicitly with both catalog states
+    # before any per-table comparison can render the situation as an
+    # ambiguous per-object mismatch.
+    extra_objects = sorted(actual.keys() - expected.keys())
+    if extra_objects:
+        raise StorageDowngradeRefusedError(
+            path,
+            [f"{kind} {name}" for kind, name in extra_objects],
+            stored_count=len(actual),
+            expected_count=len(expected),
+            expected_version=_EXPECTED_SCHEMA_VERSION,
+        )
     for table in _REQUIRED_COLUMNS:
         if table != version_table:
             _validate_table_columns(db, path, table)
-    expected = _expected_definitions()
     # Inspect table constraints before missing indexes so diagnostics identify
     # the owning invariant even when an incompatible fixture has no indexes.
     for key, definition in expected.items():

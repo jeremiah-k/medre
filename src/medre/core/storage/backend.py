@@ -202,6 +202,60 @@ class PreReleaseSchemaConstraintMismatchError(StorageInitializationError):
         )
 
 
+class StorageDowngradeRefusedError(StorageInitializationError):
+    """Refusal to open a database that declares an unknown, likely newer catalog.
+
+    The stored SQLite catalog contains objects this build does not declare.
+    The database may hold a **newer** catalog written by a newer build of
+    medre, so opening it with the declared catalog would require a schema
+    downgrade. Automatic downgrades are never planned or executed: the
+    refusal names both catalog states and preserves the database untouched.
+    """
+
+    def __init__(
+        self,
+        path: str | None,
+        unexpected: list[str],
+        *,
+        stored_count: int,
+        expected_count: int,
+        expected_version: int,
+    ) -> None:
+        self.path = path
+        self.unexpected = sorted(unexpected)
+        self.stored_count = stored_count
+        self.expected_count = expected_count
+        self.expected_version = expected_version
+        preview = ", ".join(self.unexpected[:6])
+        if len(self.unexpected) > 6:
+            preview += ", ..."
+        path_hint = f" (database: {path})" if path else ""
+        super().__init__(
+            f"Storage catalog downgrade refused{path_hint}: the database "
+            f"declares {stored_count} catalog object(s), including "
+            f"{len(self.unexpected)} this build does not declare: "
+            f"[{preview}]. This build declares {expected_count} catalog "
+            f"object(s) at schema version {expected_version}. The database "
+            "may hold a newer catalog written by a newer build of medre; "
+            "no automatic schema downgrade is performed. Preserve the "
+            "database, verify a backup, and use a compatible build that "
+            "declares this catalog, or make an explicit recovery or reset "
+            "decision."
+        )
+
+    @property
+    def summary(self) -> str:
+        """Compact single-line operator diagnostic for assessment output."""
+        preview = ", ".join(self.unexpected[:4])
+        if len(self.unexpected) > 4:
+            preview += ", ..."
+        return (
+            f"automatic downgrade refused: {len(self.unexpected)} undeclared "
+            f"catalog object(s) [{preview}]; this build declares schema "
+            f"version {self.expected_version}"
+        )
+
+
 class SchemaValidationError(StorageError):
     """Raised when stored data does not conform to the expected schema."""
 
@@ -726,6 +780,52 @@ class OutboxDispatchSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
+class OutboxRouteRetryBoundsWrite:
+    """Content-free retry bounds to persist atomically with one outbox row.
+
+    Captured at admission from the accepted route's resolved retry policy.
+    The values are policy arithmetic facts only: they never carry message
+    content or content-derived bytes and they never authorize a transport
+    dispatch.  Zero ``backoff_base`` or ``max_delay_seconds`` is a legitimate
+    resolved shape (radio routes schedule from transport retry hints instead
+    of exponential backoff), so the real values persist and only negative
+    arithmetic or a sub-one attempt budget is refused.
+    """
+
+    max_attempts: int
+    backoff_base: float
+    max_delay_seconds: float
+    jitter: bool
+
+    def __post_init__(self) -> None:
+        if self.max_attempts < 1:
+            raise ValueError("route retry bounds require max_attempts >= 1")
+        if self.backoff_base < 0:
+            raise ValueError("route retry bounds require backoff_base >= 0")
+        if self.max_delay_seconds < 0:
+            raise ValueError("route retry bounds require max_delay_seconds >= 0")
+
+
+@dataclass(frozen=True, slots=True)
+class OutboxRouteRetryBounds:
+    """Persisted admission-time retry bounds for one exact outbox generation.
+
+    Read back after ceiling enforcement has retired the frozen dispatch
+    context so post-erasure reconciliation uses the route's own historic
+    limits instead of any current configuration. Absence (``None`` from the
+    storage read) is the standing fact that the generation was admitted
+    without resolved route bounds; such rows reconcile without bounds and
+    never reconstruct policy from current configuration.
+    """
+
+    outbox_id: str
+    max_attempts: int
+    backoff_base: float
+    max_delay_seconds: float
+    jitter: bool
+
+
+@dataclass(frozen=True, slots=True)
 class DeferredHandoffFinalization:
     """Validated command for one atomic deferred-hand-off completion.
 
@@ -814,12 +914,22 @@ class TerminalOutboxFinalization:
     present only when this transaction is also introducing the causative failed
     dispatch attempt. Enabling ``require_unsubmitted_replay`` limits the
     transition to an owned replay generation without attempt evidence.
+
+    The optional ``expected_*`` evidence guards fence the terminal transition
+    to the exact-attempt evidence revision the caller read: observation count,
+    receipt count, checkpoint revision, and observation-scope revision. When
+    any guard is set, the transition commits only if the stored attempt still
+    shows exactly the observed evidence.
     """
 
     lifecycle_receipt: DeliveryReceipt
     attempt_receipt: DeliveryReceipt | None = None
     expected_worker_id: str | None = None
     require_unsubmitted_replay: bool = False
+    expected_observation_count: int | None = None
+    expected_receipt_count: int | None = None
+    expected_checkpoint_revision: int | None = None
+    expected_observation_scope_revision: int | None = None
 
     def __post_init__(self) -> None:
         """Reject terminal evidence without a valid delivery and attempt link.
@@ -847,6 +957,22 @@ class TerminalOutboxFinalization:
             )
         if receipt.attempt_number < 1:
             raise ValueError("terminal lifecycle receipt attempt_number must be >= 1")
+
+        for guard_field in (
+            "expected_observation_count",
+            "expected_receipt_count",
+            "expected_observation_scope_revision",
+        ):
+            guard_value = getattr(self, guard_field)
+            if guard_value is not None and guard_value < 0:
+                raise ValueError(f"{guard_field} must be non-negative when set")
+        if (
+            self.expected_checkpoint_revision is not None
+            and self.expected_checkpoint_revision < -1
+        ):
+            raise ValueError(
+                "expected_checkpoint_revision must be -1 or greater when set"
+            )
 
         attempt = self.attempt_receipt
         if self.require_unsubmitted_replay and (
@@ -1665,6 +1791,7 @@ class StorageBackend(Protocol):
         *,
         allocate_new_generation: bool = False,
         dispatch_snapshot: OutboxDispatchSnapshotWrite | None = None,
+        route_retry_bounds: OutboxRouteRetryBoundsWrite | None = None,
     ) -> DeliveryOutboxItem:
         """Create a new outbox item or return an existing generation unchanged.
 
@@ -1684,6 +1811,12 @@ class StorageBackend(Protocol):
         transaction, keyed by the exact outbox identity and the row's committed
         creation generation.  Adopted existing rows never gain a snapshot from
         a later creator.
+
+        When *route_retry_bounds* is provided, the accepted route's resolved
+        content-free retry bounds are written to ``delivery_route_retry_bounds``
+        inside the same creation transaction, keyed by the exact outbox
+        identity.  Adopted existing rows never gain bounds from a later
+        creator: bounds are admission facts, not retrofit state.
 
         Production lifecycle policy:
           - Initial status MUST be ``pending`` (default) or ``in_progress``
@@ -1734,6 +1867,21 @@ class StorageBackend(Protocol):
         to current router configuration.
         Metadata-only projections never return snapshot bytes; this typed read
         is the only access path.
+        """
+        ...
+
+    async def get_outbox_route_retry_bounds(
+        self,
+        outbox_id: str,
+    ) -> OutboxRouteRetryBounds | None:
+        """Read the persisted admission-time retry bounds for one generation.
+
+        Authority: **list/get** (read-only, content-free).  Returns ``None``
+        when the generation was admitted without resolved route bounds
+        (historical/predecessor rows and routes without a resolved retry
+        policy).  The bounds survive ceiling enforcement: they are
+        content-free policy facts, not send authority, and post-erasure
+        reconciliation consumes them instead of any current configuration.
         """
         ...
 
@@ -1817,9 +1965,13 @@ class StorageBackend(Protocol):
         ...
 
     async def health_backlog_adapters(
-        self, candidates: tuple[str, ...], *, queued_as_of: str | None = None
+        self, candidates: tuple[str, ...]
     ) -> tuple[str, ...]:
-        """Return lanes with current work, including stale queued rows if requested."""
+        """Return lanes with dispatchable nonterminal work.
+
+        ``queued`` rows are the durable confirmation-pending disposition and
+        never make a lane a wake candidate.
+        """
         ...
 
     async def claim_due_outbox_items(
@@ -1843,11 +1995,12 @@ class StorageBackend(Protocol):
           claimable;
         - ``status = 'in_progress' AND (lease_until IS NULL OR
           lease_until <= now)`` — missing or expired leases (worker
-          crashed or stalled);
-        - ``status = 'queued' AND updated_at <= now - GRACE`` — stale
-          queued items past the grace threshold defined by
-          :data:`~medre.core.storage.sqlite.STALE_QUEUED_GRACE_SECONDS`
-          (default 300 s).
+          crashed or stalled).
+
+        ``queued`` rows are never claimed: a queued receipt records only
+        adapter-local queue acceptance, so the row rests in the durable
+        confirmation-pending disposition until evidence settles it or the
+        operator resolves it.
 
         Additional guards applied to every candidate:
 
@@ -1881,6 +2034,7 @@ class StorageBackend(Protocol):
         expected_observation_count: int | None = None,
         expected_receipt_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
+        expected_observation_scope_revision: int | None = None,
     ) -> bool:
         """Mark an outbox item as ``sent`` (terminal).
 
@@ -1897,6 +2051,10 @@ class StorageBackend(Protocol):
         ``attempt_number``. The exact outbox/attempt observation count MUST
         match in the same guarded write; mismatch returns ``False`` without
         committing any part of the transition.
+        ``expected_observation_scope_revision`` (including zero) requires an
+        explicit ``attempt_number``. The exact outbox/attempt observation
+        scope revision MUST match in the same guarded write; mismatch returns
+        ``False`` without committing any part of the transition.
         """
         ...
 
@@ -1906,6 +2064,8 @@ class StorageBackend(Protocol):
         receipt_id: str | None = None,
         attempt_number: int | None = None,
         expected_worker_id: str | None = None,
+        *,
+        expected_receipt_count: int | None = None,
     ) -> bool:
         """Mark an outbox item as ``queued`` (adapter-local queue acceptance).
 
@@ -1913,6 +2073,8 @@ class StorageBackend(Protocol):
 
         Only transitions from ``in_progress``.  No-op if already terminal.
         Return ``True`` only when this call committed the transition.
+        A non-None ``expected_receipt_count`` (including zero) requires an
+        exact match of the receipts observable for the committed attempt.
         """
         ...
 
@@ -1930,6 +2092,7 @@ class StorageBackend(Protocol):
         expected_observation_count: int | None = None,
         expected_receipt_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
+        expected_observation_scope_revision: int | None = None,
     ) -> bool:
         """Mark an outbox item as ``retry_wait`` (transient failure).
 
@@ -1942,6 +2105,10 @@ class StorageBackend(Protocol):
         ``attempt_number``. The exact outbox/attempt observation count MUST
         match in the same guarded write; mismatch returns ``False`` without
         committing any part of the transition.
+        ``expected_observation_scope_revision`` (including zero) requires an
+        explicit ``attempt_number``. The exact outbox/attempt observation
+        scope revision MUST match in the same guarded write; mismatch returns
+        ``False`` without committing any part of the transition.
         """
         ...
 
@@ -1958,6 +2125,7 @@ class StorageBackend(Protocol):
         expected_observation_count: int | None = None,
         expected_receipt_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
+        expected_observation_scope_revision: int | None = None,
     ) -> bool:
         """Mark an outbox item as ``dead_lettered`` (terminal failure).
 
@@ -1973,6 +2141,10 @@ class StorageBackend(Protocol):
         ``attempt_number``. The exact outbox/attempt observation count MUST
         match in the same guarded write; mismatch returns ``False`` without
         committing any part of the transition.
+        ``expected_observation_scope_revision`` (including zero) requires an
+        explicit ``attempt_number``. The exact outbox/attempt observation
+        scope revision MUST match in the same guarded write; mismatch returns
+        ``False`` without committing any part of the transition.
         """
         ...
 
@@ -2007,6 +2179,7 @@ class StorageBackend(Protocol):
         expected_observation_count: int | None = None,
         expected_receipt_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
+        expected_observation_scope_revision: int | None = None,
     ) -> bool:
         """Mark an outbox item as ``abandoned`` (terminal).
 
@@ -2015,6 +2188,10 @@ class StorageBackend(Protocol):
         Used for in-flight items lost at drain timeout.  No-op if already
         terminal.  Return ``True`` only when this call committed the
         transition.
+        ``expected_observation_scope_revision`` (including zero) requires an
+        explicit ``attempt_number``. The exact outbox/attempt observation
+        scope revision MUST match in the same guarded write; mismatch returns
+        ``False`` without committing any part of the transition.
         """
         ...
 
@@ -2044,6 +2221,7 @@ class StorageBackend(Protocol):
         expected_observation_count: int | None = None,
         expected_receipt_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
+        expected_observation_scope_revision: int | None = None,
     ) -> int | None:
         """Durably reserve the next delivery attempt on a claimed row.
 
@@ -2062,7 +2240,10 @@ class StorageBackend(Protocol):
         A supplied observation count (including zero) MUST match the
         append-only observations for this outbox and ``from_attempt`` in
         the same reservation write; a mismatch returns ``None`` without
-        reserving or consuming an attempt.
+        reserving or consuming an attempt. A supplied observation scope
+        revision is a durable revision token, not a row count: it MUST
+        equal the attempt's stored scope revision (including zero when no
+        scope mutation has been recorded) under the same guarded write.
         """
         ...
 

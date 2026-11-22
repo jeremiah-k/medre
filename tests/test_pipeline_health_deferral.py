@@ -270,7 +270,7 @@ async def test_recovery_redispatches_deferred_obligation(
         assert worker._health_gate is not None
         assert worker._health_gate._obligation_started == {}
         assert worker._health_gate._lane_started == {}
-        assert await worker._health_excluded_adapters(datetime.now(timezone.utc)) == ()
+        assert await worker._health_excluded_adapters() == ()
 
         with caplog.at_level(logging.INFO, logger="medre.runtime.retry"):
             await worker._process_due(datetime.now(timezone.utc))
@@ -315,9 +315,7 @@ async def test_worker_skips_unhealthy_adapter_obligations(
         )
         # Even with the obligation due, the degraded adapter is excluded
         # from claiming, so no attempt is burned and nothing is sent.
-        assert await worker._health_excluded_adapters(datetime.now(timezone.utc)) == (
-            "fake_presentation",
-        )
+        assert await worker._health_excluded_adapters() == ("fake_presentation",)
         await worker._process_due(datetime.now(timezone.utc))
         assert adapter.delivered_payloads == []
         rows = await _outbox_rows(temp_storage, "def-004")
@@ -360,7 +358,7 @@ async def test_deferral_horizon_expires_to_normal_retry_rules(
             adapter_health_gate=shared_gate,
         )
         now = datetime.now(timezone.utc)
-        assert await worker._health_excluded_adapters(now) == ("fake_presentation",)
+        assert await worker._health_excluded_adapters() == ("fake_presentation",)
 
         # Simulate the obligation having been deferred for the full horizon:
         # age every horizon the gate recorded for this lane.
@@ -371,7 +369,7 @@ async def test_deferral_horizon_expires_to_normal_retry_rules(
         with caplog.at_level(
             logging.INFO, logger="medre.core.engine.pipeline.adapter_health"
         ):
-            assert await worker._health_excluded_adapters(now) == ()
+            assert await worker._health_excluded_adapters() == ()
         horizon_lines = [
             record
             for record in caplog.records
@@ -390,11 +388,17 @@ async def test_deferral_horizon_expires_to_normal_retry_rules(
 
 
 @pytest.mark.parametrize("retries_enabled", [True, False])
-async def test_stale_queued_work_ages_deferral_only_when_retries_are_enabled(
+async def test_queued_row_never_opens_a_lane_for_dispatch(
     outbox_temp_storage: SQLiteStorage,
     monkeypatch: pytest.MonkeyPatch,
     retries_enabled: bool,
 ) -> None:
+    """A queued row is the durable confirmation-pending disposition.
+
+    Whether fresh or stale, with retries enabled or not, it is never held
+    work that reopens a degraded lane for dispatch: only evidence-driven
+    settlement or the explicit operator resolution exits it.
+    """
     clock = 0.0
     monkeypatch.setattr(
         "medre.core.engine.pipeline.adapter_health.monotonic", lambda: clock
@@ -423,13 +427,18 @@ async def test_stale_queued_work_ages_deferral_only_when_retries_are_enabled(
     fresh = datetime.fromisoformat(queued.updated_at)
     stale = fresh + timedelta(seconds=STALE_QUEUED_GRACE_SECONDS)
 
-    assert await worker._health_excluded_adapters(fresh) == (target,)
+    assert await worker._health_excluded_adapters() == (target,)
     clock = 10.0
-    assert await worker._health_excluded_adapters(stale) == (target,)
+    assert await worker._health_excluded_adapters() == (target,)
     clock = 20.0
-    assert await worker._health_excluded_adapters(stale) == (
-        () if retries_enabled else (target,)
-    )
+    assert await worker._health_excluded_adapters() == (target,)
+
+    # The maintenance wake never dispatches the queued row, fresh or stale.
+    await worker._process_due(fresh)
+    await worker._process_due(stale)
+    after = await outbox_temp_storage.get_outbox_item(stored.outbox_id)
+    assert after is not None and after.status == "queued"
+    assert after.attempt_number == 1 and after.active_attempt is None
 
 
 async def test_restart_during_deferral_preserves_obligation(
@@ -532,12 +541,12 @@ async def test_later_obligation_gets_fresh_horizon_and_sibling_expiry_reopens_la
             now = datetime.now(timezone.utc)
 
             # Both horizons run: the lane stays excluded for the full window.
-            assert await worker._health_excluded_adapters(now) == ("fake_presentation",)
+            assert await worker._health_excluded_adapters() == ("fake_presentation",)
 
             # The first obligation's horizon expires; the lane opens for it
             # while the later obligation keeps its own remaining horizon.
             clock[0] = MAX_DEFERRAL_HORIZON_SECONDS
-            assert await worker._health_excluded_adapters(now) == ()
+            assert await worker._health_excluded_adapters() == ()
             await worker._process_due(now)
             assert len(adapter.delivered_payloads) == 1
             first = (await _outbox_rows(temp_storage, "horizon-001"))[0]
@@ -556,7 +565,7 @@ async def test_later_obligation_gets_fresh_horizon_and_sibling_expiry_reopens_la
 
             # Its own horizon expiring admits it under normal rules.
             clock[0] = MAX_DEFERRAL_HORIZON_SECONDS * 1.5
-            assert await worker._health_excluded_adapters(now) == ()
+            assert await worker._health_excluded_adapters() == ()
             await worker._process_due(datetime.now(timezone.utc))
             assert len(adapter.delivered_payloads) == 2
             second = (await _outbox_rows(temp_storage, "horizon-002"))[0]
@@ -835,9 +844,7 @@ async def test_late_health_change_releases_initial_reservation_and_notification_
             len([r for r in caplog.records if "Deferred: adapter=" in r.getMessage()])
             == 1
         )
-        assert await worker._health_excluded_adapters(datetime.now(timezone.utc)) == (
-            "radio",
-        )
+        assert await worker._health_excluded_adapters() == ("radio",)
         scanned = asyncio.Event()
         process_due = worker._process_due
 

@@ -766,7 +766,13 @@ def test_storage_vocabularies_match_the_projection() -> None:
     assert (origin, anchor) == ("admission", _PAST)
 
 
-async def test_stale_grace_cutoff_matches_the_reclaim_policy(tmp_path: Path) -> None:
+async def test_stale_queue_age_flag_is_not_claimable(tmp_path: Path) -> None:
+    """The stale-queued age flag marks the confirmation-pending disposition.
+
+    ``stale_queue_reclaimable`` remains a recorded age condition, never
+    proof of claimability: the flagged rows are the durable
+    confirmation-pending disposition and the claim never returns them.
+    """
     from medre.core.storage.sqlite.constants import STALE_QUEUED_GRACE_SECONDS
 
     sampled = datetime.fromisoformat(_FIXED_SAMPLE)
@@ -796,7 +802,13 @@ async def test_stale_grace_cutoff_matches_the_reclaim_policy(tmp_path: Path) -> 
             now=_FIXED_SAMPLE, worker_id="reclaim", limit=10
         )
         assert flagged == {"lane--1", "lane-0"}
-        assert {r.outbox_id for r in claimed} == {ids[name] for name in flagged}
+        # The flagged rows are confirmation-pending: nothing is reclaimable.
+        assert claimed == []
+        statuses = {
+            item.status
+            for item in await store.list_outbox_items_for_event(event.event_id)
+        }
+        assert statuses == {"queued"}
     finally:
         await store.close()
 

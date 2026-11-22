@@ -23,6 +23,7 @@ from enum import StrEnum
 from medre.core.storage.backend import (
     PreReleaseSchemaConstraintMismatchError,
     PreReleaseSchemaMismatchError,
+    StorageDowngradeRefusedError,
     StorageInitializationError,
 )
 from medre.core.storage.sqlite._prerelease_migrate import (
@@ -105,6 +106,8 @@ def _mismatch_diagnostic(exc: StorageInitializationError) -> str:
         return f"{exc.table}: {body}"
     if isinstance(exc, PreReleaseSchemaConstraintMismatchError):
         return f"{exc.table}: {', '.join(exc.missing_constraints)}"
+    if isinstance(exc, StorageDowngradeRefusedError):
+        return exc.summary
     return str(exc).split(". (", maxsplit=1)[0]
 
 

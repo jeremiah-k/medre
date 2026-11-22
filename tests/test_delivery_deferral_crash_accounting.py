@@ -302,7 +302,7 @@ async def test_restart_under_continuous_degradation_delivers_on_fresh_lane_horiz
                 adapter_health_gate=AdapterHealthGate(health.get),
             )
             now = datetime.now(timezone.utc)
-            assert await restarted._health_excluded_adapters(now) == ("radio",)
+            assert await restarted._health_excluded_adapters() == ("radio",)
             await restarted._process_due(now)
             assert adapters["radio"].delivered_payloads == []
             assert runner._diagnostician.snapshot()["deferrals"] == {"radio": 1}
@@ -311,7 +311,7 @@ async def test_restart_under_continuous_degradation_delivers_on_fresh_lane_horiz
             # surviving obligation dispatches under normal rules with the
             # deferred attempts still unconsumed.
             clock[0] = MAX_DEFERRAL_HORIZON_SECONDS
-            assert await restarted._health_excluded_adapters(now) == ()
+            assert await restarted._health_excluded_adapters() == ()
             await restarted._process_due(datetime.now(timezone.utc))
             assert len(adapters["radio"].delivered_payloads) == 1
             row = await _radio_row(temp_storage, "restart-lane")

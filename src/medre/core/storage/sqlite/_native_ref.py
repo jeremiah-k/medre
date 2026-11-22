@@ -7,9 +7,8 @@ Authority surface:
     the ``direction`` column (real directional value, not a placeholder).
     Same native identity must not silently remap to a different canonical
     event (first-writer-wins via resolve-before-insert + INSERT OR IGNORE).
-    NULL ``native_channel_id`` requires explicit dedup because SQL UNIQUE
-    treats NULL != NULL; the resolve-before-insert uses ``IS`` for proper
-    NULL comparison.
+    NULL ``native_channel_id`` needs an additional exact-tuple INSERT guard
+    because the schema's UNIQUE constraint does not deduplicate NULLs.
   - resolve_native_ref: **list/get** (read-only).  No mutation.
   - get_native_ref:     **list/get** (read-only).
   - list_native_refs_for_event: **list/get** (read-only).
@@ -20,13 +19,16 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from medre.core.events import NativeMessageRef
+from medre.core.storage.sqlite._content_identity import CEILING_CLOCK_AT_EXECUTION
 from medre.core.storage.sqlite._projections import inspection_sql
 from medre.core.storage.sqlite.serde import _encode_json, _row_to_native_ref
 from medre.core.storage.sqlite.statements import (
     _GET_NATIVE_REF,
+    _GET_NATIVE_REF_PLAIN,
     _INSERT_NATIVE_REF,
     _RESOLVE_NATIVE_REF,
     _SELECT_NREFS_FOR_EVENT,
+    _SELECT_NREFS_FOR_EVENT_PLAIN,
 )
 
 
@@ -46,8 +48,14 @@ def _native_ref_insert_params(ref: NativeMessageRef) -> tuple[object, ...]:
         ref.native_thread_id,
         ref.native_relation_id,
         ref.direction,
+        ref.event_id,  # Compare installed ceiling in the atomic INSERT.
+        CEILING_CLOCK_AT_EXECUTION,
+        ref.event_id,  # A committed receipt remains authoritative after clock rollback.
         _encode_json(ref.metadata),
         ref.created_at.isoformat(),
+        ref.adapter,
+        ref.native_channel_id,
+        ref.native_message_id,
     )
 
 
@@ -129,8 +137,21 @@ class _NativeRefMixin:
         *native_channel_id*.
         """
         row = await self._read_one(
-            inspection_sql(_GET_NATIVE_REF, "native_message_refs", metadata_only),
-            (adapter, native_channel_id, native_message_id),
+            inspection_sql(
+                _GET_NATIVE_REF_PLAIN if metadata_only else _GET_NATIVE_REF,
+                "native_message_refs",
+                metadata_only,
+            ),
+            (
+                (adapter, native_channel_id, native_message_id)
+                if metadata_only
+                else (
+                    CEILING_CLOCK_AT_EXECUTION,
+                    adapter,
+                    native_channel_id,
+                    native_message_id,
+                )
+            ),
         )
         return _row_to_native_ref(row) if row else None
 
@@ -149,8 +170,14 @@ class _NativeRefMixin:
         """
         rows = await self._read_all(
             inspection_sql(
-                _SELECT_NREFS_FOR_EVENT, "native_message_refs", metadata_only
+                (
+                    _SELECT_NREFS_FOR_EVENT_PLAIN
+                    if metadata_only
+                    else _SELECT_NREFS_FOR_EVENT
+                ),
+                "native_message_refs",
+                metadata_only,
             ),
-            (event_id,),
+            (event_id,) if metadata_only else (CEILING_CLOCK_AT_EXECUTION, event_id),
         )
         return [_row_to_native_ref(r) for r in rows]

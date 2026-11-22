@@ -403,6 +403,49 @@ def sync_read_outbox_body(
     return ContentBodyRead("retained", row[0])
 
 
+# Resolve the quoted event without treating an unverified native hint as
+# overriding a canonical target. Published native mappings outrank a source
+# alias, and ambiguous mappings fail closed: expiry of any mapped owner hides
+# the excerpt. The relation itself remains readable as identity/linkage.
+_QUOTED_TARGET_EVENTS_SQL = (
+    "SELECT r.target_event_id WHERE r.target_event_id IS NOT NULL "
+    "UNION ALL SELECT n.event_id FROM native_message_refs n "
+    "WHERE r.target_event_id IS NULL "
+    "AND n.adapter=r.target_native_adapter "
+    "AND n.native_channel_id IS r.target_native_channel_id "
+    "AND n.native_message_id=r.target_native_message_id "
+    "UNION ALL SELECT c.event_id FROM canonical_events c "
+    "WHERE r.target_event_id IS NULL "
+    "AND c.source_native_adapter=r.target_native_adapter "
+    "AND c.source_native_channel_id IS r.target_native_channel_id "
+    "AND c.source_native_message_id=r.target_native_message_id "
+    "AND NOT EXISTS (SELECT 1 FROM native_message_refs n "
+    "WHERE n.adapter=r.target_native_adapter "
+    "AND n.native_channel_id IS r.target_native_channel_id "
+    "AND n.native_message_id=r.target_native_message_id)"
+)
+# The quoted target's ceiling is evaluated while the statement runs, not
+# when the read clock was bound: a read that waits on a lock across the
+# ceiling cannot expose the excerpt through an earlier bound instant. The
+# receipt-existence check stays independent so a backward clock adjustment
+# cannot restore access once enforcement has committed.
+_QUOTED_EXCERPT_READ_SQL = (
+    "SELECT r.*, x.excerpt AS resolved_fallback_text "  # nosec B608 - closed module fragments; bound target ids only
+    "FROM event_relations r "
+    "LEFT JOIN event_relation_excerpts x ON x.relation_id=r.id "
+    "AND NOT EXISTS (SELECT 1 FROM event_content_access_policies p "
+    "WHERE p.event_id IN ("
+    + _QUOTED_TARGET_EVENTS_SQL
+    + ") "  # nosec B608 - closed module fragment; bound target ids only
+    "AND p.hard_ceiling<=medre_ceiling_now(?)) "
+    "AND NOT EXISTS (SELECT 1 FROM event_content_ceiling_log l "
+    "WHERE l.event_id IN ("
+    + _QUOTED_TARGET_EVENTS_SQL
+    + ")) "  # nosec B608 - closed module fragment; bound target ids only
+    "WHERE r.event_id=? ORDER BY r.id ASC"
+)
+
+
 def sync_read_owned_event(
     db: sqlite3.Connection,
     lock: threading.Lock,
@@ -497,11 +540,8 @@ def sync_read_owned_event(
             []
             if owner_kind == "reply"
             else db.execute(
-                "SELECT r.*, x.excerpt AS resolved_fallback_text "
-                "FROM event_relations r "
-                "LEFT JOIN event_relation_excerpts x ON x.relation_id=r.id "
-                "WHERE r.event_id=? ORDER BY r.id ASC",
-                (event_id,),
+                _QUOTED_EXCERPT_READ_SQL,
+                (observed, event_id),
             ).fetchall()
         )
         body_rows = db.execute(

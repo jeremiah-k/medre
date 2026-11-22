@@ -5,10 +5,14 @@ adapter-owned serialization contracts. Core schemas mirror source models; adapte
 contract schemas mirror their projection helpers and normative specifications.
 
 Source distributions include this directory, including test examples. Wheels
-include only the manifest and frozen normative schema definitions, byte-for-byte,
-under `medre/_schemas`; examples are deliberately excluded. Installed consumers
-can read them with
-`importlib.resources.files("medre").joinpath("_schemas")` without a Git checkout.
+include the manifest and frozen normative schema definitions under
+`medre/_schemas`, byte-for-byte, plus the current adapter and runtime
+configuration schemas under `medre/_schemas/current/`; examples are
+deliberately excluded. The byte-for-byte guarantee is scoped to the frozen
+definitions listed in the manifest. Installed consumers can read every
+packaged schema with
+`importlib.resources.files("medre").joinpath("_schemas")` without a Git
+checkout.
 
 ## Schema Files
 
@@ -62,8 +66,18 @@ published as `event-routing-facts.schema.sql`,
 `content-retention-epochs.schema.sql`. Their table constraints and declared
 indexes are checked against the authoritative SQLite DDL.
 The additive `handoff-settlements.schema.sql` fragment records a content-free
-receipt append watermark for receipt-less handoff settlement. It does not
-change the frozen 0.1.0 catalog.
+receipt append watermark for receipt-less handoff settlement. The
+`event-content-ceiling-log.schema.sql` fragment records the immutable
+content-free enforcement receipt, and the pinned
+`current/content-free-handoff-facts.schema.sql` fragment publishes the
+exact-attempt uncertainty, accepted-packet, observation-scope, and radio
+evidence-summary tables that survive a ceiling purge. The pinned
+`current/route-retry-bounds.schema.sql` fragment publishes the content-free
+admission-time retry bounds that survive a ceiling purge so post-erasure
+reconciliation uses the route's own historic limits instead of any current
+configuration. Their table constraints
+and declared indexes are checked against the authoritative SQLite DDL. None
+of these post-release fragments changes the frozen 0.1.0 catalog.
 
 ## Examples
 
@@ -168,7 +182,12 @@ MUST emit the exact frozen bytes. LF reconstruction is permitted only when
 its digest matches the freeze manifest; every other byte change MUST fail
 the build. Fresh checkouts retain the explicit `-text` attribute policy.
 
-## Current adapter configuration
+## Current configuration
+
+[`current/runtime-config.schema.json`](current/runtime-config.schema.json)
+describes the full runtime config, including the optional
+`retry.ceiling_sweep` setting. Use it for configs that use that setting.
+The top-level runtime schema describes the released 0.1.0 config.
 
 [`current/adapter-config.schema.json`](current/adapter-config.schema.json)
 describes the manifest-selected provider configs in the current source tree.
@@ -181,6 +200,7 @@ The current schema adds only the optional Meshtastic
 is an additive configuration change, not a canonical event or SQLite version
 change. The new field is rejected by the older closed baseline schema. Select
 the current schema when validating configs for the newer provider; use the
-released snapshot when validating a released 0.1.0 installation. Both schemas
-are packaged, and support bundles report the current configuration schema when
-available. Future configuration changes require the same compatibility review.
+released snapshot when validating a released 0.1.0 installation. Both
+configuration schemas ship in current and frozen forms. Support bundles
+report the current runtime and adapter schemas when available. Future
+configuration changes require the same compatibility review.
