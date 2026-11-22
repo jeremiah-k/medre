@@ -602,17 +602,27 @@ class EvidenceBackedHandoffResolver:
                 )
                 if evidence_reader is not None:
                     checkpoint = await evidence_reader(item.outbox_id, attempt_number)
-            observations = await self._storage.list_delivery_observations_for_attempt(
-                item.outbox_id, attempt_number
+            snapshot_reader = getattr(
+                self._storage, "read_handoff_observation_snapshot", None
             )
-            scope_counter = getattr(
-                self._storage, "count_delivery_observation_scopes", None
-            )
-            scope_count = (
-                await scope_counter(item.outbox_id, attempt_number)
-                if scope_counter is not None
-                else None
-            )
+            if snapshot_reader is not None:
+                observations, scope_count = await snapshot_reader(
+                    item.outbox_id, attempt_number
+                )
+            else:
+                observations = (
+                    await self._storage.list_delivery_observations_for_attempt(
+                        item.outbox_id, attempt_number
+                    )
+                )
+                scope_counter = getattr(
+                    self._storage, "count_delivery_observation_scopes", None
+                )
+                scope_count = (
+                    await scope_counter(item.outbox_id, attempt_number)
+                    if scope_counter is not None
+                    else None
+                )
         except StorageError:
             return _resolution(
                 "unresolved",
