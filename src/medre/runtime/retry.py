@@ -1345,17 +1345,19 @@ class RetryWorker:
         sweep = self._ceiling_sweep
         if not self._ceiling_sweep_enabled or sweep is None:
             return
+        # Deadline maintenance may have elapsed while this poll awaited it.
+        # Test due-ness against the current start instant, not the clock
+        # captured before deadline cleanup; otherwise a due sweep can be
+        # missed by a one-shot poll that proceeds to claim delivery work.
+        started_at = max(now, datetime.now(timezone.utc))
         if (
             self._next_ceiling_sweep_at is not None
-            and now < self._next_ceiling_sweep_at
+            and started_at < self._next_ceiling_sweep_at
         ):
             return
         # Cadence is committed before the await so a slow sweep cannot
         # re-arm itself on every wake while it is still running. Schedule
-        # from the fresh start instant, not the pre-deadline-sweep clock:
-        # a long deadline cleanup must not shorten the minimum interval
-        # between ceiling-enforcement starts.
-        started_at = max(now, datetime.now(timezone.utc))
+        # from this fresh start instant to preserve the minimum interval.
         try:
             self._next_ceiling_sweep_at = started_at + timedelta(
                 seconds=self._ceiling_sweep_interval

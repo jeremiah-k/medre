@@ -205,3 +205,28 @@ async def test_maintenance_wake_does_not_bypass_retry_scan(
         await worker._process_due(now, group=group)
     sweep.assert_awaited_once()
     claims.assert_not_awaited()
+
+
+async def test_ceiling_sweep_due_after_deadline_maintenance_is_not_skipped(
+    temp_storage: SQLiteStorage, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A long deadline step cannot hide a sweep due before claim processing."""
+    sweep = AsyncMock(return_value=[])
+    monkeypatch.setattr(temp_storage, "enforce_content_ceilings", sweep)
+    runner, _, _ = _pipeline(temp_storage)
+    worker = RetryWorker(
+        temp_storage,
+        runner,
+        None,
+        retry_config=RetryConfig(
+            enabled=False, ceiling_sweep=CeilingSweepConfig(enabled=True)
+        ),
+        initial_dispatch=False,
+    )
+    # The poll's captured timestamp precedes the scheduled sweep, but the
+    # real deadline-maintenance boundary is now well beyond that instant.
+    before_deadline_maintenance = datetime.now(timezone.utc) - timedelta(minutes=2)
+    worker._next_ceiling_sweep_at = before_deadline_maintenance + timedelta(minutes=1)
+    await worker._run_ceiling_sweep(before_deadline_maintenance)
+    sweep.assert_awaited_once()
+    assert worker.state.ceiling_sweep_runs == 1
