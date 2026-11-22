@@ -225,7 +225,7 @@ class _EvidenceDiagnosticsReadMixin:
                     "u.attempt_number AS attempt, u.state AS diagnostic "
                     "FROM delivery_handoff_uncertainty u "
                     "JOIN delivery_outbox o ON o.outbox_id=u.outbox_id "
-                    f"WHERE u.outbox_id IN ({placeholders}) "
+                    f"WHERE u.outbox_id IN ({placeholders}) "  # nosec B608 - closed SQL and bound identities
                     "AND u.state='uncertain_native_handoff' "
                     "AND o.status IN ('retry_wait', 'in_progress') "
                     "AND NOT EXISTS (SELECT 1 FROM delivery_evidence_diagnostics d "
