@@ -396,3 +396,30 @@ async def test_reservation_rejects_a_restored_packet_scope(
         )
         == 2
     )
+
+
+async def test_fresh_abandonment_finalizes_only_the_effective_attempt(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """A fresh abandonment cannot stamp a newer attempt over acceptance.
+
+    The acceptance fence checks the row's stored effective attempt, so a
+    queued admission on the effective generation stops a caller stamping a
+    newer attempt number over it.
+    """
+    stored, provenance = await _seed_reserved_claim(temp_storage)
+    await append_receipt_with_parent(
+        temp_storage,
+        _receipt("queued-effective", provenance, attempt_number=1, status="queued"),
+    )
+    await temp_storage._write(
+        "UPDATE delivery_outbox SET attempt_number=1, active_attempt=NULL, "
+        "status='in_progress' WHERE outbox_id=?",
+        (stored.outbox_id,),
+    )
+    assert not await temp_storage.mark_outbox_abandoned(
+        stored.outbox_id,
+        attempt_number=2,
+    )
+    row = await temp_storage.get_outbox_item(stored.outbox_id)
+    assert row is not None and row.status == "in_progress"

@@ -1358,7 +1358,10 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
             # A second receipt read after reconciliation is not evidence
             # authority: it can see an acceptance that reconciliation did
             # not. Refuse a fresh abandonment even when the supplied count
-            # matches. Recording an explicit terminal receipt is exempt:
+            # matches, and only when the write finalizes the row's current
+            # effective attempt: an earlier generation's acceptance receipt
+            # must stop a caller stamping a newer attempt over it.
+            # Recording an explicit terminal receipt is exempt:
             # that abandonment decision is already durable evidence on
             # this outbox, and committing it cannot discard acceptance.
             where_clauses.append(
@@ -1369,11 +1372,16 @@ class _OutboxMixin(_EvidenceDiagnosticsReadMixin):
                 "AND terminal.attempt_number = COALESCE(?, "
                 "delivery_outbox.active_attempt, delivery_outbox.attempt_number) "
                 "AND terminal.status='abandoned')) "
-                "OR NOT EXISTS (SELECT 1 FROM delivery_receipts accepted "
+                "OR ("
+                "COALESCE(delivery_outbox.active_attempt, "
+                "delivery_outbox.attempt_number) "
+                "= COALESCE(?, delivery_outbox.active_attempt, "
+                "delivery_outbox.attempt_number) "
+                "AND NOT EXISTS (SELECT 1 FROM delivery_receipts accepted "
                 "WHERE accepted.outbox_id=delivery_outbox.outbox_id "
-                "AND accepted.attempt_number = COALESCE(?, "
+                "AND accepted.attempt_number = COALESCE("
                 "delivery_outbox.active_attempt, delivery_outbox.attempt_number) "
-                "AND accepted.status IN ('sent', 'queued')))"
+                "AND accepted.status IN ('sent', 'queued'))))"
             )
             params.extend((receipt_id, receipt_id, attempt_number, attempt_number))
         if expected_worker_id is not None:
