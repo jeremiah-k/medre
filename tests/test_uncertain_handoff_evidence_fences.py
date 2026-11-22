@@ -1051,7 +1051,7 @@ async def test_content_denied_handoff_skips_an_unstarted_generation() -> None:
     item = _denied_item(attempt_number=0)
     assert (
         await lifecycle.reconcile_content_denied_handoff(
-            MagicMock(), item, resolver, existing_receipt_count=0
+            MagicMock(), item, resolver, attempt_receipts=[]
         )
         is None
     )
@@ -1069,7 +1069,7 @@ async def test_content_denied_handoff_returns_unreadable_evidence() -> None:
     )
     resolver = _FixedResolutionResolver(resolution)
     result = await lifecycle.reconcile_content_denied_handoff(
-        MagicMock(), _denied_item(), resolver, existing_receipt_count=0
+        MagicMock(), _denied_item(), resolver, attempt_receipts=[]
     )
     assert result is resolution
     assert resolver.calls == [1]
@@ -1104,7 +1104,7 @@ async def test_content_denied_handoff_settles_positive_evidence_with_receipts(
 
     assert (
         await lifecycle.reconcile_content_denied_handoff(
-            MagicMock(), item, resolver, existing_receipt_count=0
+            MagicMock(), item, resolver, attempt_receipts=[]
         )
         is finalization
     )
@@ -1113,14 +1113,51 @@ async def test_content_denied_handoff_settles_positive_evidence_with_receipts(
     assert settle.await_args.kwargs == {"expected_receipt_count": 0}
 
     settle.reset_mock()
+    attributed = [
+        DeliveryReceipt(
+            receipt_id="rcpt-content-denied-failed",
+            event_id="evt-content-denied",
+            delivery_plan_id="plan-content-denied",
+            target_adapter="radio",
+            target_channel="ch-0",
+            outbox_id="obox-content-denied",
+            attempt_number=1,
+            status="failed",
+            source="live",
+        )
+    ]
     assert (
         await lifecycle.reconcile_content_denied_handoff(
-            MagicMock(), item, resolver, existing_receipt_count=1
+            MagicMock(), item, resolver, attempt_receipts=attributed
         )
         is finalization
     )
     settle.assert_awaited_once()
     assert settle.await_args.kwargs == {"expected_receipt_count": 1}
+
+    settle.reset_mock()
+    foreign_run = [
+        DeliveryReceipt(
+            receipt_id="rcpt-content-denied-foreign-run",
+            event_id="evt-content-denied",
+            delivery_plan_id="plan-content-denied",
+            target_adapter="radio",
+            target_channel="ch-0",
+            outbox_id="obox-content-denied",
+            attempt_number=1,
+            status="failed",
+            source="replay",
+            replay_run_id="run-other",
+        )
+    ]
+    replay_item = _denied_item(dispatch_source="replay", replay_run_id="run-a")
+    assert (
+        await lifecycle.reconcile_content_denied_handoff(
+            MagicMock(), replay_item, resolver, attempt_receipts=foreign_run
+        )
+        is resolution
+    )
+    settle.assert_not_awaited()
 
 
 async def test_attempt_receipt_list_is_scoped_to_one_generation() -> None:

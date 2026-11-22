@@ -1277,13 +1277,43 @@ class DeliveryLifecycleService:
 
     # -- Retry-worker outbox transitions -----------------------------------
 
+    @staticmethod
+    def _receipt_provenance_conflicts(
+        item: DeliveryOutboxItem,
+        attempt_number: int,
+        receipts: list[DeliveryReceipt],
+    ) -> bool:
+        """Whether any receipt contradicts the claimed delivery identity.
+
+        Receipts with contradictory event, plan, adapter, destination,
+        origin, or replay-run provenance can never settle an attempt. The
+        check covers the whole receipt set whose count fences a settlement,
+        not only the accepted receipt the settlement would name.
+        """
+        identity = DeliveryIdentity(
+            item.event_id,
+            item.delivery_plan_id,
+            item.target_adapter,
+            item.target_channel,
+        )
+        return any(
+            receipt.outbox_id != item.outbox_id
+            or receipt.attempt_number != attempt_number
+            or delivery_identity(receipt) != identity
+            or (receipt.replay_run_id or None) != (item.replay_run_id or None)
+            or not dispatch_source_matches_attempt(
+                item.dispatch_source or "live", receipt.source, attempt_number
+            )
+            for receipt in receipts
+        )
+
     async def reconcile_content_denied_handoff(
         self,
         storage: DeliveryLifecycleStorage,
         item: DeliveryOutboxItem,
         handoff_resolver: UncertainNativeHandoffResolver,
         *,
-        existing_receipt_count: int,
+        attempt_receipts: list[DeliveryReceipt],
     ) -> RetryAttemptFinalization | UncertainHandoffResolution | None:
         """Reconcile already-authorized acceptance without restoring send authority.
 
@@ -1291,6 +1321,13 @@ class DeliveryLifecycleService:
         absence of the old uncertainty label does not erase exact-attempt
         evidence. Positive native evidence settles only without a conflicting
         receipt, using the existing observation/receipt/checkpoint CAS.
+
+        *attempt_receipts* is the exact-attempt receipt set the caller
+        reconciled; its length fences the settlement write and every
+        receipt's provenance is validated before positive evidence can
+        settle. A receipt contradicting the claimed delivery identity
+        blocks the settlement: the caller leaves the claim for
+        conservative recovery.
         """
         attempt = item.active_attempt or item.attempt_number
         if attempt < 1:
@@ -1299,6 +1336,12 @@ class DeliveryLifecycleService:
         if resolution.observation_count is None:
             return resolution
         if resolution.verdict == "delivered_with_evidence":
+            if self._receipt_provenance_conflicts(item, attempt, attempt_receipts):
+                # A receipt contradicting the claimed delivery identity —
+                # event, plan, adapter, destination, origin, or replay run —
+                # can never settle this attempt. Positive native evidence
+                # does not commit over contradictory evidence.
+                return resolution
             # Positive exact-attempt evidence wins over historical failed
             # receipts. A sent/queued receipt is settled from the receipt
             # itself before this path; either way the counter is fenced.
@@ -1307,7 +1350,7 @@ class DeliveryLifecycleService:
                 item,
                 attempt,
                 resolution,
-                expected_receipt_count=existing_receipt_count,
+                expected_receipt_count=len(attempt_receipts),
             )
         return resolution
 
@@ -1974,26 +2017,13 @@ class DeliveryLifecycleService:
         Content denial can follow a ``queued``/``sent`` receipt whose outbox
         transition never committed. Only ``sent`` proves completion; queued
         retains the deferred-completion obligation without redispatching.
+        Every receipt's provenance is validated against the claimed
+        delivery identity before any settlement commits.
         """
-        identity = DeliveryIdentity(
-            item.event_id,
-            item.delivery_plan_id,
-            item.target_adapter,
-            item.target_channel,
-        )
-        for receipt in receipts:
-            if (
-                receipt.outbox_id != item.outbox_id
-                or receipt.attempt_number != attempt_number
-                or delivery_identity(receipt) != identity
-                or (receipt.replay_run_id or None) != (item.replay_run_id or None)
-                or not dispatch_source_matches_attempt(
-                    item.dispatch_source or "live", receipt.source, attempt_number
-                )
-            ):
-                raise StorageError(
-                    "Committed receipt provenance contradicts the claimed delivery attempt"
-                )
+        if self._receipt_provenance_conflicts(item, attempt_number, receipts):
+            raise StorageError(
+                "Committed receipt provenance contradicts the claimed delivery attempt"
+            )
         # Local queue admission is not a completed native handoff. A queued
         # receipt cannot close the outbox as sent or suppress its deferred
         # completion callback. Prefer a completed receipt if both exist.

@@ -1532,7 +1532,7 @@ class RetryWorker:
                                     self._lifecycle_storage,
                                     item,
                                     self._handoff_resolver,
-                                    existing_receipt_count=len(current_receipts),
+                                    attempt_receipts=current_receipts,
                                 )
                             )
                     except RetryAttemptCommitRejected as stale:
@@ -1795,7 +1795,7 @@ class RetryWorker:
                         self._lifecycle_storage,
                         item,
                         self._handoff_resolver,
-                        existing_receipt_count=len(observed_receipts),
+                        attempt_receipts=observed_receipts,
                     )
                     if isinstance(checked, UncertainHandoffResolution):
                         if checked.observation_count is None or (
