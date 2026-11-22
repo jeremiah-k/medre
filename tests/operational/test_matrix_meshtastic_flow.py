@@ -64,6 +64,8 @@ from medre.core.storage.backend import (
     DeliveryOutboxItem,
     OutboxDispatchSnapshot,
     OutboxDispatchSnapshotWrite,
+    OutboxRouteRetryBounds,
+    OutboxRouteRetryBoundsWrite,
     StorageError,
     TerminalOutboxFinalization,
 )
@@ -99,6 +101,7 @@ class _FakeStorage(FrozenOutboxSnapshotFakeMixin, CannedContentReads):
         self._native_ref_index: dict[tuple[str, str | None, str], str] = {}
         self._outbox: dict[str, DeliveryOutboxItem] = {}
         self._dispatch_snapshots: dict[str, OutboxDispatchSnapshot] = {}
+        self._route_retry_bounds: dict[str, OutboxRouteRetryBounds] = {}
         self._conversation_memberships: dict[str, ConversationMembership] = {}
 
     async def append(self, event: CanonicalEvent) -> None:
@@ -255,6 +258,7 @@ class _FakeStorage(FrozenOutboxSnapshotFakeMixin, CannedContentReads):
         *,
         allocate_new_generation: bool = False,
         dispatch_snapshot: OutboxDispatchSnapshotWrite | None = None,
+        route_retry_bounds: OutboxRouteRetryBoundsWrite | None = None,
     ) -> DeliveryOutboxItem:
         if item.replay_run_id and not allocate_new_generation:
             raise ValueError("replay_run_id requires allocate_new_generation=True")
@@ -269,7 +273,20 @@ class _FakeStorage(FrozenOutboxSnapshotFakeMixin, CannedContentReads):
                 return existing
         self._save_outbox_snapshot(item, dispatch_snapshot)
         self._outbox[item.outbox_id] = item
+        if route_retry_bounds is not None:
+            self._route_retry_bounds[item.outbox_id] = OutboxRouteRetryBounds(
+                outbox_id=item.outbox_id,
+                max_attempts=route_retry_bounds.max_attempts,
+                backoff_base=route_retry_bounds.backoff_base,
+                max_delay_seconds=route_retry_bounds.max_delay_seconds,
+                jitter=route_retry_bounds.jitter,
+            )
         return item
+
+    async def get_outbox_route_retry_bounds(
+        self, outbox_id: str
+    ) -> OutboxRouteRetryBounds | None:
+        return self._route_retry_bounds.get(outbox_id)
 
     async def get_outbox_item(
         self, outbox_id: str, *, metadata_only=False
