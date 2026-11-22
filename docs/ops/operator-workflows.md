@@ -95,10 +95,13 @@ refuses any existing destination outright, so it cannot overwrite a live
 installation directly; the remaining risk is switching the installation
 root to a restored copy afterward. **Always** supply `--against-live` for
 such a switch. The restore compares the verified staged core database to the
-stopped live database: a newer receipt watermark refuses the backup, and a
-different logical catalog or row history refuses it even when watermarks are
-equal. Two branches may assign the same receipt sequence to different records,
-and a native handoff or operator decision need not advance that sequence:
+stopped live database: any receipt watermark difference refuses the restore,
+and a different logical catalog or row history refuses it even when
+watermarks are equal. Purely physical maintenance on the live database
+(`VACUUM`, `ANALYZE`) does not refuse, because the comparison hashes the
+logical catalog and row content rather than physical layout. Two branches may
+assign the same receipt sequence to different records, and a native handoff
+or operator decision need not advance that sequence:
 
 ```bash
 python -m medre.maintenance.stopped_cli restore \
@@ -108,13 +111,17 @@ python -m medre.maintenance.stopped_cli restore \
 ```
 
 The command reports `refused` and exits nonzero when the core histories
-contradict, including equal-watermark divergence; capture a fresh stopped
-snapshot or reconcile the branches offline. An unreadable live database also
-refuses. Omission of `--against-live` skips the check and is only appropriate
-for a genuinely new installation without a prior authoritative database.
-Core equality does not prove that provider-side sends or operator actions
-outside the selected state files are included; reconcile those effects before
-activating the restored installation.
+contradict, including equal-watermark divergence and a backup whose watermark
+is strictly newer than the live database's. An unreadable live database also
+refuses. There is no comparison-passing restore over a live database that has
+advanced, diverged, or become unreadable: capture a fresh stopped snapshot of
+that installation and restore it against the same live database, or restore
+to an unused destination and reconcile the evidence explicitly. A supplied
+`--against-live` path that does not exist, like an omitted one, skips the
+check and is only appropriate for a genuinely new installation without a
+prior authoritative database. Core equality does not prove that provider-side
+sends or operator actions outside the selected state files are included;
+reconcile those effects before activating the restored installation.
 
 The tagged `0.1.0` build includes the exact unstarted `medre resolve`
 command, but does not include G03's store-wide content purge and verification

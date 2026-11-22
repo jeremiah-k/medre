@@ -40,14 +40,18 @@ Restoring into a new directory does not automatically compare an existing
 installation. When the restored directory may replace an existing installation,
 pass its stopped core database with `--against-live PATH` (or `live_database`).
 That option compares the **verified staged database** against the stopped live
-core database. A lower receipt high-water is refused, and a different logical
-catalog or row history is refused **even when the high-water numbers match**:
-operator decisions and native effects need not append receipts, and different
-branches can allocate the same sequence. An unreadable live database also
-refuses the restore. A missing `--against-live` skips this comparison and MUST
-NOT be treated as evidence that a replacement is safe. Never start both
-installations together. Reconcile provider-side effects separately, since a
-matching core database does not attest native systems. See
+core database. Any receipt high-water difference refuses the restore in either
+direction — a lower one would erase newer delivery evidence, and a higher one
+marks the branches as divergent — and a different logical catalog or row
+history is refused **even when the high-water numbers match**: operator
+decisions and native effects need not append receipts, and different branches
+can allocate the same sequence. Purely physical maintenance on the live
+database (`VACUUM`, `ANALYZE`) does not refuse. An unreadable live database
+also refuses the restore. A `--against-live` path that is omitted or does not
+exist skips this comparison and MUST NOT be treated as evidence that a
+replacement is safe. Never start both installations together. Reconcile
+provider-side effects separately, since a matching core database does not
+attest native systems. See
 [operator workflows](operator-workflows.md) for the full policy wording.
 
 No delivery attempt is sent, reopened, or changed by these functions. A
