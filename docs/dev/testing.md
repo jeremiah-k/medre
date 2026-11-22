@@ -761,7 +761,8 @@ uv run --no-sync medre dev test matrix -- -k matrix_session -v
 # Keyword match
 uv run --no-sync pytest -k "test_delivery" -v
 
-# Operator smoke command (Docker-free bridge validation)
+# Operator smoke command (Docker-free bridge validation; needs the
+# SDK-free adapter set from `uv run --no-sync medre dev sync`)
 uv run --no-sync medre smoke
 uv run --no-sync medre smoke --json
 ```
