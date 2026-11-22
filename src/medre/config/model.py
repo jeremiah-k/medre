@@ -312,7 +312,7 @@ class DeadlineSweepConfig:
             raise ConfigValidationError(
                 "deadline_sweep.interval_seconds must be a positive finite "
                 f"number at most {DEADLINE_SWEEP_MAX_INTERVAL_SECONDS:g}, "
-                f"got {interval!r}"
+                "received an invalid value"
             )
         return self
 
@@ -341,7 +341,8 @@ class CeilingSweepConfig:
     enumerated content store for events whose immutable hard ceiling has
     elapsed — at least ``interval_seconds`` apart. The sweep enforces only
     ceilings that admission or an explicit policy installation actually
-    wrote; with no installed ceilings it is a no-op.
+    wrote; with no installed ceilings it purges no event, but may still advance
+    its durable sweep cursor.
     """
 
     enabled: bool = False
@@ -373,7 +374,7 @@ class CeilingSweepConfig:
         if not 1 <= self.limit <= CEILING_SWEEP_MAX_LIMIT:
             raise ConfigValidationError(
                 "ceiling_sweep.limit must be between 1 and "
-                f"{CEILING_SWEEP_MAX_LIMIT}, got {self.limit}"
+                f"{CEILING_SWEEP_MAX_LIMIT}"
             )
         interval = self.interval_seconds
         if isinstance(interval, bool) or not isinstance(interval, (int, float)):
@@ -389,7 +390,7 @@ class CeilingSweepConfig:
             raise ConfigValidationError(
                 "ceiling_sweep.interval_seconds must be a positive finite "
                 f"number at most {CEILING_SWEEP_MAX_INTERVAL_SECONDS:g}, "
-                f"got {interval!r}"
+                "received an invalid value"
             )
         return self
 
@@ -592,8 +593,10 @@ CONTENT_CEILING_MAX_AGE_SECONDS = 31_536_000
 class ContentCeilingConfig:
     """Operator hard content privacy ceiling declaration.
 
-    Disabled by default: an omitted section produces no content deadline at
-    admission and leaves every ceiling gate dormant. When enabled, the
+    Disabled by default: an omitted section stops installing new ceilings
+    at admission. Previously installed ceilings remain immutable and continue
+    to deny expired content; the independently configured sweep may purge
+    them. When enabled, the
     declaration states one bounded window; the producer derives each event's
     absolute UTC ceiling from the trusted local admission time plus that
     window. The delivery deadline and cleanup legs derive their windows from

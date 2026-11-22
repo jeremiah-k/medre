@@ -164,7 +164,7 @@
           "additionalProperties": false,
           "properties": {
             "enabled": {"type": "boolean", "default": false},
-            "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 50},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 50, "description": "Write an actual YAML integer such as 50, not 50.0; the runtime type validator is authoritative."},
             "interval_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 86400, "default": 60.0}
           }
         }
@@ -254,7 +254,7 @@
     },
     "content_ceiling": {
       "type": "object",
-      "description": "Operator hard content privacy ceiling declaration (ContentCeilingConfig). Disabled by default: an omitted or disabled section produces no content deadline at admission and leaves every ceiling gate dormant. When enabled, the declaration states one bounded window; the producer derives each event's absolute UTC ceiling from the trusted local admission time plus that window, writes it into the immutable per-event ceiling row and the mandatory content dependency deadline inside the admission transaction, and refuses mismatched existing policies. An enabled section without max_age_seconds is refused.",
+      "description": "Operator hard content privacy ceiling declaration (ContentCeilingConfig). Disabled by default: an omitted or disabled section stops installing new content ceilings at admission. Existing immutable ceilings and their read denials remain authoritative, and the independently enabled retry.ceiling_sweep may still enforce them. When enabled, the declaration states one bounded window; the producer derives each event's absolute UTC ceiling from the trusted local admission time plus that window, writes it into the immutable per-event ceiling row and the mandatory content dependency deadline inside the admission transaction, and refuses mismatched existing policies. An enabled section without max_age_seconds is refused.",
       "additionalProperties": false,
       "if": {
         "properties": { "enabled": { "const": true } },

@@ -81,6 +81,7 @@ def test_current_runtime_schema_adds_the_optional_ceiling_sweep() -> None:
             "minimum": 1,
             "maximum": CEILING_SWEEP_MAX_LIMIT,
             "default": defaults.limit,
+            "description": "Write an actual YAML integer such as 50, not 50.0; the runtime type validator is authoritative.",
         },
         "interval_seconds": {
             "type": "number",

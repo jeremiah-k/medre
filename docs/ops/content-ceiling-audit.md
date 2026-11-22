@@ -46,13 +46,17 @@ documented late-write case: enforced events that regained content-potential
 values through writes authorized before their ceiling
 (`residual_enforced`). Nothing is removed.
 
-**Verify** — the post-sweep proof. Re-runs the same residual battery
+**Verify** — bounded-page post-sweep receipt verification. Re-runs the same residual battery
 against the current database for every enforcement receipt in a bounded
 window and reports pass/fail per receipt with the receipt's recorded
 counters (rows, logical bytes, blobs, and blob bytes removed). The verdict
 is `passed` only when every examined receipt re-checks clean. The command
-exits with code 1 when the verdict is `failed`, so the one-shot proof is
-scriptable.
+exits with code 1 when the verdict is `failed`, so verification is
+scriptable. To verify the full receipt history, follow
+`receipts_next_after_event` using `--after-event` while
+`receipts_has_more` is true, require every page to pass, and separately
+audit events with elapsed ceilings but no receipt. A clean page never
+proves the unchecked history clean.
 
 ## Options
 

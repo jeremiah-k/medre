@@ -146,6 +146,12 @@ def test_ceiling_sweep_config_rejects_invalid_declarations() -> None:
         CeilingSweepConfig(limit=501).validate()
     with pytest.raises(ConfigValidationError, match="ceiling_sweep.interval_seconds"):
         CeilingSweepConfig(interval_seconds=0).validate()
+    # Do not render rejected huge integers: CPython limits int-to-string conversion.
+    huge = 10**5000
+    with pytest.raises(ConfigValidationError, match="ceiling_sweep.limit"):
+        CeilingSweepConfig(limit=huge).validate()
+    with pytest.raises(ConfigValidationError, match="ceiling_sweep.interval_seconds"):
+        CeilingSweepConfig(interval_seconds=huge).validate()
 
 
 async def test_ceiling_only_worker_does_not_claim_delivery(

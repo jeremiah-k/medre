@@ -2,7 +2,7 @@
 
 ``medre storage ceiling audit``   — read-only per-store residual audit for
                                     content whose ceiling has elapsed.
-``medre storage ceiling verify``  — read-only one-shot post-sweep proof:
+``medre storage ceiling verify``  — read-only bounded-page receipt verification:
                                     receipts re-checked against the store.
 
 Both modes open storage strictly read-only, emit metadata-only JSON (event
@@ -138,8 +138,9 @@ async def _storage_ceiling_verify(
     Re-runs the residual battery over every enforcement receipt in a
     bounded window and reports pass/fail per receipt with the receipt's
     recorded content-free counters (rows, logical bytes, blobs, and blob
-    bytes removed) — the operator's one-shot proof that expired content is
-    gone. A receipt fails when its event holds residual content-potential
+    bytes removed) — proof only for the receipts checked on this page, not for other
+    receipts or unreceipted events. Follow receipts_next_after_event until
+    receipts_has_more is false; every page must pass. A receipt fails when its event holds residual content-potential
     values now; an explicitly requested event without a receipt fails
     closed. Exits 1 when the verdict is failed so the proof is scriptable.
     """

@@ -178,6 +178,12 @@ The guarded ceiling-enforcement transition is a single mutation boundary:
   settlement fences the exact-attempt packet-scope mutation revision so an
   in-place repair invalidates stale conclusions. No settlement fabricates a
   receipt or restores send authority.
+- Before the first sweep, a checkpoint's wire plan is not returned by
+  `get_radio_attempt` once its installed ceiling elapses. Evidence-only
+  reconciliation can still inspect a validated, content-free projection of
+  that checkpoint; accepted handoff facts do not reauthorize submission.
+  Invalid checkpoints remain unresolved rather than becoming no-checkpoint
+  whole-message proof.
 
 Runtime invocation rides the existing LIVE-mode outbox poll cycle behind
 an independent, default-off `retry.ceiling_sweep` declaration, bounded and

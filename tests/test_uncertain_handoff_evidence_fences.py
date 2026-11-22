@@ -1151,3 +1151,42 @@ async def test_attempt_receipt_list_is_scoped_to_one_generation() -> None:
     )
     assert [receipt.receipt_id for receipt in listed] == ["rcpt-attempt-1"]
     storage.list_receipts_for_outbox.assert_awaited_once_with("obox-content-denied")
+
+
+async def test_expired_unpurged_radio_plan_is_not_readable_but_acceptance_still_settles(
+    temp_storage,
+):
+    """An elapsed ceiling denies wire reads before maintenance gets its turn."""
+    stored, provenance = await _seed_reserved_claim(temp_storage)
+    fingerprint = "cd" * 32
+    await _bind_and_progress(
+        temp_storage,
+        provenance,
+        ["accepted", "accepted", "accepted"],
+        payload_fingerprint=fingerprint,
+    )
+    await _install_elapsed_ceiling_for_handoff(temp_storage, provenance.event_id)
+    assert await temp_storage.get_radio_attempt(stored.outbox_id, 1) is None
+    compact = await temp_storage.get_radio_attempt_evidence(stored.outbox_id, 1)
+    assert compact is not None
+    assert all(part.state == "accepted" for part in compact.parts)
+    assert fingerprint not in repr(compact)
+    assert "café α" not in repr(compact)
+    assert (
+        await temp_storage._read_one(
+            "SELECT 1 FROM event_content_ceiling_log WHERE event_id=?",
+            (provenance.event_id,),
+        )
+        is None
+    )
+    claimed = await _claimed_row(temp_storage, stored.outbox_id, "reclaimer")
+    verdict = await DeliveryLifecycleService().reconcile_retry_claim(
+        temp_storage,
+        claimed,
+        RetryPolicy(max_attempts=4),
+        handoff_resolver=EvidenceBackedHandoffResolver(temp_storage),
+    )
+    assert verdict is not None and verdict.outcome == "accepted"
+    after = await temp_storage.get_outbox_item(stored.outbox_id)
+    assert after is not None and after.status == "sent"
+    assert await temp_storage.list_receipts_for_outbox(stored.outbox_id) == []

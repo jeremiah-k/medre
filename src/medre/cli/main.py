@@ -1163,7 +1163,7 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
         "verify",
         help=(
             "Re-run the residual battery over enforcement receipts — "
-            "one-shot post-sweep proof (read-only, content-free)"
+            "bounded-page receipt verification (read-only, content-free)"
         ),
     )
     ceiling_verify_p.add_argument(

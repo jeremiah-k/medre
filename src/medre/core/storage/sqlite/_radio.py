@@ -114,6 +114,38 @@ def _decode(row: Mapping[str, Any]) -> StoredRadioAttempt:
         raise StorageError("Retained radio attempt evidence is invalid") from exc
 
 
+# The evidence reader may inspect a retained checkpoint after the hard
+# ceiling but before a sweep has converted it into a durable compact summary.
+# Denial is evaluated in SQLite (including SQLite lock waits). No public
+# checkpoint read may return the wire plan after that instant.
+_RADIO_EVIDENCE_READ_SQL = (
+    "SELECT p.*, " + event_content_denied_sql("o.event_id") + " AS content_denied "
+    "FROM radio_attempt_progress p JOIN delivery_outbox o "
+    "ON o.outbox_id=p.outbox_id "
+    "WHERE p.outbox_id=? AND p.attempt_number=?"
+)
+
+
+def _closed_checkpoint_evidence(
+    saved: StoredRadioAttempt,
+) -> RadioAttemptEvidenceSummary:
+    """Project one validated live checkpoint to non-authorizing evidence.
+
+    This uses the same closed accepted-part representation as the durable
+    ceiling sweep, never returning the wire plan or payload fingerprint.
+    """
+    parts = []
+    for part in saved.progress.parts:
+        handoff: str | None = None
+        if part.state == "accepted":
+            try:
+                handoff = _closed_handoff(part, saved.provenance)
+            except (ValueError, TypeError, msgspec.DecodeError):
+                handoff = "{}"  # unreadable, never a fabricated acceptance
+        parts.append(RadioPartProgress(part.ordinal, part.state, handoff))
+    return RadioAttemptEvidenceSummary(saved.provenance, tuple(parts), saved.revision)
+
+
 def _accepted_prefix(
     saved: StoredRadioAttempt,
     history: Mapping[tuple[str, int], StoredRadioAttempt],
@@ -725,10 +757,13 @@ class _RadioMixin:
     ) -> StoredRadioAttempt | None:
         """Read typed provenance and progress without mutation or send authority."""
         row = await self._read_one(
-            "SELECT * FROM radio_attempt_progress WHERE outbox_id=? AND attempt_number=?",
-            (outbox_id, attempt_number),
+            _RADIO_EVIDENCE_READ_SQL,
+            (ceiling_read_time(), outbox_id, attempt_number),
         )
-        return None if row is None else _decode(row)
+        # A no-receipt hard ceiling is sufficient to deny wire-plan reads.
+        # Resolution may still project the private checkpoint into closed
+        # evidence via get_radio_attempt_evidence; it cannot regain send rights.
+        return None if row is None or row["content_denied"] else _decode(row)
 
     async def get_radio_attempt_evidence(
         self, outbox_id: str, attempt_number: int
@@ -740,7 +775,16 @@ class _RadioMixin:
             (outbox_id, attempt_number),
         )
         if row is None:
-            return None
+            # Sweep may be disabled or late. A stored radio plan cannot cross
+            # the ceiling, but verified checkpoint facts still can settle an
+            # accepted attempt. Project privately without returning plan bytes.
+            live = await self._read_one(
+                _RADIO_EVIDENCE_READ_SQL,
+                (ceiling_read_time(), outbox_id, attempt_number),
+            )
+            if live is None or not live["content_denied"]:
+                return None
+            return _closed_checkpoint_evidence(_decode(live))
         try:
             provenance = msgspec.json.decode(
                 row["provenance_json"], type=DeliveryAttemptProvenance
