@@ -52,21 +52,34 @@ _DIAGNOSTIC_PARENTS: dict[str, tuple[str, str]] = {
     "ingress": ("durable_ingress_work", "event_id"),
 }
 
+# Evidence diagnostics are content, not authority. A late callback may still
+# append its immutable receipt or observation, but cannot recreate diagnostic
+# bytes after the event ceiling elapsed or the first purge receipt committed.
+# The clock function executes inside the SQLite statement, after any writer wait.
 _INSERT_OBSERVATION_DIAGNOSTIC = """
 INSERT INTO delivery_evidence_diagnostics
     (family, row_id, attempt, field, diagnostic, created_at)
 SELECT ?, ?, ?, ?, ?, ?
 WHERE NOT EXISTS (
     SELECT 1 FROM delivery_observations o
-    JOIN event_content_ceiling_log l ON l.event_id=o.event_id
+    LEFT JOIN event_content_access_policies p ON p.event_id=o.event_id
+    LEFT JOIN event_content_ceiling_log l ON l.event_id=o.event_id
     WHERE o.observation_id=?
+      AND (l.event_id IS NOT NULL OR p.hard_ceiling <= medre_ceiling_now(NULL))
 )
 """
 
-_INSERT_DIAGNOSTIC = """
+_INSERT_RECEIPT_DIAGNOSTIC = """
 INSERT INTO delivery_evidence_diagnostics
     (family, row_id, attempt, field, diagnostic, created_at)
-VALUES (?, ?, ?, ?, ?, ?)
+SELECT ?, ?, ?, ?, ?, ?
+WHERE NOT EXISTS (
+    SELECT 1 FROM delivery_receipts r
+    LEFT JOIN event_content_access_policies p ON p.event_id=r.event_id
+    LEFT JOIN event_content_ceiling_log l ON l.event_id=r.event_id
+    WHERE r.receipt_id=?
+      AND (l.event_id IS NOT NULL OR p.hard_ceiling <= medre_ceiling_now(NULL))
+)
 """
 
 # The outbox and ingress follow-up forms read the parent row's committed
@@ -77,6 +90,14 @@ INSERT INTO delivery_evidence_diagnostics
     (family, row_id, attempt, field, diagnostic, created_at)
 SELECT 'outbox', outbox_id, attempt_number, ?, ?, ?
 FROM delivery_outbox WHERE outbox_id = ?
+  AND (? = '' OR NOT EXISTS (
+      SELECT 1 FROM event_content_access_policies p
+      WHERE p.event_id=delivery_outbox.event_id
+        AND p.hard_ceiling <= medre_ceiling_now(NULL)
+  ) AND NOT EXISTS (
+      SELECT 1 FROM event_content_ceiling_log l
+      WHERE l.event_id=delivery_outbox.event_id
+  ))
   AND (? <> ''
        OR (
            SELECT d.diagnostic FROM delivery_evidence_diagnostics d
@@ -91,6 +112,14 @@ INSERT INTO delivery_evidence_diagnostics
     (family, row_id, attempt, field, diagnostic, created_at)
 SELECT 'ingress', event_id, attempts, 'last_error', ?, ?
 FROM durable_ingress_work WHERE event_id = ?
+  AND (? = '' OR NOT EXISTS (
+      SELECT 1 FROM event_content_access_policies p
+      WHERE p.event_id=durable_ingress_work.event_id
+        AND p.hard_ceiling <= medre_ceiling_now(NULL)
+  ) AND NOT EXISTS (
+      SELECT 1 FROM event_content_ceiling_log l
+      WHERE l.event_id=durable_ingress_work.event_id
+  ))
 """
 
 
@@ -113,8 +142,12 @@ def diagnostic_write_ops(
             params = (family, row_id, attempt, field, value, created_at)
             if family == "observation":
                 ops.append((_INSERT_OBSERVATION_DIAGNOSTIC, (*params, row_id)))
+            elif family == "receipt":
+                ops.append((_INSERT_RECEIPT_DIAGNOSTIC, (*params, row_id)))
             else:
-                ops.append((_INSERT_DIAGNOSTIC, params))
+                raise ValueError(
+                    "Use the outbox- or ingress-specific diagnostic writer"
+                )
     return ops
 
 
@@ -136,7 +169,7 @@ def outbox_diagnostic_ops(
             ops.append(
                 (
                     _INSERT_OUTBOX_DIAGNOSTIC,
-                    (field, value, created_at, outbox_id, value, field),
+                    (field, value, created_at, outbox_id, value, value, field),
                 )
             )
     return ops
@@ -148,7 +181,7 @@ def ingress_diagnostic_ops(
     """Build an ingress ``last_error`` op keyed by the committed attempt count."""
     if not isinstance(error, str):
         return []
-    return [(_INSERT_INGRESS_DIAGNOSTIC, (error, created_at, event_id))]
+    return [(_INSERT_INGRESS_DIAGNOSTIC, (error, created_at, event_id, error))]
 
 
 class _EvidenceDiagnosticsReadMixin:
