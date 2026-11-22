@@ -288,7 +288,11 @@ def _receipt_provenance_refusal(
     Reuses the lifecycle ``_receipt_provenance_conflicts`` discipline: every
     receipt bound to the effective attempt must carry the claimed delivery
     identity, origin, and replay-run provenance. A committed ``sent``
-    receipt settles the delivery already and outranks any ruling.
+    receipt settles the delivery already and outranks any ruling, and a
+    terminal receipt at the effective attempt leaves the delivery settled
+    by evidence, so the resolution authority refuses it. This mirrors the
+    write-transaction refusals exactly so a capable preview never hands the
+    operator an observation the apply would refuse.
     """
     attempt_receipts = [
         receipt
@@ -302,6 +306,11 @@ def _receipt_provenance_refusal(
         item, item.attempt_number, attempt_receipts
     ):
         return RECEIPT_PROVENANCE_CONTRADICTION
+    if any(
+        receipt.status in {"cancelled", "abandoned", "dead_lettered", "suppressed"}
+        for receipt in attempt_receipts
+    ):
+        return SETTLED_TARGET_UNDECIDABLE
     return None
 
 

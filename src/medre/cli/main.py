@@ -970,7 +970,10 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
     # resolve (narrow local-only operator write, not native replay)
     resolve_p = sub.add_parser(
         "resolve",
-        help="Preview/apply one exact unstarted cancellation under local OS ownership",
+        help=(
+            "Preview/apply one exact unstarted cancellation or"
+            " confirmation-pending resolution under local OS ownership"
+        ),
     )
     resolve_p.add_argument("--storage-path", required=True, metavar="PATH")
     resolve_p.add_argument("--event", required=True)
