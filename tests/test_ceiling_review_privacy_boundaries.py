@@ -17,6 +17,7 @@ from medre.core.storage.sqlite._ceiling_enforcement import (
     _retain_radio_evidence_summary,
 )
 from medre.core.storage.sqlite.schema import _INDEXES, _SCHEMA
+from medre.core.storage.sqlite.statements import _GET_NATIVE_REF
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from tests.helpers.ceiling_audit import (
     _admit_plain,
@@ -52,20 +53,49 @@ async def test_ceiling_is_checked_during_sql_execution_not_earlier_binding(
             metadata={"secret": "provider-text"},
         )
     )
-    calls = 0
+    # The clock samples before the statement runs (the bind) and again while
+    # SQLite evaluates it. A progress handler flips the ceiling after the
+    # statement has started, so the bind-time sample is pre-ceiling and every
+    # in-statement sample is post-ceiling: denial can only come from the
+    # execution-time sample, never from the earlier bound instant.
+    phase = {"executing": False}
 
-    def before_then_after() -> str:
-        nonlocal calls
-        calls += 1
-        return (ceiling + timedelta(seconds=(-1 if calls == 1 else 1))).isoformat(
-            timespec="microseconds"
-        )
+    def gated_clock() -> str:
+        if phase["executing"]:
+            return (ceiling + timedelta(seconds=1)).isoformat(timespec="microseconds")
+        return (ceiling - timedelta(seconds=1)).isoformat(timespec="microseconds")
 
-    monkeypatch.setattr(connection, "ceiling_read_time", before_then_after)
+    monkeypatch.setattr(connection, "ceiling_read_time", gated_clock)
+
+    def advance_inside_statement() -> int:
+        phase["executing"] = True
+        return 0
+
+    def run_gated_read() -> dict[str, object] | None:
+        with temp_storage._lock:
+            db = temp_storage._require_db()
+            db.set_progress_handler(advance_inside_statement, 1)
+            try:
+                # The production ceiling-aware projection: the caller's
+                # bound sample stays pre-ceiling while the statement
+                # evaluates the policy against the execution-time sample.
+                row = db.execute(
+                    _GET_NATIVE_REF,
+                    (gated_clock(), "matrix", "room", "message"),
+                ).fetchone()
+                assert phase["executing"], "statement never reached execution"
+                return dict(row) if row is not None else None
+            finally:
+                db.set_progress_handler(None, 0)
+
+    row = await temp_storage._run_in_thread(run_gated_read)
+    assert row is not None
+    # The read ran across the ceiling mid-statement and still preserves
+    # identity while masking the provider metadata.
+    assert row["metadata"] == "{}"
     ref = await temp_storage.get_native_ref("matrix", "room", "message")
     assert ref is not None and ref.event_id == event_id
     assert ref.metadata == {}
-    assert calls >= 2  # Bind occurred before SQLite evaluated its policy row.
     assert (
         await temp_storage._read_one(
             "SELECT 1 FROM event_content_ceiling_log WHERE event_id=?", (event_id,)
@@ -94,6 +124,20 @@ async def test_purge_removes_render_input_hash_and_audits_it(
         event_id=provenance.event_id
     )
     assert inspected["verdict"] == "passed"
+    # Verification must detect a residual render digest, not only the
+    # clean state it just verified: restore a synthetic hash and the
+    # receipt's residual battery must fail the event again.
+    await temp_storage._write(
+        "UPDATE delivery_outbox SET payload_hash=? WHERE outbox_id=?",
+        ("residual-render-input-digest", stored.outbox_id),
+    )
+    failed = await temp_storage.verify_content_ceiling_receipts(
+        event_id=provenance.event_id
+    )
+    assert failed["verdict"] == "failed"
+    assert failed["receipts_failed"] == 1
+    assert failed["receipts"][0]["status"] == "failed"
+    assert "delivery_outbox" in failed["receipts"][0]["residual_stores"]
 
 
 async def test_legacy_non_object_observation_is_scrubbed_not_accepted(

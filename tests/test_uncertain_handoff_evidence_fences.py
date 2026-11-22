@@ -629,20 +629,6 @@ async def test_uncertain_backoff_accepts_exact_finalized_observation(temp_storag
     assert settled is not None and settled.status == "sent"
 
 
-async def _install_elapsed_ceiling_for_handoff(storage, event_id):
-    from datetime import datetime, timedelta, timezone
-
-    now = datetime.now(timezone.utc)
-    await storage._write(
-        "INSERT INTO event_content_access_policies "
-        "(event_id, version, hard_ceiling, allowed_consumers, "
-        "max_optional_hold_microseconds, created_at) "
-        "VALUES (?, 1, ?, '[]', 1000000, ?)",
-        (event_id, (now - timedelta(seconds=1)).isoformat(), now.isoformat()),
-    )
-    return now
-
-
 async def test_ceiling_preserves_uncertain_attempt_admission_without_diagnostic(
     temp_storage,
 ):
@@ -656,7 +642,7 @@ async def test_ceiling_preserves_uncertain_attempt_admission_without_diagnostic(
         expected_worker_id=_WORKER,
         failure_kind_detail=UNCERTAIN_NATIVE_HANDOFF_DETAIL,
     )
-    now = await _install_elapsed_ceiling_for_handoff(temp_storage, provenance.event_id)
+    now = await _install_elapsed_policy(temp_storage, provenance.event_id)
     await temp_storage.enforce_content_ceilings(now=now)
     remaining = await temp_storage.get_outbox_item(stored.outbox_id)
     assert remaining is not None
@@ -702,7 +688,7 @@ async def test_ceiling_preserves_uncertain_attempt_admission_without_diagnostic(
 async def test_ceiling_keeps_accepted_packet_scope_but_erases_wire_plan(temp_storage):
     stored, provenance = await _seed_reserved_claim(temp_storage)
     await _bind_and_progress(temp_storage, provenance, ["accepted", "unsent", "unsent"])
-    now = await _install_elapsed_ceiling_for_handoff(temp_storage, provenance.event_id)
+    now = await _install_elapsed_policy(temp_storage, provenance.event_id)
     await temp_storage.enforce_content_ceilings(now=now)
     assert await temp_storage.get_radio_attempt(stored.outbox_id, 1) is None
     fact = await temp_storage._read_one(
@@ -765,7 +751,7 @@ async def test_complete_radio_handoff_still_settles_after_wire_plan_erasure(
         ["accepted", "accepted", "accepted"],
         payload_fingerprint=fingerprint,
     )
-    now = await _install_elapsed_ceiling_for_handoff(temp_storage, provenance.event_id)
+    now = await _install_elapsed_policy(temp_storage, provenance.event_id)
     await temp_storage.enforce_content_ceilings(now=now)
     assert await temp_storage.get_radio_attempt(stored.outbox_id, 1) is None
     summary = await temp_storage.get_radio_attempt_evidence(stored.outbox_id, 1)
@@ -800,7 +786,7 @@ async def test_complete_radio_handoff_still_settles_after_wire_plan_erasure(
 async def test_expired_attempt_cannot_rebind_erased_wire_plan(temp_storage):
     stored, provenance = await _seed_reserved_claim(temp_storage)
     await _bind_and_progress(temp_storage, provenance, ["accepted", "unsent", "unsent"])
-    now = await _install_elapsed_ceiling_for_handoff(temp_storage, provenance.event_id)
+    now = await _install_elapsed_policy(temp_storage, provenance.event_id)
     await temp_storage.enforce_content_ceilings(now=now)
     assert await temp_storage.bind_radio_attempt(provenance, _WORKER, _plan()) is None
     assert await temp_storage.get_radio_attempt(stored.outbox_id, 1) is None
@@ -831,7 +817,7 @@ async def test_in_flight_native_completion_survives_wire_plan_erasure(temp_stora
     assert bound is not None
     started = await temp_storage.begin_radio_part(bound, _WORKER, 1)
     assert started is not None
-    now = await _install_elapsed_ceiling_for_handoff(temp_storage, provenance.event_id)
+    now = await _install_elapsed_policy(temp_storage, provenance.event_id)
     await temp_storage.enforce_content_ceilings(now=now)
     assert await temp_storage.get_radio_attempt(stored.outbox_id, 1) is None
     handoff = RadioLocalHandoff(1, "native-after-erasure", "ch-0", "local_transport")
@@ -881,7 +867,7 @@ async def test_malformed_accepted_reference_does_not_disappear_at_ceiling(temp_s
         "UPDATE radio_attempt_progress SET parts_json=? WHERE outbox_id=?",
         (json.dumps(parts), stored.outbox_id),
     )
-    now = await _install_elapsed_ceiling_for_handoff(temp_storage, provenance.event_id)
+    now = await _install_elapsed_policy(temp_storage, provenance.event_id)
     await temp_storage.enforce_content_ceilings(now=now)
     assert await temp_storage.append_delivery_observation(
         _observation("whole-message-after-invalid-part", provenance)
@@ -998,7 +984,7 @@ async def test_in_flight_completion_with_prior_unreadable_handoff_stays_recordab
             stored.outbox_id,
         ),
     )
-    now = await _install_elapsed_ceiling_for_handoff(temp_storage, provenance.event_id)
+    now = await _install_elapsed_policy(temp_storage, provenance.event_id)
     await temp_storage.enforce_content_ceilings(now=now)
     handoff = (
         RadioLocalHandoff(2, "native-2", "ch-0", "local_transport").encode()
@@ -1202,7 +1188,7 @@ async def test_expired_unpurged_radio_plan_is_not_readable_but_acceptance_still_
         ["accepted", "accepted", "accepted"],
         payload_fingerprint=fingerprint,
     )
-    await _install_elapsed_ceiling_for_handoff(temp_storage, provenance.event_id)
+    await _install_elapsed_policy(temp_storage, provenance.event_id)
     assert await temp_storage.get_radio_attempt(stored.outbox_id, 1) is None
     compact = await temp_storage.get_radio_attempt_evidence(stored.outbox_id, 1)
     assert compact is not None

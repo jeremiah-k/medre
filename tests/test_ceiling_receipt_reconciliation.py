@@ -9,7 +9,11 @@ from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleServi
 from medre.core.events import DeliveryReceipt
 from medre.core.storage.backend import StorageError
 from medre.core.storage.sqlite.storage import SQLiteStorage
-from tests.helpers.handoff_resolution import _seed_reserved_claim
+from tests.helpers.handoff_resolution import (
+    _claimed_row,
+    _past,
+    _seed_reserved_claim,
+)
 from tests.helpers.storage_outbox import append_receipt_with_parent
 
 
@@ -165,16 +169,22 @@ async def test_scope_revision_applies_to_reservation_and_abandonment(
         "UPDATE delivery_observation_scopes SET scope_json=? WHERE observation_id=?",
         ('{"radio_packet":null}', "scope-dual-guard"),
     )
-    assert (
-        await temp_storage.reserve_outbox_attempt(
-            stored.outbox_id,
-            stored.worker_id,
-            0,
-        )
-        is None
-    )  # An active reservation already owns the attempt.
-    item = await temp_storage.get_outbox_item(stored.outbox_id)
-    assert item is not None
+    _, updated = await temp_storage.read_handoff_observation_snapshot(
+        provenance.outbox_id, 1
+    )
+    assert updated == initial + 1
+    # Finalize attempt 1 so no reservation owns the row, then re-claim it:
+    # the guards below must decide on the scope revision, not on an
+    # already-active reservation.
+    await temp_storage.mark_outbox_retry_wait(
+        stored.outbox_id,
+        next_attempt_at=_past().isoformat(),
+        failure_kind="ambiguous_dispatch",
+        attempt_number=1,
+        expected_worker_id=stored.worker_id,
+    )
+    item = await _claimed_row(temp_storage, stored.outbox_id, "reclaimer")
+    assert item.active_attempt is None and item.attempt_number == 1
     with pytest.raises(RetryAttemptCommitRejected):
         await DeliveryLifecycleService().abandon_retry_outbox(
             temp_storage,
@@ -182,3 +192,23 @@ async def test_scope_revision_applies_to_reservation_and_abandonment(
             error_summary="content_authority_denied",
             expected_observation_scope_revision=initial,
         )
+    # A stale scope revision cannot reserve attempt 2 under the same write.
+    assert (
+        await temp_storage.reserve_outbox_attempt(
+            stored.outbox_id,
+            item.worker_id,
+            1,
+            expected_observation_scope_revision=initial,
+        )
+        is None
+    )
+    # The updated revision reserves the next attempt in the same guard.
+    assert (
+        await temp_storage.reserve_outbox_attempt(
+            stored.outbox_id,
+            item.worker_id,
+            1,
+            expected_observation_scope_revision=updated,
+        )
+        == 2
+    )

@@ -515,7 +515,7 @@ class TestDDLRequiredColumnsParity:
 
 _DELETE_PATTERN = re.compile(r"\bDELETE\s+FROM\b", re.IGNORECASE)
 _DELETE_TARGET_PATTERN = re.compile(
-    r'\bDELETE\s+FROM\s+(?:"([^"]+)"|`([^`]+)`|\[([^\]]+)\]|([A-Za-z_][A-Za-z0-9_]*))',
+    r'\bDELETE\s+FROM\s+(?:"([^"]+)"|`([^`]+)`|\[([^\]]+)\]|([A-Za-z_$][\w$]*))',
     re.IGNORECASE,
 )
 
@@ -648,3 +648,30 @@ class TestSchemaVersionFrozen:
     def test_schema_version_constant_type(self) -> None:
         """_EXPECTED_SCHEMA_VERSION is an int, not a float or string."""
         assert isinstance(_EXPECTED_SCHEMA_VERSION, int)
+
+
+class TestDeleteTargetIdentifierParsing:
+    """SQLite identifier syntax must not split a DELETE destination.
+
+    SQLite accepts ``$`` inside identifiers, so ``event_body_content$archive``
+    is ONE table name. The parser must capture the complete identifier: a
+    partial capture would let a suffixed name pass an exact-table allowlist.
+    """
+
+    def test_parses_the_complete_bare_identifier(self) -> None:
+        assert _delete_targets(
+            "DELETE FROM event_body_content$archive WHERE event_id = ?"
+        ) == ("event_body_content$archive",)
+
+    def test_rejects_a_suffixed_name_against_the_exact_allowlist(self) -> None:
+        permitted = {"event_body_content", "event_relation_excerpts"}
+        parsed = _delete_targets(
+            "DELETE FROM event_body_content$archive WHERE event_id = ?"
+        )
+        assert parsed is not None
+        # The complete identifier is not the allowlisted base table.
+        assert not all(table in permitted for table in parsed)
+
+    def test_still_accepts_the_exact_allowlisted_name(self) -> None:
+        parsed = _delete_targets("DELETE FROM event_body_content WHERE event_id = ?")
+        assert parsed == ("event_body_content",)

@@ -430,3 +430,43 @@ async def test_reports_continue_in_event_id_order(temp_storage: SQLiteStorage) -
     assert [row["event_id"] for row in second_verify["receipts"]] == events[1:]
     assert second_verify["receipts_next_after_event"] is None
     assert second_verify["receipts_has_more"] is False
+
+
+async def test_elapsed_unswept_body_reads_denied_while_the_audit_reports_it(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """Execution-time denial and the audit describe the same unswept event.
+
+    After the ceiling elapses but before any sweep records a receipt, the
+    body read denies at execution time while the read-only audit still
+    reports the stored body as pending purge work. Denial is not erasure.
+    """
+    event_id = "ceiling-audit-pre-sweep-denial"
+    await _admit_with_ceiling(temp_storage, event_id)
+    outbox_id = await _seed_every_copy(temp_storage, event_id)
+    ceiling = await _read_ceiling(temp_storage, event_id)
+
+    before = await temp_storage.read_body_for_outbox(
+        event_id, outbox_id, now=ceiling - timedelta(seconds=1)
+    )
+    assert before.status == "retained"
+
+    after = await temp_storage.read_body_for_outbox(
+        event_id, outbox_id, now=ceiling + timedelta(seconds=1)
+    )
+    assert after.status == "denied"
+
+    pre_audit = await temp_storage.audit_content_ceilings(
+        now=ceiling + timedelta(seconds=1)
+    )
+    assert pre_audit["receipts"] == 0
+    assert len(pre_audit["elapsed_pending"]) == 1
+    pending = pre_audit["elapsed_pending"][0]
+    assert pending["event_id"] == event_id
+    assert pending["residual_stores"]["event_body_content"] == 1
+    # The stored body is unchanged: denial is not erasure.
+    stored = await temp_storage._read_one(
+        "SELECT COUNT(*) AS c FROM event_body_content WHERE event_id=?",
+        (event_id,),
+    )
+    assert stored is not None and stored["c"] == 1
