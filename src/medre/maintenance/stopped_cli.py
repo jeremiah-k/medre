@@ -88,7 +88,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=None,
         help=(
             "compare against an existing core SQLite database and refuse "
-            "when it holds newer delivery evidence than the snapshot"
+            "unless its logical state is identical to the snapshot's"
         ),
     )
     plan = commands.add_parser(
