@@ -1911,6 +1911,8 @@ class StorageBackend(Protocol):
         receipt_id: str | None = None,
         attempt_number: int | None = None,
         expected_worker_id: str | None = None,
+        *,
+        expected_receipt_count: int | None = None,
     ) -> bool:
         """Mark an outbox item as ``queued`` (adapter-local queue acceptance).
 
@@ -1918,6 +1920,8 @@ class StorageBackend(Protocol):
 
         Only transitions from ``in_progress``.  No-op if already terminal.
         Return ``True`` only when this call committed the transition.
+        A non-None ``expected_receipt_count`` (including zero) requires an
+        exact match of the receipts observable for the committed attempt.
         """
         ...
 
