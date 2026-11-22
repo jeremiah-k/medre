@@ -918,6 +918,15 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
         }
     ),
     "delivery_handoff_uncertainty": frozenset({"outbox_id", "attempt_number", "state"}),
+    "delivery_route_retry_bounds": frozenset(
+        {
+            "outbox_id",
+            "max_attempts",
+            "backoff_base",
+            "max_delay_seconds",
+            "jitter",
+        }
+    ),
     "radio_attempt_evidence_summaries": frozenset(
         {"outbox_id", "attempt_number", "provenance_json", "parts_json", "revision"}
     ),
