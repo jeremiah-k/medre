@@ -15,20 +15,25 @@ from pathlib import Path
 from typing import Any
 
 from medre.core.delivery_authority import DeliveryIdentity
+from medre.core.engine.pipeline.delivery_lifecycle import DeliveryLifecycleService
 from medre.core.observability.exact_target import (
     ExactTargetPreview,
     ExactTargetSelection,
     preview_exact_target,
 )
-from medre.core.storage.backend import StorageError
+from medre.core.storage.backend import DeliveryOutboxItem, StorageError
 from medre.core.storage.sqlite._operator_decision import (
     ACTIVE_NATIVE_UNDECIDABLE,
     COMPETING_GENERATION,
+    CONFIRMATION_PENDING_STATUS,
     EXACT_TARGET_GONE,
     OBSERVATION_STALE,
+    RECEIPT_PROVENANCE_CONTRADICTION,
+    SETTLED_RECEIPT_CONTRADICTION,
     SETTLED_TARGET_UNDECIDABLE,
     TERMINAL_REOPEN_REFUSED,
     CancelUnstartedDecision,
+    ConfirmationPendingResolution,
     ExactTargetDecision,
     OperatorDecisionRefused,
 )
@@ -270,6 +275,170 @@ async def _resolve_exact_target_decision(
     await _apply_exact_target_decision(args, storage_path, identity)
 
 
+def _confirmation_pending_observed_fields(item: DeliveryOutboxItem) -> dict[str, Any]:
+    """The observed confirmation-pending state an apply must copy exactly."""
+    return _decision_fields(item)
+
+
+def _receipt_provenance_refusal(
+    item: DeliveryOutboxItem, receipts: list[Any]
+) -> str | None:
+    """Name the receipt-evidence refusal for one confirmation-pending row.
+
+    Reuses the lifecycle ``_receipt_provenance_conflicts`` discipline: every
+    receipt bound to the effective attempt must carry the claimed delivery
+    identity, origin, and replay-run provenance. A committed ``sent``
+    receipt settles the delivery already and outranks any ruling.
+    """
+    attempt_receipts = [
+        receipt
+        for receipt in receipts
+        if receipt.attempt_number == item.attempt_number
+        and receipt.outbox_id == item.outbox_id
+    ]
+    if any(receipt.status == "sent" for receipt in attempt_receipts):
+        return SETTLED_RECEIPT_CONTRADICTION
+    if DeliveryLifecycleService._receipt_provenance_conflicts(
+        item, item.attempt_number, attempt_receipts
+    ):
+        return RECEIPT_PROVENANCE_CONTRADICTION
+    return None
+
+
+async def _preview_confirmation_pending(
+    storage_path: str, identity: DeliveryIdentity
+) -> None:
+    """Observe one confirmation-pending row; never authorize a write."""
+    store = await _open_readonly_storage(storage_path)
+    try:
+        items = await store.list_outbox_items_for_event(identity.event_id)
+        candidates = [
+            item
+            for item in items
+            if DeliveryIdentity(
+                item.event_id,
+                item.delivery_plan_id,
+                item.target_adapter,
+                item.target_channel,
+            )
+            == identity
+            and item.status == CONFIRMATION_PENDING_STATUS
+            and item.active_attempt is None
+            and all(
+                getattr(item, key) is None
+                for key in ("worker_id", "locked_at", "lease_until")
+            )
+        ]
+        if len(candidates) == 1 and any(
+            other.outbox_id != candidates[0].outbox_id
+            and DeliveryIdentity(
+                other.event_id,
+                other.delivery_plan_id,
+                other.target_adapter,
+                other.target_channel,
+            )
+            == identity
+            and max(other.attempt_number, other.active_attempt or 0)
+            >= candidates[0].attempt_number
+            for other in items
+        ):
+            candidates = []
+        if len(candidates) != 1:
+            print(
+                "Exact confirmation-pending obligation is absent or ambiguous",
+                file=sys.stderr,
+            )
+            raise SystemExit(EXIT_NOT_FOUND)
+        item = candidates[0]
+        receipts = await store.list_receipts_for_outbox(item.outbox_id)
+        refusal = _receipt_provenance_refusal(item, receipts)
+        payload: dict[str, Any] = {"apply_authorized": False}
+        if refusal is not None:
+            payload["decision_capable"] = False
+            payload["refusal_implications"] = [refusal]
+        else:
+            payload["decision_capable"] = True
+            payload["observed"] = _confirmation_pending_observed_fields(item)
+        print(to_json(payload))
+    except StorageError as exc:
+        print(f"Storage error: {exc}", file=sys.stderr)
+        raise SystemExit(EXIT_BUILD) from exc
+    finally:
+        await store.close()
+
+
+async def _apply_confirmation_pending(
+    args: Any, storage_path: str, identity: DeliveryIdentity
+) -> None:
+    """Resolve one confirmation-pending row under the private-local boundary."""
+    if not args.yes or not args.actor_label or not args.decision_id:
+        print(
+            "Resolution apply requires --yes, --actor-label and --decision-id",
+            file=sys.stderr,
+        )
+        raise SystemExit(EXIT_CONFIG)
+    observed = {
+        "--outbox-id": args.outbox_id,
+        "--expected-generation": args.expected_generation,
+        "--expected-status": args.expected_status,
+        "--expected-updated-at": args.expected_updated_at,
+    }
+    missing = sorted(name for name, value in observed.items() if value is None)
+    if missing:
+        print(
+            "Resolution apply requires the observed state: " + ", ".join(missing),
+            file=sys.stderr,
+        )
+        raise SystemExit(EXIT_CONFIG)
+    try:
+        decision = ConfirmationPendingResolution(
+            decision_id=args.decision_id,
+            actor_id=args.actor_label,
+            identity=identity,
+            outbox_id=args.outbox_id,
+            expected_generation=args.expected_generation,
+            expected_status=args.expected_status,
+            expected_updated_at=args.expected_updated_at,
+            resolution=args.resolution,
+        )
+    except ValueError as exc:
+        print(f"Invalid resolution request: {exc}", file=sys.stderr)
+        raise SystemExit(EXIT_CONFIG) from exc
+    store = SQLiteStorage(storage_path)
+    try:
+        await store.initialize()
+        item = await store.get_outbox_item(decision.outbox_id)
+        if item is not None and item.status == CONFIRMATION_PENDING_STATUS:
+            receipts = await store.list_receipts_for_outbox(item.outbox_id)
+            refusal = _receipt_provenance_refusal(item, receipts)
+            if refusal is not None:
+                print(f"Resolution refused: {refusal}", file=sys.stderr)
+                raise SystemExit(EXIT_FAILED)
+        committed = await store.resolve_confirmation_pending(decision)
+    except OperatorDecisionRefused as exc:
+        print(f"Resolution refused: {exc}", file=sys.stderr)
+        raise SystemExit(EXIT_FAILED) from exc
+    except StorageError as exc:
+        print(f"Storage error: {exc}", file=sys.stderr)
+        raise SystemExit(EXIT_BUILD) from exc
+    finally:
+        await store.close()
+    print(to_json({"decision_id": decision.decision_id, "committed": committed}))
+
+
+async def _resolve_confirmation_pending(args: Any, storage_path: str) -> None:
+    """Dispatch the confirmation-pending preview or apply for one identity."""
+    channel = None if args.no_channel else args.target_channel
+    identity = DeliveryIdentity(args.event, args.plan_id, args.target_adapter, channel)
+    if not identity.complete:
+        print("A complete delivery identity is required", file=sys.stderr)
+        raise SystemExit(EXIT_CONFIG)
+    if not args.apply:
+        await _preview_confirmation_pending(storage_path, identity)
+        return
+    await _apply_confirmation_pending(args, storage_path, identity)
+
+
 async def _resolve_unstarted(args: Any) -> None:
     """Preview one target or transactionally apply the observed exact request."""
     try:
@@ -281,6 +450,15 @@ async def _resolve_unstarted(args: Any) -> None:
     if not args.no_channel and not args.target_channel:
         print("An explicit nonempty channel is required", file=sys.stderr)
         raise SystemExit(EXIT_CONFIG)
+    if args.resolution is not None:
+        if args.action is not None:
+            print(
+                "--resolution and --action are mutually exclusive",
+                file=sys.stderr,
+            )
+            raise SystemExit(EXIT_CONFIG)
+        await _resolve_confirmation_pending(args, storage_path)
+        return
     channel = args.target_channel if not args.no_channel else None
     identity = DeliveryIdentity(args.event, args.plan_id, args.target_adapter, channel)
     if not identity.complete:

@@ -985,7 +985,7 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
     resolve_p.add_argument("--outbox-id", default=None)
     resolve_p.add_argument("--expected-generation", type=int, default=None)
     resolve_p.add_argument(
-        "--expected-status", choices=("pending", "retry_wait"), default=None
+        "--expected-status", choices=("pending", "retry_wait", "queued"), default=None
     )
     resolve_p.add_argument("--expected-updated-at", default=None)
     resolve_p.add_argument("--decision-id", default=None)
@@ -1000,6 +1000,16 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
         help=(
             "Record an audited exact-target decision (preview/apply) instead"
             " of an unstarted cancellation"
+        ),
+    )
+    resolve_p.add_argument(
+        "--resolution",
+        default=None,
+        choices=("delivered", "failed", "cancelled"),
+        help=(
+            "Resolve one observed confirmation-pending (queued) delivery to"
+            " this explicit outcome (preview/apply) instead of an unstarted"
+            " cancellation"
         ),
     )
 

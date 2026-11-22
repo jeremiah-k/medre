@@ -43,7 +43,10 @@ fingerprints never grant write authority.
 The sibling `--action` mode of the same command records an audited
 `resume_scheduled`/`resolve_uncertain` decision over an observed target
 without touching the outbox row; see
-[Exact-target decisions](exact-target-decisions.md).
+[Exact-target decisions](exact-target-decisions.md). The sibling
+`--resolution` mode resolves one observed confirmation-pending (`queued`)
+delivery to an explicit outcome; see
+[Confirmation-pending recovery](confirmation-pending-recovery.md).
 
 **Limitations:** This is a first-release local OS owner boundary, not a remote
 multiuser RBAC service. It cannot clear a reserved/uncertain native attempt,
