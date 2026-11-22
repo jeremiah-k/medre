@@ -288,8 +288,8 @@ def test_released_010_database_reopens_on_current_wheel(tmp_path: Path) -> None:
     assert reopen["expected_added_tables"] == [
         "delivery_handoff_settlements",
         "delivery_handoff_uncertainty",
-        "delivery_observation_scopes",
         "delivery_observation_scope_versions",
+        "delivery_observation_scopes",
         "event_content_ceiling_log",
         "radio_accepted_part_facts",
         "radio_attempt_evidence_summaries",
