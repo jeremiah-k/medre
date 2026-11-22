@@ -36,6 +36,24 @@ including ones created during staging, are preserved.
 Use a separate administrative switch of the installation root only after
 validating native identity/profiles and confirming all old owners are stopped.
 
+Restoring into a new directory does not automatically compare an existing
+installation. When the restored directory may replace an existing installation,
+pass its stopped core database with `--against-live PATH` (or `live_database`).
+That option compares the **verified staged database** against the stopped live
+core database. Any receipt high-water difference refuses the restore in either
+direction — a lower one would erase newer delivery evidence, and a higher one
+marks the branches as divergent — and a different logical catalog or row
+history is refused **even when the high-water numbers match**: operator
+decisions and native effects need not append receipts, and different branches
+can allocate the same sequence. Purely physical maintenance on the live
+database (`VACUUM`, `ANALYZE`) does not refuse. An unreadable live database
+also refuses the restore. A `--against-live` path that is omitted or does not
+exist skips this comparison and MUST NOT be treated as evidence that a
+replacement is safe. Never start both installations together. Reconcile
+provider-side effects separately, since a matching core database does not
+attest native systems. See
+[operator workflows](operator-workflows.md) for the full policy wording.
+
 No delivery attempt is sent, reopened, or changed by these functions. A
 successful file checksum proves byte integrity, not the safety of replaying an
 unknown native send. Recovery must continue to use the existing outbox claim
@@ -119,15 +137,46 @@ python -m medre.maintenance.stopped_cli verify \
   --snapshot /secure-backups/medre-snapshot-001
 python -m medre.maintenance.stopped_cli restore \
   --snapshot /secure-backups/medre-snapshot-001 \
-  --destination /srv/medre-restored --stopped
+  --destination /srv/medre-restored \
+  --against-live /srv/medre-state/state/medre.sqlite --stopped
 ```
 
 `--stopped` is deliberately required for capture and restore; it supplies an
 operator assertion, **not** an automatic check of subprocess or SDK state.
 The destination must not exist. Preserve the snapshot securely: it can contain
 unencrypted profile secrets. Successful and operational outcomes emit only
-status, never file names, key content, or private absolute paths. Invalid CLI
-syntax emits a generic argument error without echoing supplied path values.
+status, never file names, key content, or private absolute paths.
+
+A refused `restore` prints one JSON line carrying the operation, the status,
+the error type and, for a refusal MEDRE raises itself, a fixed `reason` code:
+
+```json
+{
+  "operation": "restore",
+  "status": "refused",
+  "error_type": "StoppedStateRefused",
+  "reason": "newer_live_evidence"
+}
+```
+
+The codes form a closed vocabulary, `STOPPED_REFUSAL_REASONS` in
+`medre.maintenance.stopped_snapshot`. Each names one kind of refusal and
+never carries a file name, identifier, count, timestamp, size, or path:
+
+| Refusal                       | Reason codes                                                                                                                                                                                                                     |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Runtime and destination       | `runtime_not_stopped`, `destination_exists`, `destination_inside_source`                                                                                                                                                         |
+| Manifest and file set         | `snapshot_not_directory`, `manifest_too_large`, `duplicate_manifest_field`, `unsupported_manifest`, `invalid_manifest_entry`, `duplicate_manifest_entry`, `core_entry_count`, `checksum_mismatch`, `missing_or_unexpected_files` |
+| Declared entry, path and file | `invalid_snapshot_role`, `invalid_snapshot_format`, `core_entry_requires_sqlite`, `unsafe_relative_path`, `path_escapes_root`, `root_is_symlink`, `symlink_in_path`, `not_regular_file`, `file_exceeds_size_bound`               |
+| Database files                | `sqlite_integrity_failed`, `sqlite_foreign_key_failed`, `opaque_is_sqlite`, `opaque_has_sidecar`, `watermark_unreadable`, `fingerprint_unreadable`                                                                               |
+| Restore-time checks           | `snapshot_changed_during_restore`, `newer_live_evidence`, `divergent_watermarks`, `live_evidence_unreadable`, `live_state_diverged`                                                                                              |
+
+`capture` and `verify` report the same codes for the checks they share with
+`restore`. Every other refusal reports the error type only: an operating-system
+error, a manifest or inventory the JSON parser rejects, a configuration failure,
+or a check that applies to `capture` alone. Invalid CLI syntax emits a generic
+argument error without echoing supplied path values.
+
 Before starting a restored installation, independently verify the provider
 profiles and ensure the original installation is not simultaneously active. Unknown radio work remains
 held and is not replay-authorized by restoring its database.
