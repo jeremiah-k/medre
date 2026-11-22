@@ -127,6 +127,30 @@ _RADIO_EVIDENCE_READ_SQL = (
     "WHERE p.outbox_id=? AND p.attempt_number=?"
 )
 
+# One statement observes the retained summary and the live checkpoint in a
+# single SQLite snapshot. Reading them separately admits a sweep that
+# commits between the reads: the first read finds no summary and the second
+# finds no checkpoint, and preserved acceptance evidence looks missing.
+# The summary row wins when present; the live projection serves databases
+# that have not been swept yet.
+_RADIO_EVIDENCE_COMBINED_SQL = (
+    "SELECT 1 AS from_summary, s.provenance_json AS provenance_json, "  # nosec B608 - closed module fragment and bound attempt keys
+    "s.parts_json AS parts_json, s.revision AS revision, "
+    "NULL AS plan_json, NULL AS plan_fingerprint, NULL AS outbox_id, "
+    "NULL AS attempt_number, 0 AS content_denied "
+    "FROM radio_attempt_evidence_summaries s "
+    "WHERE s.outbox_id=? AND s.attempt_number=? "
+    "UNION ALL "
+    "SELECT 0 AS from_summary, p.provenance_json, p.parts_json, p.revision, "
+    "p.plan_json, p.plan_fingerprint, p.outbox_id, p.attempt_number, "
+    + event_content_denied_sql("o.event_id")
+    + " AS content_denied "
+    "FROM radio_attempt_progress p JOIN delivery_outbox o "
+    "ON o.outbox_id=p.outbox_id "
+    "WHERE p.outbox_id=? AND p.attempt_number=? "
+    "ORDER BY from_summary DESC"
+)
+
 
 def _closed_checkpoint_evidence(
     saved: StoredRadioAttempt,
@@ -772,21 +796,18 @@ class _RadioMixin:
     ) -> RadioAttemptEvidenceSummary | None:
         """Read content-free post-ceiling evidence, never a resume/send grant."""
         row = await self._read_one(
-            "SELECT * FROM radio_attempt_evidence_summaries "
-            "WHERE outbox_id=? AND attempt_number=?",
-            (outbox_id, attempt_number),
+            _RADIO_EVIDENCE_COMBINED_SQL,
+            (outbox_id, attempt_number, ceiling_read_time(), outbox_id, attempt_number),
         )
         if row is None:
+            return None
+        if not row["from_summary"]:
             # Sweep may be disabled or late. A stored radio plan cannot cross
             # the ceiling, but verified checkpoint facts still can settle an
             # accepted attempt. Project privately without returning plan bytes.
-            live = await self._read_one(
-                _RADIO_EVIDENCE_READ_SQL,
-                (ceiling_read_time(), outbox_id, attempt_number),
-            )
-            if live is None or not live["content_denied"]:
+            if not row["content_denied"]:
                 return None
-            return _closed_checkpoint_evidence(_decode(live))
+            return _closed_checkpoint_evidence(_decode(row))
         try:
             provenance = msgspec.json.decode(
                 row["provenance_json"], type=DeliveryAttemptProvenance

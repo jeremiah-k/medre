@@ -423,3 +423,50 @@ async def test_fresh_abandonment_finalizes_only_the_effective_attempt(
     )
     row = await temp_storage.get_outbox_item(stored.outbox_id)
     assert row is not None and row.status == "in_progress"
+
+
+async def test_evidence_reader_prefers_the_summary_in_one_snapshot(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """The retained summary and the live checkpoint are observed together.
+
+    A sweep committing between two separate reads could remove both
+    representations and make preserved acceptance evidence look missing.
+    One statement observes both; the retained summary wins when present,
+    so a seeded summary is returned even beside a denied live checkpoint.
+    """
+    import json
+
+    stored, provenance = await _seed_reserved_claim(temp_storage)
+    await _bind_and_progress(temp_storage, provenance, ["accepted"])
+    await _install_elapsed_policy(temp_storage, provenance.event_id)
+    # Pre-sweep: the denied live checkpoint projects compact evidence.
+    live = await temp_storage.get_radio_attempt_evidence(stored.outbox_id, 1)
+    assert live is not None and live.revision >= 1
+    # A retained summary beside the still-present checkpoint wins.
+    await temp_storage._write(
+        "INSERT INTO radio_attempt_evidence_summaries "
+        "(outbox_id, attempt_number, provenance_json, parts_json, revision) "
+        "VALUES (?, 1, ?, ?, 9) "
+        "ON CONFLICT(outbox_id, attempt_number) DO UPDATE SET revision=9",
+        (
+            stored.outbox_id,
+            json.dumps(
+                {
+                    "event_id": provenance.event_id,
+                    "delivery_plan_id": provenance.delivery_plan_id,
+                    "target_adapter": provenance.target_adapter,
+                    "target_channel": provenance.target_channel,
+                    "outbox_id": provenance.outbox_id,
+                    "attempt_number": 1,
+                    "source": "retry",
+                    "replay_run_id": None,
+                }
+            ),
+            json.dumps([{"ordinal": 1, "state": "accepted", "handoff_id": "origin"}]),
+        ),
+    )
+    combined = await temp_storage.get_radio_attempt_evidence(stored.outbox_id, 1)
+    assert combined is not None
+    assert combined.revision == 9
+    assert [part.state for part in combined.parts] == ["accepted"]
