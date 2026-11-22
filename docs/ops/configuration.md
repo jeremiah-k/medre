@@ -1580,21 +1580,26 @@ medre storage retention activate [--storage-path PATH] [--yes]
     requires --yes and is safe against a live database. `medre storage
     collect --apply` remains the stopped-storage maintenance path.
 
-medre storage ceiling audit [--storage-path PATH] [--limit N] [--event EVENT_ID]
+medre storage ceiling audit [--storage-path PATH] [--limit N] [--event EVENT_ID | --after-event EVENT_ID] [--as-of UTC_TIMESTAMP]
     Storage management (read-only). Reports what the hard content-privacy
     ceiling enforcement would remove, per census store, for content whose
     ceiling has elapsed, and flags residual writes that landed after a
-    prior sweep (the documented late-write case). Metadata only: event
-    identifiers and store labels are content-free identity; no message
-    text or bytes are read. See content-ceiling-audit.md.
+    prior sweep (the documented late-write case). The audit reports observed
+    residual rows at query time, not a forecast of what a future sweep will
+    remove (shared blob ownership can change). Its JSON output contains only
+    content-free identifiers, counters, and store labels; the read-only SQL
+    may inspect stored content values to count residuals. Follow the
+    returned page cursor with --after-event and reuse --as-of across pages.
+    See content-ceiling-audit.md.
 
-medre storage ceiling verify [--storage-path PATH] [--limit N] [--event EVENT_ID]
+medre storage ceiling verify [--storage-path PATH] [--limit N] [--event EVENT_ID | --after-event EVENT_ID]
     Storage management (read-only). Re-runs the ceiling residual battery
     over the enforcement receipts and reports pass/fail per receipt with
     the receipt's recorded counters — proof limited to those receipts checked
     against the current logical store. It does not cover unchecked receipts
-    or elapsed events lacking a receipt; inspect `*_has_more` and the audit's
-    `elapsed_pending` list. Exits 1 when the verdict is failed. See
+    or elapsed events lacking a receipt; follow receipts_next_after_event
+    with --after-event until receipts_has_more is false and require each
+    page to pass. Exits 1 when the current page fails. See
     content-ceiling-audit.md.
 
 medre storage reset [--storage-path PATH]

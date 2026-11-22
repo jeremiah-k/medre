@@ -64,6 +64,17 @@ restore the pre-upgrade backup with a build that accepts its catalog.
 Keep the upgraded database separately if it contains work recorded since
 the backup.
 
+The tagged `0.1.0` build includes the exact unstarted `medre resolve`
+command, but does not include G03's store-wide content purge and verification
+procedure. Do not treat a restored pre-upgrade database as privacy-clean
+merely because its ceilings were installed: an expired event may still have
+content in older logical stores or in SQLite page images. Keep the restored
+database offline, assess its catalog with the compatible build, and migrate
+a verified copy forward to a build supporting the ceiling sweep before
+asserting complete logical purge. A migration or rollback MUST NOT silently
+replace the authoritative database with a stale backup; preserve and reconcile
+all receipts, native effects, and operator decisions created since backup.
+
 A backup is a point-in-time copy. A delivery that was pending when the
 backup was taken may have completed natively afterward; restoring that
 backup erases the completion record, so the restored build can send it

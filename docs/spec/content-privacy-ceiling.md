@@ -119,7 +119,7 @@ plus the SQLite-level remnants. Coverage classes:
 | `_medre_schema_meta`                                            | none (sweep cursors, schema stamp)                                                                                                                                                   | retained-identity         | retained; cursor values are keyset positions, not content                                                                                                                                                                 |
 | SQLite free pages and WAL frames                                | former page images of any of the above                                                                                                                                               | unmeasured                | explicit operator erasure step (§5)                                                                                                                                                                                       |
 | `radio_attempt_evidence_summaries`                              | Exact attempt provenance, packet states and native correlation, revision, or a closed unreadable-checkpoint marker. No wire bytes, grants, diagnostic text, or payload fingerprints. | retained-identity         | Preserve only the typed evidence projection; an undecodable checkpoint keeps a non-authorizing blocker so it cannot become message-only proof.                                                                            |
-| `delivery_observation_scopes`                                   | Verified original outbox and attempt identity, packet ordinal, or an unreadable-scope marker.                                                                                        | retained-identity         | Preserve scope while clearing provider metadata.                                                                                                                                                                          |
+| `delivery_observation_scopes`                                   | Verified original outbox and attempt identity, packet ordinal, or an unreadable-scope marker.                                                                                        | retained-identity         | Preserve mutable, content-free operational scope while clearing provider metadata; changing scope advances its attempt revision.                                                                                                                                                                          |
 | `delivery_observation_scope_versions`                           | Exact-attempt monotonic revision for every packet-scope mutation, without provider text.                                                                                             | retained-identity         | Three atomic triggers advance the revision on scope insertion, change, or deletion; a row count alone cannot fence an in-place rewrite.                                                                                   |
 
 The registry contract (`STORAGE_COLUMN_CLASSES`) is the column-level
@@ -165,6 +165,13 @@ The guarded ceiling-enforcement transition is a single mutation boundary:
   settlements, operator decisions, conversation projections, and the
   admission identity all survive as linkage, with census-declared content
   values cleared.
+- Receipt, observation, ingress and outbox writes MUST keep exact durable
+  evidence after expiry without recreating free-form diagnostic content.
+  Their diagnostic follow-ups check the installed ceiling and immutable
+  enforcement receipt within the same SQLite write transaction. Content-free
+  failure classifications and retained handoff facts remain independently
+  authoritative. Legacy writes and unrelated writers are still subject to
+  the residual sweep and its verification battery.
 - Writes racing the sweep from the pre-ceiling authorization window MAY
   append evidence rows afterwards; the sweep's residual pass removes
   their content values, and the receipt stays valid. An authorized read of
@@ -232,10 +239,15 @@ setting, a successful `wal_checkpoint(TRUNCATE)` is required; secure delete
 is not an alternative to WAL cleanup. Neither method erases backups, earlier
 file snapshots, or provider-owned copies.
 
-Until that step, the honest statement is exactly the standing
-`sqlite_free_pages_and_wal` unmeasured scope: expired content is
-unreachable through every read path and absent from every logical store,
-while physical page images require the operator erasure step above.
+Expiration denies authorized content reads at the installed hard ceiling;
+it does **not** prove logical removal while the default-off sweep has not
+processed the event. Logical absence is established only by a completed
+purge and a clean residual verification over the affected event or complete
+paginated receipt set. Writes authorized before expiry or from legacy
+paths can leave late residuals, so a previous clean result is not a
+permanent certificate. The `sqlite_free_pages_and_wal` scope remains
+unmeasured even when logical absence has been verified: physical page
+images require the operator erasure step above.
 Backups, exports, file-level snapshots, and provider copies remain
 independently retained as documented by
 [content-retention.md](content-retention.md) and

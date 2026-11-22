@@ -49,7 +49,11 @@ never authorizes any read, retention action, or collection.
    write-once recorded timestamps.
    Identity columns MAY remain while owned content around them is collected;
    they are deliberately retained correlation facts.
-2. **Operational authority** — statuses, ownership and lease facts
+2. **Operational authority** — the replaceable `delivery_observation_scopes.scope_json`
+   and `delivery_handoff_uncertainty.attempt_number` are guarded current
+   attempt facts, not write-once identities. Every scope replacement advances
+   a content-free attempt revision that fences decisions based on older scope.
+   Other authority includes statuses, ownership and lease facts
    (`worker_id`, `lease_until`, `locked_at`), attempt generations, guarded
    state pointers (`receipt_id` on the outbox), duplicate-prevention
    authority, settlement and expiry bounds (`released_at`,

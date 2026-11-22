@@ -513,9 +513,14 @@ class TestDDLRequiredColumnsParity:
 # ===================================================================
 
 
-_DELETE_PATTERN = re.compile(r"\bDELETE\s+FROM\b", re.IGNORECASE)
+# A Python source string may spell SQL whitespace as ``\n`` or ``\t``.
+# Match that escape as a boundary too, rather than treating its final letter
+# as part of the SQL identifier immediately before DELETE.
+_DELETE_PREFIX = r"(?:\\[nrt]|(?<![\w$]))DELETE\s+FROM\b"
+_DELETE_PATTERN = re.compile(_DELETE_PREFIX, re.IGNORECASE)
 _DELETE_TARGET_PATTERN = re.compile(
-    r'\bDELETE\s+FROM\s+(?:"([^"]+)"|`([^`]+)`|\[([^\]]+)\]|([A-Za-z_$][\w$]*))',
+    _DELETE_PREFIX
+    + r'\s+(?:"((?:[^"]|"")+)"|`((?:[^`]|``)+)`|\[((?:[^\]]|\]\])+?)\]|([^\s;(),=<>!{}\\\'"`]+))',
     re.IGNORECASE,
 )
 
@@ -675,3 +680,31 @@ class TestDeleteTargetIdentifierParsing:
     def test_still_accepts_the_exact_allowlisted_name(self) -> None:
         parsed = _delete_targets("DELETE FROM event_body_content WHERE event_id = ?")
         assert parsed == ("event_body_content",)
+
+
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        (r'sql = "\nDELETE FROM delivery_receipts"', ("delivery_receipts",)),
+        (r'sql = "\tDELETE FROM event_body_content"', ("event_body_content",)),
+        ('DELETE FROM "event_body_content""archive"', ('event_body_content""archive',)),
+        (
+            "DELETE FROM event_body_content\u0301 WHERE event_id=?",
+            ("event_body_content\u0301",),
+        ),
+        ("DELETE FROM event_body_content$archive", ("event_body_content$archive",)),
+        ("DELETE FROM event_body_content", ("event_body_content",)),
+        (
+            "DELETE FROM event_body_content; DELETE FROM delivery_receipts",
+            ("event_body_content", "delivery_receipts"),
+        ),
+    ],
+)
+def test_delete_scanner_does_not_accept_partial_or_escaped_destinations(
+    sql: str, expected: tuple[str, ...]
+) -> None:
+    assert _delete_targets(sql) == expected
+    assert expected == ("event_body_content",) or any(
+        table not in {"event_body_content", "event_relation_excerpts"}
+        for table in _delete_targets(sql) or ()
+    )

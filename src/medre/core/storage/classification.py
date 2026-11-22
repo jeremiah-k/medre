@@ -329,7 +329,7 @@ STORAGE_COLUMN_CLASSES: dict[str, dict[str, ColumnClass]] = {
     },
     "delivery_handoff_uncertainty": {
         "outbox_id": ColumnClass.IMMUTABLE_IDENTITY,
-        "attempt_number": ColumnClass.IMMUTABLE_IDENTITY,
+        "attempt_number": ColumnClass.OPERATIONAL_AUTHORITY,
         "state": ColumnClass.OPERATIONAL_AUTHORITY,
     },
     # Content-free post-ceiling evidence. Provenance is write-once identity;
@@ -345,7 +345,7 @@ STORAGE_COLUMN_CLASSES: dict[str, dict[str, ColumnClass]] = {
     },
     "delivery_observation_scopes": {
         "observation_id": ColumnClass.IMMUTABLE_IDENTITY,
-        "scope_json": ColumnClass.IMMUTABLE_IDENTITY,
+        "scope_json": ColumnClass.OPERATIONAL_AUTHORITY,
     },
     "delivery_observation_scope_versions": {
         "outbox_id": ColumnClass.IMMUTABLE_IDENTITY,

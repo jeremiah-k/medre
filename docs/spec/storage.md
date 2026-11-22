@@ -1197,6 +1197,14 @@ exists to supersede. Structured provider/adapter metadata (`metadata`
 columns) is deliberately NOT separated: it stays inline, content-classified,
 and conservative in its family table.
 
+An append made after the owning event's hard ceiling has elapsed or an
+enforcement receipt has committed MUST preserve its durable parent evidence
+without inserting nonempty diagnostic text. The receipt, observation, outbox,
+and ingress follow-up writers enforce this in the same SQLite transaction
+using a statement-execution clock. Content-free clearing markers on mutable
+outbox and ingress work are permitted; the typed handoff-uncertainty ledger
+is independent of diagnostic content.
+
 The table is append-only: runtime code **MUST NOT** update or delete a
 diagnostic row. A successful handoff writes no new failure diagnostic; prior diagnostic
 rows, if any, remain append-only historical evidence. A delivery that has
