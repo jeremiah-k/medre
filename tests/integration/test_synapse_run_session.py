@@ -399,22 +399,18 @@ class TestSynapseRunSession:
     # Explicit ingress-path tests
     # ------------------------------------------------------------------
 
-    @pytest.mark.xfail(
-        reason="Strict sync_loop ingress is not yet reliable; "
-        "xfail proves the test exists and tracks progress",
-        strict=False,
-    )
     async def test_strict_sync_loop(
         self,
         synapse_env: SynapseEnvironment,
         temp_storage: SQLiteStorage,
     ) -> None:
-        """FAILS (xfail) if fallback is used — proves strict sync goal.
+        """Fails if fallback is used — proves the strict sync goal.
 
         Mirrors ``test_synapse_bridge_smoke.test_strict_sync_loop`` but
-        exercises the run-session report shape.  When this test passes,
-        the sync loop reliably delivers inbound events within the
-        timeout window for the run-session code path.
+        exercises the run-session report shape.  A pass proves the sync
+        loop reliably delivers inbound events within the timeout window
+        for the run-session code path.  The former non-strict ``xfail``
+        progress marker was removed once the run passed consistently.
         """
         ts = int(time.time())
         body_text = f"MEDRE strict run-session (ts={ts})"
