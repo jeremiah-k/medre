@@ -243,3 +243,94 @@ def test_capture_rejects_existing_destination_unaffected(tmp_path: Path) -> None
             runtime_stopped=True,
         )
     assert live_db.exists()
+
+
+def test_equal_receipt_watermarks_do_not_prove_same_history(tmp_path: Path) -> None:
+    root = tmp_path / "live-install"
+    live = _capture(root, tmp_path / "snapshot")
+    _add_receipt(live, "receipt-a")
+    snapshot = tmp_path / "snapshot-current"
+    create_stopped_snapshot(
+        root,
+        snapshot,
+        [SnapshotEntry("state/medre.sqlite", "core_sqlite", "sqlite")],
+        runtime_stopped=True,
+    )
+    with closing(sqlite3.connect(live)) as db:
+        db.execute(
+            "UPDATE delivery_receipts SET receipt_id='receipt-b' "
+            "WHERE receipt_id='receipt-a'"
+        )
+        db.commit()
+    backup = snapshot / "files" / "state" / "medre.sqlite"
+    assert read_delivery_evidence_watermark(live) == read_delivery_evidence_watermark(
+        backup
+    )
+    destination = tmp_path / "restored"
+    with pytest.raises(ValueError, match="divergent backup"):
+        restore_stopped_snapshot(
+            snapshot, destination, runtime_stopped=True, live_database=live
+        )
+    assert not destination.exists()
+
+
+def test_receiptless_delivery_state_change_refuses_restore(tmp_path: Path) -> None:
+    root = tmp_path / "live-install"
+    live = _capture(root, tmp_path / "initial-snapshot")
+    with closing(sqlite3.connect(live)) as db:
+        db.execute(
+            "INSERT INTO delivery_outbox "
+            "(outbox_id,event_id,delivery_plan_id,target_adapter,created_at,updated_at) "
+            "VALUES ('pending-work','event','plan','radio',?,?)",
+            (_NOW, _NOW),
+        )
+        db.commit()
+    snapshot = tmp_path / "snapshot-current"
+    create_stopped_snapshot(
+        root,
+        snapshot,
+        [SnapshotEntry("state/medre.sqlite", "core_sqlite", "sqlite")],
+        runtime_stopped=True,
+    )
+    with closing(sqlite3.connect(live)) as db:
+        db.execute(
+            "UPDATE delivery_outbox SET status='queued', updated_at=? "
+            "WHERE outbox_id='pending-work'",
+            ("2026-11-21T01:00:00+00:00",),
+        )
+        db.commit()
+    assert read_delivery_evidence_watermark(live) == 0
+    with pytest.raises(ValueError, match="divergent backup"):
+        restore_stopped_snapshot(
+            snapshot, tmp_path / "restored", runtime_stopped=True, live_database=live
+        )
+    assert not (tmp_path / "restored").exists()
+
+
+def test_restore_compares_the_verified_staged_database(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from medre.maintenance import stopped_snapshot as subject
+
+    root = tmp_path / "live-install"
+    live = _capture(root, tmp_path / "snapshot")
+    checked: list[Path] = []
+    original = subject.read_delivery_evidence_watermark
+
+    def recording_watermark(path: Path) -> int:
+        checked.append(Path(path))
+        return original(path)
+
+    monkeypatch.setattr(
+        subject, "read_delivery_evidence_watermark", recording_watermark
+    )
+    restore_stopped_snapshot(
+        tmp_path / "snapshot",
+        tmp_path / "restored",
+        runtime_stopped=True,
+        live_database=live,
+    )
+    assert any(
+        path.parent.parent.name.startswith(".medre-restore-") for path in checked
+    )
+    assert not any("snapshot/files" in str(path) for path in checked)

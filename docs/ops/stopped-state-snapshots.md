@@ -36,14 +36,18 @@ including ones created during staging, are preserved.
 Use a separate administrative switch of the installation root only after
 validating native identity/profiles and confirming all old owners are stopped.
 
-Restoring a backup over newer delivery evidence is refused. Pass the live
-core database with `--against-live PATH` (or the `live_database` keyword):
-while that database holds a newer delivery-evidence watermark than the
-snapshot's core database — the monotone high-water of `delivery_receipts`
-sequence identities — the restore fails closed, because switching the
-installation root to such a copy would erase delivery evidence recorded
-after the capture. An unreadable live database also refuses the restore.
-The remedy is a fresh snapshot of the live installation. See
+Restoring into a new directory does not automatically compare an existing
+installation. When the restored directory may replace an existing installation,
+pass its stopped core database with `--against-live PATH` (or `live_database`).
+That option compares the **verified staged database** against the stopped live
+core database. A lower receipt high-water is refused, and a different logical
+catalog or row history is refused **even when the high-water numbers match**:
+operator decisions and native effects need not append receipts, and different
+branches can allocate the same sequence. An unreadable live database also
+refuses the restore. A missing `--against-live` skips this comparison and MUST
+NOT be treated as evidence that a replacement is safe. Never start both
+installations together. Reconcile provider-side effects separately, since a
+matching core database does not attest native systems. See
 [operator workflows](operator-workflows.md) for the full policy wording.
 
 No delivery attempt is sent, reopened, or changed by these functions. A
@@ -129,7 +133,8 @@ python -m medre.maintenance.stopped_cli verify \
   --snapshot /secure-backups/medre-snapshot-001
 python -m medre.maintenance.stopped_cli restore \
   --snapshot /secure-backups/medre-snapshot-001 \
-  --destination /srv/medre-restored --stopped
+  --destination /srv/medre-restored \
+  --against-live /srv/medre-state/state/medre.sqlite --stopped
 ```
 
 `--stopped` is deliberately required for capture and restore; it supplies an

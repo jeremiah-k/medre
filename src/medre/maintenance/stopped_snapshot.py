@@ -416,18 +416,43 @@ def read_delivery_evidence_watermark(db_path: Path) -> int:
         conn.close()
 
 
-def _assert_backup_not_stale(snapshot: Path, entry: SnapshotEntry, live: Path) -> None:
-    """Refuse a backup whose delivery evidence is older than the live database.
+def _logical_database_digest(db_path: Path) -> str:
+    """Hash the stopped database's logical catalog and rows, not its WAL layout.
 
-    The ruling this enforces: never restore a stale backup over newer
-    delivery evidence. The snapshot watermark is read from the digest-verified
-    backup file; the live watermark from the operator-supplied database. An
-    unreadable live database refuses the restore (fail closed) because the
-    comparison cannot be made honestly.
+    A receipt sequence is not a lineage proof: different branches can allocate
+    the same identity, and operator decisions need not allocate any receipt.
+    Compare full logical state when an existing installation is supplied.
+    This check is intentionally conservative and never exposes row values.
     """
-    backup_watermark = read_delivery_evidence_watermark(
-        Path(snapshot).absolute() / "files" / _relative(entry.path)
-    )
+    try:
+        conn = sqlite3.connect(f"{db_path.absolute().as_uri()}?mode=ro", uri=True)
+        try:
+            conn.execute("BEGIN")
+            digest = hashlib.sha256()
+            for statement in conn.iterdump():
+                value = statement.encode("utf-8", errors="surrogatepass")
+                digest.update(len(value).to_bytes(8, "big"))
+                digest.update(value)
+            conn.rollback()
+            return digest.hexdigest()
+        finally:
+            conn.close()
+    except (sqlite3.Error, UnicodeError, OverflowError) as exc:
+        raise ValueError(
+            "delivery evidence cannot be compared with the existing database"
+        ) from exc
+
+
+def _assert_backup_not_stale(staged_database: Path, live: Path) -> None:
+    """Require identical logical state before replacing a known installation.
+
+    A receipt high-water detects a strictly older branch, but equality alone
+    cannot distinguish independently appended receipts or operator decisions.
+    The caller compares the *verified staged* database, never a source file
+    that could change between inspection and publication. Other native files
+    and provider-side effects still require operator reconciliation.
+    """
+    backup_watermark = read_delivery_evidence_watermark(staged_database)
     try:
         live_watermark = read_delivery_evidence_watermark(live)
     except ValueError as exc:
@@ -443,6 +468,14 @@ def _assert_backup_not_stale(snapshot: Path, entry: SnapshotEntry, live: Path) -
             "Capture a fresh snapshot of the live installation, or restore to "
             "an unused destination and reconcile the evidence explicitly."
         )
+    if backup_watermark != live_watermark or _logical_database_digest(
+        staged_database
+    ) != _logical_database_digest(live):
+        raise ValueError(
+            "refusing to restore a divergent backup: receipt watermarks do not "
+            "prove shared history or preserve later operator decisions. "
+            "Capture a fresh snapshot or reconcile the branches offline."
+        )
 
 
 def restore_stopped_snapshot(
@@ -454,11 +487,11 @@ def restore_stopped_snapshot(
 ) -> None:
     """Restore only into a new installation directory; never overwrite a live one.
 
-    When *live_database* names an existing SQLite database, the restore
-    refuses while that database holds newer delivery evidence than the
-    snapshot's core database: never restore a stale backup over newer
-    delivery evidence. An absent path skips the comparison (there is no
-    live state left to protect), and an unreadable one refuses the restore.
+    When *live_database* names an existing SQLite database, compare the
+    verified staged core database against the stopped live database's full
+    logical state. The comparison rejects diverged branches even if receipt
+    sequence watermarks match. A missing live path skips this optional guard;
+    the operator must reconcile native effects and decisions independently.
     """
     if not runtime_stopped:
         raise ValueError("stop the runtime and native workers before restore")
@@ -467,11 +500,11 @@ def restore_stopped_snapshot(
         raise FileExistsError("restore requires an absent destination directory")
     destination_root = _destination_outside(Path(snapshot), destination_root)
     files = _verified_files(snapshot)
-    if live_database is not None and Path(live_database).exists():
-        core_entry = next(
-            record.entry for record in files if record.entry.role == "core_sqlite"
-        )
-        _assert_backup_not_stale(snapshot, core_entry, Path(live_database).absolute())
+    core_entry = (
+        next(record.entry for record in files if record.entry.role == "core_sqlite")
+        if live_database is not None and Path(live_database).exists()
+        else None
+    )
     destination_root.parent.mkdir(parents=True, exist_ok=True)
     stage = Path(
         tempfile.mkdtemp(prefix=".medre-restore-", dir=destination_root.parent)
@@ -486,6 +519,10 @@ def restore_stopped_snapshot(
             os.chmod(target, 0o600)
             if _digest(target) != (record.size, record.sha256):
                 raise ValueError("snapshot changed during restore")
+        if core_entry is not None and live_database is not None:
+            _assert_backup_not_stale(
+                stage / _relative(core_entry.path), Path(live_database).absolute()
+            )
         _publish(stage, destination_root)
     finally:
         if stage.exists():

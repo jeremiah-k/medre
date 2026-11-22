@@ -83,7 +83,8 @@ that declares that catalog, or make a deliberate recovery or reset
 decision. Never point an older build at an upgraded database expecting it
 to "just work"; that refusal is the tooling keeping the evidence intact.
 
-**MEDRE never restores a stale backup over newer delivery evidence.**
+**When explicitly supplied the stopped live database, MEDRE refuses a divergent
+core-state restore.**
 Evidence backfill also runs before any erase: a guarded upgrade copies
 legacy uncertainty out of free-form diagnostics into the typed evidence
 tables while the legacy columns still exist, so no history is erased
@@ -92,12 +93,12 @@ point-in-time copy, and restoring an old one can silently discard
 delivery evidence recorded after it was taken. The stopped-state restore
 refuses any existing destination outright, so it cannot overwrite a live
 installation directly; the remaining risk is switching the installation
-root to a restored copy afterward. Before such a switch, compare the
-snapshot against the live core database — the restore refuses while the
-live database holds a newer delivery-evidence watermark (the monotone
-high-water of `delivery_receipts` sequence identities, the same
-content-free fence handoff settlements record; it survives evidence
-purges and clock skew where timestamps do not):
+root to a restored copy afterward. **Always** supply `--against-live` for
+such a switch. The restore compares the verified staged core database to the
+stopped live database: a newer receipt watermark refuses the backup, and a
+different logical catalog or row history refuses it even when watermarks are
+equal. Two branches may assign the same receipt sequence to different records,
+and a native handoff or operator decision need not advance that sequence:
 
 ```bash
 python -m medre.maintenance.stopped_cli restore \
@@ -106,11 +107,14 @@ python -m medre.maintenance.stopped_cli restore \
   --against-live /srv/medre-state/medre.sqlite --stopped
 ```
 
-The command reports `refused` and exits nonzero when the live evidence is
-newer; capture a fresh snapshot instead. A live database that cannot be
-read also refuses the restore. An equal or older watermark is allowed,
-because the backup then carries the same or newer evidence than the state
-it is replacing.
+The command reports `refused` and exits nonzero when the core histories
+contradict, including equal-watermark divergence; capture a fresh stopped
+snapshot or reconcile the branches offline. An unreadable live database also
+refuses. Omission of `--against-live` skips the check and is only appropriate
+for a genuinely new installation without a prior authoritative database.
+Core equality does not prove that provider-side sends or operator actions
+outside the selected state files are included; reconcile those effects before
+activating the restored installation.
 
 The tagged `0.1.0` build includes the exact unstarted `medre resolve`
 command, but does not include G03's store-wide content purge and verification
