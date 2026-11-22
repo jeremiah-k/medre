@@ -51,14 +51,14 @@ import shutil
 import sqlite3
 import zipfile
 from contextlib import closing
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-import medre.core.storage.sqlite.schema_validation as schema_validation
 import medre.core.storage.sqlite._prerelease_migrate as prerelease_migrate
+import medre.core.storage.sqlite.schema_validation as schema_validation
 from medre.core.events.canonical import DeliveryObservation
 from medre.core.storage.backend import StorageDowngradeRefusedError
 from medre.core.storage.sqlite.catalog_assessment import (
@@ -227,7 +227,14 @@ def _seed_rows(db: sqlite3.Connection, *, inline: bool) -> None:
         "INSERT INTO radio_attempt_progress (outbox_id, attempt_number,"
         " plan_fingerprint, plan_json, provenance_json, parts_json, revision,"
         " created_at, updated_at) VALUES ('work-1', 1, ?, ?, ?, ?, 0, ?, ?)",
-        ("a" * 64, '{"parts": 2}', '{"adapter": "radio"}', '[{"ordinal": 1}]', _NOW, _NOW),
+        (
+            "a" * 64,
+            '{"parts": 2}',
+            '{"adapter": "radio"}',
+            '[{"ordinal": 1}]',
+            _NOW,
+            _NOW,
+        ),
     )
     if inline:
         db.execute(
@@ -307,7 +314,17 @@ def _insert_receipt(
         "outbox_id",
         "created_at",
     ]
-    values: list[object] = [receipt_id, event_id, "plan", "radio", status, "attempt", 1, outbox_id, _NOW]
+    values: list[object] = [
+        receipt_id,
+        event_id,
+        "plan",
+        "radio",
+        status,
+        "attempt",
+        1,
+        outbox_id,
+        _NOW,
+    ]
     if inline:
         columns.append("error")
         values.append(error)
@@ -419,7 +436,9 @@ def _drop_additive_wave(path: Path) -> None:
             db.execute(statement)
 
 
-def _snapshot_state(path: Path) -> tuple[list[tuple[Any, ...]], dict[str, list[tuple[Any, ...]]]]:
+def _snapshot_state(
+    path: Path,
+) -> tuple[list[tuple[Any, ...]], dict[str, list[tuple[Any, ...]]]]:
     """Dump the exact catalog and all rows of one database, FK-checked."""
     with closing(sqlite3.connect(path)) as db:
         catalog = [
@@ -436,7 +455,9 @@ def _snapshot_state(path: Path) -> tuple[list[tuple[Any, ...]], dict[str, list[t
                 continue
             rows[str(name)] = [
                 tuple(row)
-                for row in db.execute(f'SELECT * FROM "{name}" ORDER BY rowid')  # nosec B608 # The identifier comes from the persisted catalog enumeration.
+                for row in db.execute(
+                    f'SELECT * FROM "{name}" ORDER BY rowid'  # nosec B608 # The identifier comes from the persisted catalog enumeration, never external input.
+                )
             ]
         assert list(db.execute("PRAGMA foreign_key_check")) == []
     return catalog, rows
@@ -523,7 +544,9 @@ def test_backfill_failure_after_copy_preserves_original_bytes(
         }
         assert "error" in columns  # legacy inline uncertainty not yet erased
         assert (
-            db.execute("SELECT COUNT(*) FROM delivery_evidence_diagnostics").fetchone()[0]
+            db.execute("SELECT COUNT(*) FROM delivery_evidence_diagnostics").fetchone()[
+                0
+            ]
             == 0
         )  # the backfill rolled back: no partial erase
 
@@ -541,7 +564,9 @@ def test_backfill_happens_before_erase(
     def observing_copy(db: sqlite3.Connection, family: str, table: str) -> None:
         columns = {
             str(row[1])
-            for row in db.execute(f"PRAGMA table_info({table})")  # nosec B608 # Declared schema names.
+            for row in db.execute(
+                f"PRAGMA table_info({table})"
+            )  # nosec B608 # Declared schema names.
         }
         legacy_columns_alive.append(_RETIRED_INLINE_COLUMN[family] in columns)
         observed_families.append(family)
@@ -551,7 +576,12 @@ def test_backfill_happens_before_erase(
         prerelease_migrate, "_copy_inline_diagnostics_to_side_table", observing_copy
     )
     with closing(sync_open(str(legacy_path))) as db:
-        assert sorted(observed_families) == ["ingress", "observation", "outbox", "receipt"]
+        assert sorted(observed_families) == [
+            "ingress",
+            "observation",
+            "outbox",
+            "receipt",
+        ]
         assert all(legacy_columns_alive), "backfill ran after the legacy erase"
         assert _side_table_rows(db) == _expected_side_table_rows()
         assert validate_schema_definition(db, str(legacy_path))
@@ -651,8 +681,7 @@ async def test_readonly_inspection_open_passes_on_upgraded_db(
     try:
         db = storage._require_db()
         rows = {
-            str(row[0])
-            for row in db.execute("SELECT event_id FROM canonical_events")
+            str(row[0]) for row in db.execute("SELECT event_id FROM canonical_events")
         }
         assert rows == {"event-1", "event-2"}
     finally:
@@ -723,11 +752,8 @@ def test_stale_backup_restore_guard_holds_on_upgraded_db(legacy_path: Path) -> N
         [SnapshotEntry("state/medre.sqlite", "core_sqlite", "sqlite")],
         runtime_stopped=True,
     )
-    assert (
-        read_delivery_evidence_watermark(live)
-        == read_delivery_evidence_watermark(
-            fresh_backup / "files" / "state" / "medre.sqlite"
-        )
+    assert read_delivery_evidence_watermark(live) == read_delivery_evidence_watermark(
+        fresh_backup / "files" / "state" / "medre.sqlite"
     )
     restore_stopped_snapshot(
         fresh_backup,
@@ -771,7 +797,9 @@ def test_released_fixture_matches_cached_published_wheel(tmp_path: Path) -> None
     with zipfile.ZipFile(wheel) as archive:
         source = archive.read("medre/core/storage/sqlite/schema.py").decode("utf-8")
     namespace: dict[str, object] = {"__name__": "released_schema"}
-    exec(compile(source, "released_schema.py", "exec"), namespace)  # nosec B102 # Pinned, digest-verified released wheel source.
+    exec(
+        compile(source, "released_schema.py", "exec"), namespace
+    )  # nosec B102 # Pinned, digest-verified released wheel source.
     wheel_catalog = _catalog_object_set(
         str(namespace["_SCHEMA"]) + str(namespace["_INDEXES"])
     )

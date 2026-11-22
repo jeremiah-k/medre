@@ -92,9 +92,7 @@ def test_watermark_grows_with_receipts_and_never_shrinks(tmp_path: Path) -> None
     # Deleting the newest receipt must not lower the watermark: sequence
     # identities are AUTOINCREMENT and are never reused.
     with closing(sqlite3.connect(path)) as db:
-        db.execute(
-            "DELETE FROM delivery_receipts WHERE receipt_id = 'receipt-b'"
-        )
+        db.execute("DELETE FROM delivery_receipts WHERE receipt_id = 'receipt-b'")
         db.commit()
     assert read_delivery_evidence_watermark(path) == second
 

@@ -27,6 +27,7 @@ from medre.core.ingress.types import AttachmentAdmissionFact
 from medre.core.storage.backend import (
     ContentCeilingMismatchError,
     PreReleaseSchemaMismatchError,
+    StorageInitializationError,
 )
 from medre.core.storage.sqlite._content_identity import (
     CEILING_CLOCK_AT_EXECUTION,
@@ -284,7 +285,7 @@ def sync_write_with_followups(
 
 def sync_find_schema_shape_mismatch(
     db_path: str, required_columns: dict[str, frozenset[str]]
-) -> PreReleaseSchemaMismatchError | None:
+) -> StorageInitializationError | None:
     """Reject unsupported catalogs before any DDL.
 
     A version-1 stamp authorizes only verified, allowlisted additive DDL.

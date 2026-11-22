@@ -201,9 +201,10 @@ def test_recognized_predecessor_is_still_supported_upgrade(
     """Missing allowlisted objects remain a supported upgrade, not a refusal."""
     path = tmp_path / "predecessor.sqlite"
     ddl = (
-        Path(__file__).parent
-        / "fixtures/released-storage-0.1.0.sql"
-    ).read_bytes().replace(b"\r\n", b"\n")
+        (Path(__file__).parent / "fixtures/released-storage-0.1.0.sql")
+        .read_bytes()
+        .replace(b"\r\n", b"\n")
+    )
     with closing(sqlite3.connect(path)) as db, db:
         db.execute("PRAGMA foreign_keys=ON")
         db.executescript(ddl.decode("utf-8"))
