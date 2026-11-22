@@ -9,7 +9,7 @@
 CREATE TABLE IF NOT EXISTS delivery_route_retry_bounds (
     outbox_id TEXT PRIMARY KEY REFERENCES delivery_outbox(outbox_id),
     max_attempts INTEGER NOT NULL CHECK (max_attempts >= 1),
-    backoff_base REAL NOT NULL CHECK (backoff_base > 0),
-    max_delay_seconds REAL NOT NULL CHECK (max_delay_seconds > 0),
+    backoff_base REAL NOT NULL CHECK (backoff_base >= 0),
+    max_delay_seconds REAL NOT NULL CHECK (max_delay_seconds >= 0),
     jitter INTEGER NOT NULL CHECK (jitter IN (0, 1))
 );

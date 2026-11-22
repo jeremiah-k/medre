@@ -88,13 +88,31 @@ def test_bounds_resolve_the_route_policy_exactly() -> None:
     "kwargs",
     [
         {"max_attempts": 0, "backoff_base": 2.0, "max_delay_seconds": 60.0},
-        {"max_attempts": 1, "backoff_base": 0.0, "max_delay_seconds": 60.0},
+        {"max_attempts": 1, "backoff_base": -1.0, "max_delay_seconds": 60.0},
         {"max_attempts": 1, "backoff_base": 2.0, "max_delay_seconds": -1.0},
     ],
 )
-def test_bounds_write_rejects_nonpositive_arithmetic(kwargs: dict) -> None:
+def test_bounds_write_rejects_out_of_domain_arithmetic(kwargs: dict) -> None:
     with pytest.raises(ValueError):
         OutboxRouteRetryBoundsWrite(jitter=False, **kwargs)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        # Radio-shaped: transport retry hints replace exponential backoff.
+        {"max_attempts": 3, "backoff_base": 0.0, "max_delay_seconds": 60.0},
+        {"max_attempts": 1, "backoff_base": 2.0, "max_delay_seconds": 0.0},
+    ],
+)
+def test_bounds_write_persists_zero_backoff_shapes(kwargs: dict) -> None:
+    """Zero backoff arithmetic is a legitimate resolved route shape."""
+    bounds = OutboxRouteRetryBoundsWrite(jitter=False, **kwargs)
+    assert (bounds.max_attempts, bounds.backoff_base, bounds.max_delay_seconds) == (
+        kwargs["max_attempts"],
+        kwargs["backoff_base"],
+        kwargs["max_delay_seconds"],
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -236,6 +254,43 @@ async def test_manager_admission_persists_the_plan_policy_bounds(temp_storage):
         backoff_base=3.0,
         max_delay_seconds=120.0,
         jitter=False,
+    )
+
+
+async def test_manager_admission_persists_radio_shaped_zero_backoff_bounds(
+    temp_storage,
+):
+    """A radio-shaped resolved policy (backoff_base 0) admits with its bounds.
+
+    Radio retry semantics schedule from transport retry hints, not
+    exponential backoff, so the resolved policy legitimately carries
+    ``backoff_base=0``.  Bounds persistence is an auxiliary content-free
+    admission fact: it must never fail admission, and the real values freeze.
+    """
+    event = make_storage_event(event_id="evt-manager-radio")
+    await temp_storage.admit_ingress(event, None, "live")
+    target = RouteTarget(adapter="radio", channel="0")
+    route = _route_for(event.event_id, target)
+    plan = DeliveryPlan(
+        plan_id="plan-radio-zero",
+        event_id=event.event_id,
+        route_id=route.id,
+        target=target,
+        primary_strategy=DeliveryStrategy(method="direct"),
+        retry_policy=RetryPolicy(max_attempts=3, backoff_base=0.0, jitter=False),
+    )
+    manager = OutboxManager(temp_storage, DeliveryLifecycleService())
+    context = await manager.create_for_delivery(event, route, plan, target, "radio")
+    assert context.skip_reason is None
+    assert context.outbox_id is not None
+    assert await temp_storage.get_outbox_route_retry_bounds(context.outbox_id) == (
+        OutboxRouteRetryBounds(
+            outbox_id=context.outbox_id,
+            max_attempts=3,
+            backoff_base=0.0,
+            max_delay_seconds=60.0,
+            jitter=False,
+        )
     )
 
 

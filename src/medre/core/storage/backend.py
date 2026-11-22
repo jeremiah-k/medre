@@ -786,7 +786,10 @@ class OutboxRouteRetryBoundsWrite:
     Captured at admission from the accepted route's resolved retry policy.
     The values are policy arithmetic facts only: they never carry message
     content or content-derived bytes and they never authorize a transport
-    dispatch.
+    dispatch.  Zero ``backoff_base`` or ``max_delay_seconds`` is a legitimate
+    resolved shape (radio routes schedule from transport retry hints instead
+    of exponential backoff), so the real values persist and only negative
+    arithmetic or a sub-one attempt budget is refused.
     """
 
     max_attempts: int
@@ -797,10 +800,10 @@ class OutboxRouteRetryBoundsWrite:
     def __post_init__(self) -> None:
         if self.max_attempts < 1:
             raise ValueError("route retry bounds require max_attempts >= 1")
-        if self.backoff_base <= 0:
-            raise ValueError("route retry bounds require backoff_base > 0")
-        if self.max_delay_seconds <= 0:
-            raise ValueError("route retry bounds require max_delay_seconds > 0")
+        if self.backoff_base < 0:
+            raise ValueError("route retry bounds require backoff_base >= 0")
+        if self.max_delay_seconds < 0:
+            raise ValueError("route retry bounds require max_delay_seconds >= 0")
 
 
 @dataclass(frozen=True, slots=True)
