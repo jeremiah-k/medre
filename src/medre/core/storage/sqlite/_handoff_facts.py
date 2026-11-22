@@ -9,11 +9,18 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 
+from medre.core.rendering.radio_text import MAX_RADIO_TEXT_PARTS
+
 
 def observation_scope(
     metadata: object, *, outbox_id: str, attempt_number: int
 ) -> str | None:
-    """Retain only packet correlation; malformed claims never become messages."""
+    """Retain only packet correlation; malformed claims never become messages.
+
+    The packet ordinal bound is the plan's own shared limit: retention and
+    resolution must accept the same ordinals, or a raised plan limit would
+    let retention replace a valid packet scope with an unreadable marker.
+    """
     if not isinstance(metadata, Mapping):
         return '{"radio_packet":null}'
     if "radio_packet" not in metadata:
@@ -26,7 +33,7 @@ def observation_scope(
     outbox = packet.get("origin_outbox_id")
     if (
         type(ordinal) is not int
-        or not 1 <= ordinal <= 128
+        or not 1 <= ordinal <= MAX_RADIO_TEXT_PARTS
         or type(attempt) is not int
         or attempt != attempt_number
         or not isinstance(outbox, str)
