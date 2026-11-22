@@ -383,6 +383,28 @@ def _purge_own_and_incoming_excerpts(db: sqlite3.Connection, event_id: str) -> N
 _UNREADABLE_RADIO_PARTS = '[{"ordinal":1,"state":"accepted","handoff_id":"{}"}]'
 
 
+def _checkpoint_source_coherent(
+    row_source: str, attempt_source: str, attempt_number: int
+) -> bool:
+    """Validate a retained checkpoint's lane against its own reservation.
+
+    The row's current ``dispatch_source`` describes the latest reservation,
+    not this checkpoint's: ``reserve_outbox_attempt`` moves a live origin to
+    ``retry`` whenever it reserves a later generation, so an older attempt's
+    checkpoint legitimately keeps the lane it was bound under. The evidence
+    resolver applies the same doctrine by skipping source coherence for
+    older attempts. The reservation CASE constrains the reachable lanes: a
+    first reservation from zero stamps ``live`` (dispatched either through
+    the live path or by the retry worker), every later live-origin
+    reservation stamps ``retry``, and replay rows never re-source. A
+    ``live`` lane claim is therefore coherent only for attempt 1 on a
+    live-descended row; every other disagreement stays fail-closed.
+    """
+    if dispatch_source_matches_attempt(row_source, attempt_source, attempt_number):
+        return True
+    return attempt_number == 1 and attempt_source == "live" and row_source == "retry"
+
+
 def _radio_summary_provenance(
     db: sqlite3.Connection, outbox_id: str, attempt_number: int
 ) -> DeliveryAttemptProvenance:
@@ -707,7 +729,7 @@ def _measure_and_purge(
             or (saved.provenance.target_channel or "")
             != (parent["target_channel"] or "")
             or saved.provenance.replay_run_id != parent["replay_run_id"]
-            or not dispatch_source_matches_attempt(
+            or not _checkpoint_source_coherent(
                 str(parent["dispatch_source"]),
                 saved.provenance.source,
                 saved.provenance.attempt_number,

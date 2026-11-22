@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 
@@ -27,6 +28,7 @@ from tests.helpers.handoff_resolution import (
     _due_row,
     _observation,
     _plan,
+    _provenance,
     _seed_reserved_claim,
 )
 from tests.helpers.storage_outbox import append_receipt_with_parent
@@ -472,22 +474,50 @@ async def test_evidence_reader_prefers_the_summary_in_one_snapshot(
     assert [part.state for part in combined.parts] == ["accepted"]
 
 
-async def test_sweep_does_not_project_checkpoint_from_incoherent_dispatch_lane(
+async def test_sweep_rejects_a_live_lane_claim_on_a_later_generation(
     temp_storage: SQLiteStorage,
 ) -> None:
-    """A decodable but alien dispatch source cannot mint packet acceptance."""
-    stored, provenance = await _seed_reserved_claim(temp_storage)
-    await _bind_and_progress(temp_storage, provenance, ["accepted", "unsent", "unsent"])
-    from dataclasses import replace
+    """No attempt after the first can legitimately carry the live lane.
 
-    forged = replace(provenance, source="live")
-    await temp_storage._write(
-        "UPDATE delivery_outbox SET dispatch_source='retry' WHERE outbox_id=?",
-        (stored.outbox_id,),
+    A live claim with a replay run cannot even decode, and a replay-run
+    mismatch is rejected by identity, so the constructible source-only
+    forgery is exactly this one: a later generation of a live-origin row
+    rewriting its lane to ``live``. The sweep must keep it fail-closed.
+    """
+    stored, provenance = await _seed_reserved_claim(temp_storage)
+    await temp_storage.mark_outbox_retry_wait(
+        stored.outbox_id,
+        next_attempt_at=(
+            datetime.now(timezone.utc) + timedelta(seconds=60)
+        ).isoformat(),
+        attempt_number=provenance.attempt_number,
+        expected_worker_id=_WORKER,
     )
+    await _due_row(temp_storage, stored.outbox_id, _WORKER)
+    assert (
+        await temp_storage.reserve_outbox_attempt(
+            stored.outbox_id, _WORKER, provenance.attempt_number
+        )
+        == provenance.attempt_number + 1
+    )
+    retry_claim = _provenance(
+        stored.outbox_id,
+        provenance.attempt_number + 1,
+        event_id=provenance.event_id,
+        source="retry",
+    )
+    await _bind_and_progress(
+        temp_storage, retry_claim, ["accepted", "unsent", "unsent"]
+    )
+    forged = replace(retry_claim, source="live")
     await temp_storage._write(
-        "UPDATE radio_attempt_progress SET provenance_json=? WHERE outbox_id=?",
-        (msgspec.json.encode(forged).decode(), stored.outbox_id),
+        "UPDATE radio_attempt_progress SET provenance_json=? "
+        "WHERE outbox_id=? AND attempt_number=?",
+        (
+            msgspec.json.encode(forged).decode(),
+            stored.outbox_id,
+            retry_claim.attempt_number,
+        ),
     )
     now = await _install_elapsed_policy(temp_storage, provenance.event_id)
     await temp_storage.enforce_content_ceilings(now=now)
@@ -498,8 +528,62 @@ async def test_sweep_does_not_project_checkpoint_from_incoherent_dispatch_lane(
         )
         is None
     )
-    summary = await temp_storage.get_radio_attempt_evidence(stored.outbox_id, 1)
+    summary = await temp_storage.get_radio_attempt_evidence(
+        stored.outbox_id, retry_claim.attempt_number
+    )
     assert summary is not None and summary.parts[0].handoff_id == "{}"
+
+
+async def test_sweep_keeps_an_older_live_lane_checkpoint_across_the_retry_transition(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """A live-lane attempt-1 checkpoint survives the row's live->retry move.
+
+    ``reserve_outbox_attempt`` stamps the row ``retry`` for every later
+    generation, so the sweep cannot treat an older attempt's original live
+    lane as alien provenance: the reservation-time source is not
+    reconstructable from the newer row (the resolver skips the same check
+    for older attempts). The accepted handoff must keep its closed
+    evidence and mint the original-acceptance facts the late packet-ACK
+    path reconciles through.
+    """
+    stored, _seeded_provenance = await _seed_reserved_claim(temp_storage)
+    live_claim = _provenance(
+        stored.outbox_id,
+        1,
+        event_id=stored.event_id,
+        source="live",
+    )
+    await _bind_and_progress(temp_storage, live_claim, ["accepted", "unsent", "unsent"])
+    await temp_storage.mark_outbox_retry_wait(
+        stored.outbox_id,
+        next_attempt_at=(
+            datetime.now(timezone.utc) + timedelta(seconds=60)
+        ).isoformat(),
+        attempt_number=1,
+        expected_worker_id=_WORKER,
+    )
+    await _due_row(temp_storage, stored.outbox_id, _WORKER)
+    # The guarded retry reservation is what moves the row live->retry.
+    assert await temp_storage.reserve_outbox_attempt(stored.outbox_id, _WORKER, 1) == 2
+    row = await temp_storage._read_one(
+        "SELECT dispatch_source FROM delivery_outbox WHERE outbox_id=?",
+        (stored.outbox_id,),
+    )
+    assert row is not None and row["dispatch_source"] == "retry"
+    now = await _install_elapsed_policy(temp_storage, stored.event_id)
+    await temp_storage.enforce_content_ceilings(now=now)
+    fact = await temp_storage._read_one(
+        "SELECT native_message_id FROM radio_accepted_part_facts "
+        "WHERE outbox_id=? AND attempt_number=1 AND ordinal=1",
+        (stored.outbox_id,),
+    )
+    assert fact is not None and fact["native_message_id"] == "native-1"
+    summary = await temp_storage.get_radio_attempt_evidence(stored.outbox_id, 1)
+    assert summary is not None
+    assert summary.provenance.source == "live"
+    assert summary.parts[0].state == "accepted"
+    assert summary.parts[0].handoff_id != "{}"
 
 
 async def test_stale_checkpoint_cannot_mint_acceptance_behind_newer_summary(

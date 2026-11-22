@@ -149,9 +149,16 @@ async def test_upgraded_uncertainty_is_backfilled_before_diagnostics_are_erased(
         attempt_number=provenance.attempt_number,
     )
     await original.close()
-    with sqlite3.connect(path) as raw:
+    # sqlite3 connections only commit inside ``with``; they never close, so
+    # an un-closed downgrade handle leaks an unclosed database that fails a
+    # later test at garbage-collection time.
+    raw = sqlite3.connect(path)
+    try:
         raw.execute("DROP TABLE delivery_handoff_uncertainty")
         raw.execute("DROP TABLE radio_accepted_part_facts")
+        raw.commit()
+    finally:
+        raw.close()
     upgraded = SQLiteStorage(path)
     await upgraded.initialize()
     try:
