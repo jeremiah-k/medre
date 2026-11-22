@@ -428,28 +428,19 @@ class TestSynapseBridgeSmoke:
     # Explicit ingress-path tests
     # ------------------------------------------------------------------
 
-    @pytest.mark.xfail(
-        reason="Strict sync_loop ingress is not yet reliable; "
-        "xfail proves the test exists and tracks progress",
-        strict=False,
-    )
     async def test_strict_sync_loop(
         self,
         synapse_env: SynapseEnvironment,
         temp_storage: SQLiteStorage,
     ) -> None:
-        """FAILS (xfail) if fallback is used — proves strict sync goal.
+        """Fails if fallback is used — proves the strict sync goal.
 
         This test runs the same pipeline as
         ``test_sync_with_fallback`` but asserts that the ingress path
-        MUST be ``"sync_loop"``.  It is marked ``xfail(strict=False)``
-        so the suite stays green while the sync-loop reliability work
-        is in progress.  When this test starts passing, it proves that
-        the real nio ``sync_forever`` callback delivers inbound events
-        reliably within the timeout window.
-
-        When this test passes consistently, remove the ``xfail`` marker
-        and promote it to a required test.
+        MUST be ``"sync_loop"``.  A pass proves that the real nio
+        ``sync_forever`` callback delivers inbound events reliably
+        within the timeout window.  The former non-strict ``xfail``
+        progress marker was removed once the run passed consistently.
         """
         ts = int(time.time())
         body_text = f"MEDRE strict sync test (ts={ts})"
