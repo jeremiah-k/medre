@@ -416,25 +416,130 @@ def read_delivery_evidence_watermark(db_path: Path) -> int:
         conn.close()
 
 
-def _logical_database_digest(db_path: Path) -> str:
-    """Hash the stopped database's logical catalog and rows, not its WAL layout.
+_FINGERPRINT_MODULUS = 1 << 256
+_ROW_BATCH = 512
+_MAX_SUMMARY_NAMES = 8
+_STAT_TABLE_PREFIX = "sqlite_stat"
+
+
+def _feed_bytes(digest: hashlib._Hash, value: bytes) -> None:
+    """Mix length-prefixed bytes so concatenations cannot alias."""
+    digest.update(len(value).to_bytes(8, "big"))
+    digest.update(value)
+
+
+def _feed_text(digest: hashlib._Hash, value: str) -> None:
+    _feed_bytes(digest, value.encode("utf-8", errors="surrogatepass"))
+
+
+def _feed_value(digest: hashlib._Hash, value: object) -> None:
+    """Encode one SQLite value with a type tag so distinct values never alias."""
+    if value is None:
+        _feed_text(digest, "null")
+    elif isinstance(value, int):
+        _feed_text(digest, f"int:{value}")
+    elif isinstance(value, float):
+        _feed_text(digest, f"float:{value!r}")
+    elif isinstance(value, str):
+        _feed_text(digest, f"text:{value}")
+    elif isinstance(value, bytes):
+        _feed_bytes(digest, b"blob:" + value)
+    else:
+        raise ValueError(
+            "delivery evidence cannot be compared with the existing database"
+        )
+
+
+def _quoted_identifier(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
+
+
+def _table_rows_fingerprint(conn: sqlite3.Connection, table: str) -> tuple[int, int]:
+    """Stream every row and return (row count, order-independent content sum).
+
+    Rows arrive in physical order, which ``VACUUM`` may change for tables
+    without an integer rowid alias. Summing each row's digest makes the
+    accumulator order-independent while still counting duplicates.
+    """
+    rows = 0
+    total = 0
+    cursor = conn.execute(
+        f"SELECT * FROM {_quoted_identifier(table)}"  # nosec B608 - identifier is doubled-quote escaped and comes only from the compared database's own catalog
+    )
+    while batch := cursor.fetchmany(_ROW_BATCH):
+        for row in batch:
+            row_digest = hashlib.sha256()
+            for value in row:
+                _feed_value(row_digest, value)
+            total = (
+                total + int.from_bytes(row_digest.digest(), "big")
+            ) % _FINGERPRINT_MODULUS
+            rows += 1
+    return rows, total
+
+
+@dataclass(frozen=True, slots=True)
+class _LogicalTableFingerprint:
+    rows: int
+    content: int
+
+
+@dataclass(frozen=True, slots=True)
+class _LogicalDatabaseFingerprint:
+    digest: str
+    tables: dict[str, _LogicalTableFingerprint]
+
+
+def _logical_database_fingerprint(
+    db_path: Path,
+) -> _LogicalDatabaseFingerprint:
+    """Hash the stopped database's logical catalog and row multisets.
 
     A receipt sequence is not a lineage proof: different branches can allocate
     the same identity, and operator decisions need not allocate any receipt.
     Compare full logical state when an existing installation is supplied.
-    This check is intentionally conservative and never exposes row values.
+    Physical operations that preserve logical state must not change this
+    fingerprint: ``VACUUM`` rebuilds ``sqlite_master`` in a different order and
+    renumbers rowids of tables without an integer alias, and ``ANALYZE`` adds
+    planner-statistics tables. The catalog is therefore hashed in sorted order,
+    each table's rows are hashed as an order-independent multiset, and the
+    ``sqlite_stat`` planner tables are skipped. The internal ``sqlite_sequence``
+    counters are included because receipt sequences are evidence. This check is
+    intentionally conservative, streams row batches without materialising the
+    dump, and never exposes row values outside the hash.
     """
     try:
         conn = sqlite3.connect(f"{db_path.absolute().as_uri()}?mode=ro", uri=True)
         try:
             conn.execute("BEGIN")
             digest = hashlib.sha256()
-            for statement in conn.iterdump():
-                value = statement.encode("utf-8", errors="surrogatepass")
-                digest.update(len(value).to_bytes(8, "big"))
-                digest.update(value)
+            catalog = conn.execute(
+                "SELECT type, name, sql FROM sqlite_master"
+                " WHERE sql NOT NULL ORDER BY type, name"
+            ).fetchall()
+            for kind, name, sql in catalog:
+                if str(name).startswith(_STAT_TABLE_PREFIX):
+                    continue
+                _feed_text(digest, str(kind))
+                _feed_text(digest, str(name))
+                _feed_text(digest, str(sql))
+            table_names = sorted(
+                str(row[0])
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                )
+            )
+            tables: dict[str, _LogicalTableFingerprint] = {}
+            for name in table_names:
+                if name.startswith(_STAT_TABLE_PREFIX):
+                    continue
+                _feed_text(digest, name)
+                rows, content = _table_rows_fingerprint(conn, name)
+                digest.update(rows.to_bytes(8, "big"))
+                digest.update(content.to_bytes(32, "big"))
+                tables[name] = _LogicalTableFingerprint(rows, content)
             conn.rollback()
-            return digest.hexdigest()
+            return _LogicalDatabaseFingerprint(digest.hexdigest(), tables)
         finally:
             conn.close()
     except (sqlite3.Error, UnicodeError, OverflowError) as exc:
@@ -443,14 +548,64 @@ def _logical_database_digest(db_path: Path) -> str:
         ) from exc
 
 
+def _bounded_name_list(names: list[str]) -> str:
+    if len(names) <= _MAX_SUMMARY_NAMES:
+        return ", ".join(names)
+    kept = ", ".join(names[:_MAX_SUMMARY_NAMES])
+    return f"{kept}, and {len(names) - _MAX_SUMMARY_NAMES} more"
+
+
+def _divergence_summary(
+    staged: _LogicalDatabaseFingerprint, live: _LogicalDatabaseFingerprint
+) -> str:
+    """Describe which tables differ, by name and row count only — never values."""
+    names = sorted(set(staged.tables) | set(live.tables))
+    only_staged = [name for name in names if name not in live.tables]
+    only_live = [name for name in names if name not in staged.tables]
+    row_counts: list[str] = []
+    contents: list[str] = []
+    for name in names:
+        staged_table = staged.tables.get(name)
+        live_table = live.tables.get(name)
+        if staged_table is None or live_table is None:
+            continue
+        if staged_table.rows != live_table.rows:
+            row_counts.append(
+                f"{name} (staged rows {staged_table.rows},"
+                f" live rows {live_table.rows})"
+            )
+        elif staged_table.content != live_table.content:
+            contents.append(name)
+    parts: list[str] = []
+    if only_staged:
+        parts.append(
+            "tables present only in the staged database: "
+            + _bounded_name_list(only_staged)
+        )
+    if only_live:
+        parts.append(
+            "tables present only in the live database: " + _bounded_name_list(only_live)
+        )
+    if row_counts:
+        parts.append("row counts differ for: " + _bounded_name_list(row_counts))
+    if contents:
+        parts.append(
+            "equal row counts but different rows for: " + _bounded_name_list(contents)
+        )
+    return "; ".join(parts) if parts else "logical database content differs"
+
+
 def _assert_backup_not_stale(staged_database: Path, live: Path) -> None:
     """Require identical logical state before replacing a known installation.
 
     A receipt high-water detects a strictly older branch, but equality alone
-    cannot distinguish independently appended receipts or operator decisions.
-    The caller compares the *verified staged* database, never a source file
-    that could change between inspection and publication. Other native files
-    and provider-side effects still require operator reconciliation.
+    cannot distinguish independently appended receipts or operator decisions,
+    so equal watermarks additionally require equal logical fingerprints. The
+    caller compares the *verified staged* database, never a source file that
+    could change between inspection and publication. Physical-only maintenance
+    on the live database (``VACUUM``, ``ANALYZE``) still restores. Other
+    native files and provider-side effects still require operator
+    reconciliation.
     """
     backup_watermark = read_delivery_evidence_watermark(staged_database)
     try:
@@ -468,13 +623,22 @@ def _assert_backup_not_stale(staged_database: Path, live: Path) -> None:
             "Capture a fresh snapshot of the live installation, or restore to "
             "an unused destination and reconcile the evidence explicitly."
         )
-    if backup_watermark != live_watermark or _logical_database_digest(
-        staged_database
-    ) != _logical_database_digest(live):
+    if backup_watermark != live_watermark:
         raise ValueError(
             "refusing to restore a divergent backup: receipt watermarks do not "
             "prove shared history or preserve later operator decisions. "
             "Capture a fresh snapshot or reconcile the branches offline."
+        )
+    staged_fingerprint = _logical_database_fingerprint(staged_database)
+    live_fingerprint = _logical_database_fingerprint(live)
+    if staged_fingerprint.digest != live_fingerprint.digest:
+        raise ValueError(
+            "refusing to restore a divergent backup: the staged database's "
+            "logical state differs from the live database's "
+            f"({_divergence_summary(staged_fingerprint, live_fingerprint)}). "
+            "Receipt watermarks do not prove shared history or preserve later "
+            "operator decisions. Capture a fresh snapshot or reconcile the "
+            "branches offline."
         )
 
 
