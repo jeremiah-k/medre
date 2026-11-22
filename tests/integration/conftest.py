@@ -101,6 +101,25 @@ _SYNAPSE_CONTAINER_USER: str = (
     f"{os.getuid()}:{os.getgid()}" if os.name == "posix" else "991:991"
 )
 
+# Host identity for the meshtasticd container, mirroring the compose
+# variant's ``user:`` pin.  The image runs as root by default and declares
+# ``/var/lib/meshtasticd`` as a volume, so an unpinned start leaves a
+# root-owned anonymous Docker volume behind on every session.  The node runs
+# as the invoking user with the declared volume path and its own state dir
+# mounted as tmpfs created with that identity: the unprivileged process can
+# write its state, nothing reaches the host filesystem, and no anonymous
+# volume is created.
+_MESHTASTICD_CONTAINER_UID: str = str(os.getuid()) if os.name == "posix" else "1000"
+_MESHTASTICD_CONTAINER_GID: str = str(os.getgid()) if os.name == "posix" else "1000"
+_MESHTASTICD_CONTAINER_USER: str = (
+    f"{_MESHTASTICD_CONTAINER_UID}:{_MESHTASTICD_CONTAINER_GID}"
+)
+_MESHTASTICD_VOLUME_DIR = "/var/lib/meshtasticd"
+_MESHTASTICD_STATE_DIR = "/var/lib/meshtasticd-medre-ci"
+_MESHTASTICD_TMPFS = (
+    f"uid={_MESHTASTICD_CONTAINER_UID}," f"gid={_MESHTASTICD_CONTAINER_GID},mode=0755"
+)
+
 _ARTIFACT_DIR = Path(
     os.environ.get(
         "MEDRE_CI_ARTIFACT_DIR",
@@ -562,7 +581,7 @@ def synapse_env() -> Generator[SynapseEnvironment, None, None]:
 
     # Cleanup any previous container with same name.
     if _container_exists(container):
-        _docker_run(["rm", "-f", container], timeout=30)
+        _docker_run(["rm", "-f", "-v", container], timeout=30)
 
     # Pull the image up front via the retry helper so generate and start
     # below fail with clear registry errors instead of a lazy pull buried
@@ -650,7 +669,7 @@ def synapse_env() -> Generator[SynapseEnvironment, None, None]:
     if not _wait_for_http_200(
         f"{base_url}/_matrix/client/versions", timeout=_READY_TIMEOUT
     ):
-        _docker_run(["rm", "-f", container], timeout=30)
+        _docker_run(["rm", "-f", "-v", container], timeout=30)
         pytest.fail(f"Synapse did not become ready within {_READY_TIMEOUT}s")
 
     # Register bot user.
@@ -827,7 +846,7 @@ def synapse_env() -> Generator[SynapseEnvironment, None, None]:
             },
         )
     logger.info("Stopping Synapse container %s", container)
-    _docker_run(["rm", "-f", container], timeout=30)
+    _docker_run(["rm", "-f", "-v", container], timeout=30)
 
 
 # ---------------------------------------------------------------------------
@@ -1201,7 +1220,9 @@ class MeshtasticdEnvironment:
 def meshtasticd_env() -> Generator[MeshtasticdEnvironment, None, None]:
     """Start a meshtasticd container and yield connection details.
 
-    The container is stopped and removed on teardown.
+    The node runs as the invoking user with its state on tmpfs.  It is
+    removed together with any anonymous volume on teardown, so nothing it
+    writes persists on the host.
     """
     if not _DOCKER_AVAILABLE or _SKIP_DOCKER:
         pytest.skip("Docker not available or MEDRE_SKIP_DOCKER is set")
@@ -1216,7 +1237,7 @@ def meshtasticd_env() -> Generator[MeshtasticdEnvironment, None, None]:
 
     # Cleanup any previous container.
     if _container_exists(container):
-        _docker_run(["rm", "-f", container], timeout=30)
+        _docker_run(["rm", "-f", "-v", container], timeout=30)
 
     _ensure_image(_MESHTASTICD_IMAGE)
 
@@ -1228,10 +1249,18 @@ def meshtasticd_env() -> Generator[MeshtasticdEnvironment, None, None]:
             container,
             "--network",
             "host",
+            "--user",
+            _MESHTASTICD_CONTAINER_USER,
+            # The declared volume path is covered so Docker creates no
+            # anonymous volume for it; the state dir is the node's own.
+            "--tmpfs",
+            f"{_MESHTASTICD_VOLUME_DIR}:{_MESHTASTICD_TMPFS}",
+            "--tmpfs",
+            f"{_MESHTASTICD_STATE_DIR}:{_MESHTASTICD_TMPFS}",
             _MESHTASTICD_IMAGE,
             "meshtasticd",
             "-s",
-            "--fsdir=/var/lib/meshtasticd-medre-ci",
+            f"--fsdir={_MESHTASTICD_STATE_DIR}",
             "-p",
             str(_MESHTASTICD_PORT),
             "-h",
@@ -1246,7 +1275,7 @@ def meshtasticd_env() -> Generator[MeshtasticdEnvironment, None, None]:
         _MESHTASTICD_PORT,
     )
     if not _wait_for_tcp(host, _MESHTASTICD_PORT, timeout=_READY_TIMEOUT):
-        _docker_run(["rm", "-f", container], timeout=30)
+        _docker_run(["rm", "-f", "-v", container], timeout=30)
         pytest.fail(f"meshtasticd did not become ready within {_READY_TIMEOUT}s")
 
     env = MeshtasticdEnvironment(
@@ -1269,7 +1298,7 @@ def meshtasticd_env() -> Generator[MeshtasticdEnvironment, None, None]:
             },
         )
     logger.info("Stopping meshtasticd container %s", container)
-    _docker_run(["rm", "-f", container], timeout=30)
+    _docker_run(["rm", "-f", "-v", container], timeout=30)
 
 
 # ---------------------------------------------------------------------------
@@ -1432,7 +1461,7 @@ Component "rooms.xmpp.lab.test" "muc"
                     if _docker_run(
                         ["ps", "-aq", "--filter", f"name=^/{container}$"], timeout=30
                     ).stdout.strip():
-                        _docker_run(["rm", "-f", container], timeout=30)
+                        _docker_run(["rm", "-f", "-v", container], timeout=30)
                     container_retired = True
                 finally:
                     if _docker_run(
