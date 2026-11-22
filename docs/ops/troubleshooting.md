@@ -714,13 +714,13 @@ Diagnostics → Operator Actions by Severity).
 
 **Cause:** Two distinct cases:
 
-1. **Missing outbox_id:** The queued row has no `outbox_id` — callback correlation by outbox_id + attempt_number is impossible for this row. These items can only be recovered via stale-grace reclaim or manual investigation of the upstream producer.
+1. **Missing outbox_id:** The queued row has no `outbox_id` — callback correlation by outbox_id + attempt_number is impossible for this row. These items rest in the confirmation-pending disposition and can only be resolved by the explicit operator resolution or manual investigation of the upstream producer.
 2. **outbox_id present but uncorrelated:** The queued row has an `outbox_id` but the adapter callback has not yet supplied the matching `outbox_id + attempt_number` linkage.
 
 **Fix:**
 
-- **Missing outbox_id:** Wait for the stale-grace reclaim timer (default 300 s) to reclaim the item. If the item remains queued after the grace period, investigate the upstream producer that wrote the row without an outbox_id.
-- **outbox_id present but uncorrelated:** Wait for the stale-grace reclaim timer (default 300 s) to reclaim the item. If the item remains uncorrelated after the grace period, verify that the adapter callback is propagating `outbox_id` and `attempt_number` through its queue processing.
+- **Missing outbox_id:** The item is never reclaimed; it rests in the confirmation-pending disposition. Resolve it explicitly (see [Confirmation-pending recovery](confirmation-pending-recovery.md)) or investigate the upstream producer that wrote the row without an outbox_id.
+- **outbox_id present but uncorrelated:** The item is never reclaimed; it rests in the confirmation-pending disposition. Wait for the adapter callback to propagate `outbox_id` and `attempt_number` through its queue processing, verify the adapter's callback wiring, or resolve the item explicitly (see [Confirmation-pending recovery](confirmation-pending-recovery.md)).
 
 ## Lifecycle Convergence Finding Troubleshooting
 

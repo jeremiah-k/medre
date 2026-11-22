@@ -20,7 +20,7 @@ Understanding what is permanent, what is mutable, and what is derived helps you 
 
 ### What is mutable
 
-- **Non-terminal outbox rows** (`pending`, `in_progress`, `queued`, `retry_wait`) are mutable operational work state. Delivery workers claim, update, and transition these rows. On crash recovery, expired leases and stale queued rows are automatically reclaimed.
+- **Non-terminal outbox rows** (`pending`, `in_progress`, `queued`, `retry_wait`) are mutable operational work state. Delivery workers claim, update, and transition these rows. On crash recovery, expired `in_progress` leases are automatically reclaimed; `queued` rows are the durable confirmation-pending disposition and are never reclaimed or re-dispatched (see [Confirmation-pending recovery](confirmation-pending-recovery.md)).
 - **Plugin state** is scoped key-value storage owned by individual plugins.
 
 ### What is derived (not authoritative lifecycle state)
@@ -57,6 +57,99 @@ removals, narrowed constraints — are still rejected at startup with a
 such a database is preserved for an explicit recovery decision. Use a
 compatible previous build if appropriate, or back up and deliberately reset
 when starting fresh is acceptable.
+
+Before upgrading, keep a verified SQLite-aware backup. An older build can
+refuse an upgraded layout even when both use version 1. To roll back,
+restore the pre-upgrade backup with a build that accepts its catalog.
+Keep the upgraded database separately if it contains work recorded since
+the backup.
+
+### The two migration policy rulings
+
+These rules hold on every path; the tooling enforces them and the guarded
+migration depends on them.
+
+**MEDRE never automatically downgrades an upgraded database.** An upgrade
+is one-directional: additive, transactional, and idempotent. A database
+whose catalog declares objects the running build does not declare may hold
+a NEWER catalog written by a newer build, and every open path refuses it
+with a `StorageDowngradeRefusedError` that names both catalog states —
+the stored object inventory and this build's declared inventory — instead
+of planning or executing any schema downgrade. `medre storage status`
+reports the same refusal as an `unsupported` verdict with an explicit
+"automatic downgrade refused" diagnostic. When you see it, do not reset:
+the database is preserved untouched. Resolve it with a compatible build
+that declares that catalog, or make a deliberate recovery or reset
+decision. Never point an older build at an upgraded database expecting it
+to "just work"; that refusal is the tooling keeping the evidence intact.
+
+**When explicitly supplied the stopped live database, MEDRE refuses a divergent
+core-state restore.**
+Evidence backfill also runs before any erase: a guarded upgrade copies
+legacy uncertainty out of free-form diagnostics into the typed evidence
+tables while the legacy columns still exist, so no history is erased
+before its replacement is durably in place. A backup, however, is a
+point-in-time copy, and restoring an old one can silently discard
+delivery evidence recorded after it was taken. The stopped-state restore
+refuses any existing destination outright, so it cannot overwrite a live
+installation directly; the remaining risk is switching the installation
+root to a restored copy afterward. **Always** supply `--against-live` for
+such a switch. The restore compares the verified staged core database to the
+stopped live database: any receipt watermark difference refuses the restore,
+and a different logical catalog or row history refuses it even when
+watermarks are equal. Purely physical maintenance on the live database
+(`VACUUM`, `ANALYZE`) does not refuse, because the comparison hashes the
+logical catalog and row content rather than physical layout. Two branches may
+assign the same receipt sequence to different records, and a native handoff
+or operator decision need not advance that sequence:
+
+```bash
+python -m medre.maintenance.stopped_cli restore \
+  --snapshot /secure-backups/medre-snapshot-001 \
+  --destination /srv/medre-restored \
+  --against-live /srv/medre-state/medre.sqlite --stopped
+```
+
+The command reports `refused` and exits nonzero when the core histories
+contradict, including equal-watermark divergence and a backup whose watermark
+is strictly newer than the live database's. An unreadable live database also
+refuses. There is no comparison-passing restore over a live database that has
+advanced, diverged, or become unreadable: capture a fresh stopped snapshot of
+that installation and restore it against the same live database, or restore
+to an unused destination and reconcile the evidence explicitly. A supplied
+`--against-live` path that does not exist, like an omitted one, skips the
+check and is only appropriate for a genuinely new installation without a
+prior authoritative database. Core equality does not prove that provider-side
+sends or operator actions outside the selected state files are included;
+reconcile those effects before activating the restored installation.
+
+The tagged `0.1.0` build includes the exact unstarted `medre resolve`
+command, but does not include G03's store-wide content purge and verification
+procedure. Do not treat a restored pre-upgrade database as privacy-clean
+merely because its ceilings were installed: an expired event may still have
+content in older logical stores or in SQLite page images. Keep the restored
+database offline, assess its catalog with the compatible build, and migrate
+a verified copy forward to a build supporting the ceiling sweep before
+asserting complete logical purge. A migration or rollback MUST NOT silently
+replace the authoritative database with a stale backup; preserve and reconcile
+all receipts, native effects, and operator decisions created since backup.
+
+A backup is a point-in-time copy. A delivery that was pending when the
+backup was taken may have completed natively afterward; restoring that
+backup erases the completion record, so the restored build can send it
+again. Before resuming a restored database, reconcile the provider and
+radio effects that landed after the backup was taken, or prefer the
+upgraded database when it holds work recorded since the backup.
+
+For an exact destination that the restored evidence still shows as
+`pending` or `retry_wait` with no reservation or claim, use
+[`medre resolve` exact cancellation](exact-cancellation.md) to fence it
+before starting the runtime: preview, verify the observed evidence, then
+apply with the observed outbox ID, generation, status, and update version.
+That command refuses `queued`, `in_progress`, uncertain, or accepted native
+attempts. If the restored row is in one of those states, do not start the
+restored build; reconcile the provider and radio outcome while it stays
+offline, or keep the upgraded database authoritative.
 
 ### How to tell if your database is stale
 
@@ -1013,8 +1106,10 @@ sqlite3 {state}/medre.sqlite "SELECT status, COUNT(*) FROM delivery_outbox GROUP
 
 Deliveries without a persisted outbox row are lost on crash; deliveries with
 an outbox row survive and expired `in_progress` rows are reclaimed by the
-RetryWorker after restart. `queued` rows are ambiguous — freshly queued rows
-within the 300-second grace window are not reclaimed; stale ones are. The
+RetryWorker after restart. `queued` rows are the durable confirmation-pending
+disposition — they are never reclaimed or re-dispatched; they leave `queued`
+only through completion evidence or the explicit operator resolution (see
+[Confirmation-pending recovery](confirmation-pending-recovery.md)). The
 canonical crash-recovery procedure lives in
 [recovery-and-replay.md](recovery-and-replay.md).
 

@@ -81,6 +81,10 @@ async def _seed_work_status_db(db_path: str) -> None:
         lost = _item("ob-ws-lost", "evt-ws-lost", "plan-ws-lost", "lane-b")
         lost = await store.create_outbox_item(lost)
         await _claim_row(store, lost, "worker-lost")
+        # The worker must hold the attempt it abandons: fresh abandonment is
+        # fenced to the row's effective attempt, so reserve attempt 1 first
+        # (the same claim -> reserve -> abandon shape the retry worker uses).
+        assert await store.reserve_outbox_attempt(lost.outbox_id, "worker-lost", 0) == 1
         assert await store.mark_outbox_abandoned(lost.outbox_id, attempt_number=1)
 
         done = _item("ob-ws-done", "evt-ws-done", "plan-ws-done", "lane-a")

@@ -847,6 +847,27 @@ or transaction latency; enablement depends on whether that recurring cost is
 acceptable for the deployment's queue shape. A sweep failure is isolated: it is logged and
 counted, and the next poll continues delivery unchanged.
 
+#### Content Ceiling Sweep
+
+Declare the sweep as a nested section, not as a dotted key:
+
+```yaml
+retry:
+  ceiling_sweep:
+    enabled: true
+    limit: 50
+    interval_seconds: 60
+```
+
+Then run MEDRE in live mode with SQLite storage to purge content behind
+installed, elapsed ceilings. The sweep defaults to disabled and can run with
+`retry.enabled: false`; unsupported backends cannot perform the purge. Set
+`limit` and `interval_seconds` to control how much work it does on each pass
+and how often the maintenance worker wakes. Run `medre config check` before
+deployment; `limit` must be a whole-number YAML integer such as `50`, not
+`50.0`. See the [storage contract](../spec/content-privacy-ceiling.md#4-enforcement-transition)
+and [audit commands](content-ceiling-audit.md).
+
 ## XDG Default Paths
 
 When `MEDRE_HOME` is not set:
@@ -1558,6 +1579,28 @@ medre storage retention activate [--storage-path PATH] [--yes]
     activation epoch whose watermark is the current admission high-water;
     requires --yes and is safe against a live database. `medre storage
     collect --apply` remains the stopped-storage maintenance path.
+
+medre storage ceiling audit [--storage-path PATH] [--limit N] [--event EVENT_ID | --after-event EVENT_ID] [--as-of UTC_TIMESTAMP]
+    Storage management (read-only). Reports what the hard content-privacy
+    ceiling enforcement would remove, per census store, for content whose
+    ceiling has elapsed, and flags residual writes that landed after a
+    prior sweep (the documented late-write case). The audit reports observed
+    residual rows at query time, not a forecast of what a future sweep will
+    remove (shared blob ownership can change). Its JSON output contains only
+    content-free identifiers, counters, and store labels; the read-only SQL
+    may inspect stored content values to count residuals. Follow the
+    returned page cursor with --after-event and reuse --as-of across pages.
+    See content-ceiling-audit.md.
+
+medre storage ceiling verify [--storage-path PATH] [--limit N] [--event EVENT_ID | --after-event EVENT_ID]
+    Storage management (read-only). Re-runs the ceiling residual battery
+    over the enforcement receipts and reports pass/fail per receipt with
+    the receipt's recorded counters — proof limited to those receipts checked
+    against the current logical store. It does not cover unchecked receipts
+    or elapsed events lacking a receipt; follow receipts_next_after_event
+    with --after-event until receipts_has_more is false and require each
+    page to pass. Exits 1 when the current page fails. See
+    content-ceiling-audit.md.
 
 medre storage reset [--storage-path PATH]
     Storage management (destructive). Deletes the database; accepts
