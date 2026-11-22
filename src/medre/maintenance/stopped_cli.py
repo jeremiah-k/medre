@@ -6,7 +6,7 @@ Usage: python -m medre.maintenance.stopped_cli capture --inventory FILE
        --root COMMON_STATE_ROOT --snapshot NEW_DIR --stopped
        python -m medre.maintenance.stopped_cli verify --snapshot DIR
        python -m medre.maintenance.stopped_cli restore --snapshot DIR
-       --destination NEW_DIR --stopped
+       --destination NEW_DIR [--against-live DB] --stopped
        python -m medre.maintenance.stopped_cli plan --config FILE
        --root COMMON_STATE_ROOT --inventory NEW_FILE
        python -m medre.maintenance.stopped_cli check --config FILE --root ROOT
@@ -82,6 +82,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     restore.add_argument("--snapshot", type=Path, required=True)
     restore.add_argument("--destination", type=Path, required=True)
     restore.add_argument("--stopped", action="store_true")
+    restore.add_argument(
+        "--against-live",
+        type=Path,
+        default=None,
+        help=(
+            "compare against an existing core SQLite database and refuse "
+            "when it holds newer delivery evidence than the snapshot"
+        ),
+    )
     plan = commands.add_parser(
         "plan", help="derive the inventory from provider declarations"
     )
@@ -112,7 +121,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         elif args.command == "restore":
             restore_stopped_snapshot(
-                args.snapshot, args.destination, runtime_stopped=args.stopped
+                args.snapshot,
+                args.destination,
+                runtime_stopped=args.stopped,
+                live_database=args.against_live,
             )
         elif args.command == "verify":
             verify_stopped_snapshot(args.snapshot)

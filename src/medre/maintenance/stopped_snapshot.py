@@ -376,10 +376,90 @@ def verify_stopped_snapshot(snapshot: Path) -> tuple[SnapshotEntry, ...]:
     return tuple(record.entry for record in _verified_files(snapshot))
 
 
+def read_delivery_evidence_watermark(db_path: Path) -> int:
+    """Return the content-free, monotone delivery-evidence watermark.
+
+    The watermark is the ``sqlite_sequence`` high-water of
+    ``delivery_receipts.sequence`` — the identity family behind the
+    receipt-less handoff settlement fence, which freezes the receipt
+    watermark at every terminal delivery transition. ``sequence`` is an
+    ``INTEGER PRIMARY KEY AUTOINCREMENT`` identity, and the ``sqlite_sequence``
+    row is the largest identity ever allocated: it grows monotonically and
+    is never lowered by deleting rows. That matters because receipts are
+    themselves purgeable at the content ceiling — a plain ``MAX(sequence)``
+    could decay after a purge and make a genuinely stale backup look
+    acceptable again. The value carries no message content, addresses, or
+    payloads. Wall-clock timestamps were deliberately rejected: clock skew
+    can make a stale backup look newer than live state.
+
+    A missing database file has watermark ``0`` (nothing to protect). A
+    readable database without a ``sqlite_sequence`` row for
+    ``delivery_receipts`` has watermark ``0`` (no delivery identities ever
+    allocated). A database that exists but cannot answer the read raises
+    :class:`ValueError` so callers fail closed instead of guessing.
+    """
+    resolved = Path(db_path).absolute()
+    if not resolved.exists():
+        return 0
+    conn = sqlite3.connect(f"{resolved.as_uri()}?mode=ro", uri=True)
+    try:
+        row = conn.execute(
+            "SELECT seq FROM sqlite_sequence WHERE name='delivery_receipts'"
+        ).fetchone()
+        return int(row[0]) if row is not None else 0
+    except sqlite3.Error as exc:
+        raise ValueError(
+            "delivery-evidence watermark is unreadable for this database; "
+            "refusing to compare it"
+        ) from exc
+    finally:
+        conn.close()
+
+
+def _assert_backup_not_stale(snapshot: Path, entry: SnapshotEntry, live: Path) -> None:
+    """Refuse a backup whose delivery evidence is older than the live database.
+
+    The ruling this enforces: never restore a stale backup over newer
+    delivery evidence. The snapshot watermark is read from the digest-verified
+    backup file; the live watermark from the operator-supplied database. An
+    unreadable live database refuses the restore (fail closed) because the
+    comparison cannot be made honestly.
+    """
+    backup_watermark = read_delivery_evidence_watermark(
+        Path(snapshot).absolute() / "files" / _relative(entry.path)
+    )
+    try:
+        live_watermark = read_delivery_evidence_watermark(live)
+    except ValueError as exc:
+        raise ValueError(
+            "the live database holds unreadable delivery evidence; refusing "
+            "to restore a backup over it"
+        ) from exc
+    if backup_watermark < live_watermark:
+        raise ValueError(
+            "refusing to restore a stale backup: the backup's delivery-evidence "
+            f"watermark is {backup_watermark} while the live database's is "
+            f"{live_watermark}; restoring would erase newer delivery evidence. "
+            "Capture a fresh snapshot of the live installation, or restore to "
+            "an unused destination and reconcile the evidence explicitly."
+        )
+
+
 def restore_stopped_snapshot(
-    snapshot: Path, destination_root: Path, *, runtime_stopped: bool = False
+    snapshot: Path,
+    destination_root: Path,
+    *,
+    runtime_stopped: bool = False,
+    live_database: Path | None = None,
 ) -> None:
-    """Restore only into a new installation directory; never overwrite a live one."""
+    """Restore only into a new installation directory; never overwrite a live one.
+
+    When *live_database* names an existing SQLite database, the restore
+    refuses while that database holds newer delivery evidence than the
+    snapshot's core database: never restore a stale backup over newer
+    delivery evidence. An absent path skips the comparison (there is no
+    live state left to protect), and an unreadable one refuses the restore.
+    """
     if not runtime_stopped:
         raise ValueError("stop the runtime and native workers before restore")
     destination_root = Path(destination_root).absolute()
@@ -387,6 +467,11 @@ def restore_stopped_snapshot(
         raise FileExistsError("restore requires an absent destination directory")
     destination_root = _destination_outside(Path(snapshot), destination_root)
     files = _verified_files(snapshot)
+    if live_database is not None and Path(live_database).exists():
+        core_entry = next(
+            record.entry for record in files if record.entry.role == "core_sqlite"
+        )
+        _assert_backup_not_stale(snapshot, core_entry, Path(live_database).absolute())
     destination_root.parent.mkdir(parents=True, exist_ok=True)
     stage = Path(
         tempfile.mkdtemp(prefix=".medre-restore-", dir=destination_root.parent)
