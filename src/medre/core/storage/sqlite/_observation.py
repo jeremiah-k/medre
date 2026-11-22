@@ -20,6 +20,9 @@ from typing import TYPE_CHECKING, Any, TypeVar
 
 import msgspec
 
+from medre.core.events.delivery import DeliveryAttemptProvenance
+from medre.core.rendering.radio_progress import RadioPartProgress
+from medre.core.storage.radio import RadioAttemptEvidenceSummary
 from medre.core.events import (
     DELIVERY_CONFIRMATION_LEVEL_VALUES,
     DELIVERY_OBSERVATION_STATE_VALUES,
@@ -41,6 +44,57 @@ from medre.core.storage.sqlite._radio import _decode
 from medre.core.storage.sqlite.serde import _encode_json, _row_to_delivery_observation
 
 _T = TypeVar("_T")
+
+
+def _current_summary_supports_accepted_part(
+    db: sqlite3.Connection,
+    outbox_id: str,
+    attempt_number: int,
+    ordinal: int,
+    native_channel_id: str | None,
+    native_message_id: str | None,
+) -> bool:
+    """Fence a late ACK against the current, non-authorizing radio evidence.
+
+    The original accepted-part fact is append-only, but a later conflicting
+    checkpoint can make its summary unreadable. An obsolete fact alone cannot
+    authenticate a packet after the full checkpoint has been erased.
+    """
+    if native_message_id is None:
+        return False
+    row = db.execute(
+        "SELECT provenance_json, parts_json, revision "
+        "FROM radio_attempt_evidence_summaries "
+        "WHERE outbox_id=? AND attempt_number=?",
+        (outbox_id, attempt_number),
+    ).fetchone()
+    if row is None:
+        return False
+    try:
+        provenance = msgspec.json.decode(
+            row["provenance_json"], type=DeliveryAttemptProvenance
+        )
+        parts = tuple(
+            RadioPartProgress(**part) for part in msgspec.json.decode(row["parts_json"])
+        )
+        summary = RadioAttemptEvidenceSummary(provenance, parts, int(row["revision"]))
+        if (
+            provenance.outbox_id != outbox_id
+            or provenance.attempt_number != attempt_number
+            or not 1 <= ordinal <= len(summary.parts)
+        ):
+            return False
+        handoff = RadioLocalHandoff.from_part(summary.parts[ordinal - 1], provenance)
+    except (TypeError, ValueError, KeyError, msgspec.DecodeError):
+        return False
+    return (
+        handoff.origin is not None
+        and handoff.origin.outbox_id == outbox_id
+        and handoff.origin.attempt_number == attempt_number
+        and handoff.native_channel_id == native_channel_id
+        and handoff.native_message_id == native_message_id
+    )
+
 
 _INSERT_OBSERVATION = """
 INSERT INTO delivery_observations (
@@ -282,10 +336,22 @@ class _ObservationMixin(_EvidenceDiagnosticsReadMixin):
                     "outbox_id=? AND attempt_number=? AND ordinal=?",
                     (observation.outbox_id, observation.attempt_number, ordinal),
                 ).fetchone()
-                if accepted_fact is None or (
-                    accepted_fact["native_channel_id"] != observation.native_channel_id
-                    or accepted_fact["native_message_id"]
-                    != observation.adapter_message_id
+                if (
+                    accepted_fact is None
+                    or (
+                        accepted_fact["native_channel_id"]
+                        != observation.native_channel_id
+                        or accepted_fact["native_message_id"]
+                        != observation.adapter_message_id
+                    )
+                    or not _current_summary_supports_accepted_part(
+                        db,
+                        observation.outbox_id,
+                        observation.attempt_number,
+                        ordinal,
+                        observation.native_channel_id,
+                        observation.adapter_message_id,
+                    )
                 ):
                     return False
             else:

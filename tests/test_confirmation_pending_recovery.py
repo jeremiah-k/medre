@@ -507,3 +507,67 @@ async def test_cli_unstarted_cancel_rejects_queued_expected_status(
     with pytest.raises(SystemExit) as excinfo:
         await _resolve_unstarted(args)
     assert excinfo.value.code == EXIT_CONFIG
+
+
+async def test_operator_ruling_rejects_wrong_receipt_run_provenance(
+    temp_storage: SQLiteStorage,
+) -> None:
+    stored, row = await _seed_queued(temp_storage)
+    await temp_storage._write(
+        "UPDATE delivery_receipts SET source='replay', replay_run_id='foreign-run' "
+        "WHERE receipt_id='queued-acceptance'"
+    )
+    with pytest.raises(OperatorDecisionRefused, match=RECEIPT_PROVENANCE_CONTRADICTION):
+        await temp_storage.resolve_confirmation_pending(
+            _decision(stored, row, "failed")
+        )
+    current = await temp_storage.get_outbox_item(stored.outbox_id)
+    assert current is not None and current.status == "queued"
+
+
+async def test_operator_ruling_refuses_existing_terminal_receipt(
+    temp_storage: SQLiteStorage,
+) -> None:
+    stored, row = await _seed_queued(temp_storage)
+    await temp_storage._write(
+        "INSERT INTO delivery_receipts "
+        "(receipt_id,event_id,delivery_plan_id,target_adapter,target_channel, "
+        "outbox_id,attempt_number,status,receipt_kind,created_at) "
+        "VALUES ('earlier-cancel',?,?,?,?,? ,1,'cancelled','lifecycle',?)",
+        (
+            stored.event_id,
+            stored.delivery_plan_id,
+            stored.target_adapter,
+            stored.target_channel,
+            stored.outbox_id,
+            "2026-11-21T00:00:00+00:00",
+        ),
+    )
+    with pytest.raises(OperatorDecisionRefused, match="Completed or cancelled"):
+        await temp_storage.resolve_confirmation_pending(
+            _decision(stored, row, "failed")
+        )
+    current = await temp_storage.get_outbox_item(stored.outbox_id)
+    assert current is not None and current.status == "queued"
+
+
+async def test_queued_without_resolution_never_uses_unstarted_cancel(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = str(tmp_path / "queued.sqlite")
+    await _seed_cli_state(path)
+    Path(path).chmod(0o600)
+    with pytest.raises(SystemExit) as exc:
+        await _resolve_unstarted(
+            _cli_args(path, "--expected-status", "queued", "--apply")
+        )
+    assert exc.value.code != 0
+    assert "requires --resolution" in capsys.readouterr().err
+    storage = SQLiteStorage(path)
+    await storage.initialize()
+    try:
+        assert (
+            await storage._read_one("SELECT status FROM delivery_outbox LIMIT 1")
+        ) == {"status": "queued"}
+    finally:
+        await storage.close()

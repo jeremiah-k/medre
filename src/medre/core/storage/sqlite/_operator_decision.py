@@ -19,7 +19,10 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
-from medre.core.delivery_authority import DeliveryIdentity
+from medre.core.delivery_authority import (
+    DeliveryIdentity,
+    dispatch_source_matches_attempt,
+)
 from medre.core.storage.backend import StorageError
 from medre.core.storage.sqlite._evidence_diagnostics import outbox_diagnostic_ops
 from medre.core.storage.sqlite.connection import _settle_outbox_content_dependency
@@ -583,7 +586,7 @@ def _sync_resolve_confirmation_pending(
             row = db.execute(
                 "SELECT event_id, delivery_plan_id, target_adapter, target_channel, "
                 "attempt_number, active_attempt, status, updated_at, "
-                "worker_id, locked_at, lease_until "
+                "worker_id, locked_at, lease_until, dispatch_source, replay_run_id "
                 "FROM delivery_outbox WHERE outbox_id=?",
                 (decision.outbox_id,),
             ).fetchone()
@@ -640,7 +643,7 @@ def _sync_resolve_confirmation_pending(
             effective_attempt = decision.expected_generation
             receipts = db.execute(
                 "SELECT event_id, delivery_plan_id, target_adapter, target_channel, "
-                "attempt_number, status FROM delivery_receipts "
+                "attempt_number, status, source, replay_run_id FROM delivery_receipts "
                 "WHERE outbox_id=? AND attempt_number=?",
                 (decision.outbox_id, effective_attempt),
             ).fetchall()
@@ -652,9 +655,19 @@ def _sync_resolve_confirmation_pending(
                 or receipt["target_adapter"] != identity.target_adapter
                 or (receipt["target_channel"] or None)
                 != (identity.target_channel or None)
+                or (receipt["replay_run_id"] or None) != (row["replay_run_id"] or None)
+                or not dispatch_source_matches_attempt(
+                    row["dispatch_source"], receipt["source"], effective_attempt
+                )
                 for receipt in receipts
             ):
                 raise OperatorDecisionRefused(RECEIPT_PROVENANCE_CONTRADICTION)
+            if any(
+                receipt["status"]
+                in {"cancelled", "abandoned", "dead_lettered", "suppressed"}
+                for receipt in receipts
+            ):
+                raise OperatorDecisionRefused(SETTLED_TARGET_UNDECIDABLE)
             now = datetime.now(timezone.utc).isoformat()
             sets = [
                 "status = ?",

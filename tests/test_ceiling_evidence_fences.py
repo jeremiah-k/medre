@@ -635,3 +635,53 @@ async def test_stale_checkpoint_cannot_mint_acceptance_behind_newer_summary(
         )
         is None
     )
+
+
+async def test_late_packet_ack_refuses_fact_from_superseded_unreadable_summary(
+    temp_storage: SQLiteStorage,
+) -> None:
+    stored, provenance = await _seed_reserved_claim(temp_storage)
+    await _bind_and_progress(temp_storage, provenance, ["accepted", "unsent", "unsent"])
+    now = await _install_elapsed_policy(temp_storage, provenance.event_id)
+    await temp_storage.enforce_content_ceilings(now=now)
+    retained = await temp_storage._read_one(
+        "SELECT native_message_id FROM radio_accepted_part_facts "
+        "WHERE outbox_id=? AND attempt_number=1 AND ordinal=1",
+        (stored.outbox_id,),
+    )
+    assert retained == {"native_message_id": "native-1"}
+    assert await temp_storage.append_radio_packet_observation(
+        _observation(
+            "ack-coherent-summary",
+            provenance,
+            radio_packet={
+                "ordinal": 1,
+                "origin_outbox_id": stored.outbox_id,
+                "origin_attempt_number": 1,
+            },
+        )
+    )
+    await temp_storage._write(
+        "UPDATE radio_attempt_evidence_summaries "
+        "SET parts_json=?, revision=revision+1 "
+        "WHERE outbox_id=? AND attempt_number=1",
+        ('[{"ordinal":1,"state":"accepted","handoff_id":"{}"}]', stored.outbox_id),
+    )
+    assert not await temp_storage.append_radio_packet_observation(
+        _observation(
+            "ack-obsolete-summary",
+            provenance,
+            radio_packet={
+                "ordinal": 1,
+                "origin_outbox_id": stored.outbox_id,
+                "origin_attempt_number": 1,
+            },
+        )
+    )
+    assert (
+        await temp_storage._read_one(
+            "SELECT observation_id FROM delivery_observations "
+            "WHERE observation_id='ack-obsolete-summary'"
+        )
+        is None
+    )

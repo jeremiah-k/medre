@@ -467,6 +467,12 @@ async def _resolve_unstarted(args: Any) -> None:
     if args.action is not None:
         await _resolve_exact_target_decision(args, storage_path, identity)
         return
+    if args.expected_status == CONFIRMATION_PENDING_STATUS:
+        print(
+            "Queued confirmation-pending work requires --resolution",
+            file=sys.stderr,
+        )
+        raise SystemExit(EXIT_CONFIG)
     if args.apply:
         if not args.yes or not args.actor_label or not args.decision_id:
             print(
