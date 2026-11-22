@@ -259,7 +259,9 @@ def _read_schema_meta(
     """
     if directory is None:
         directory, _ = _schema_location()
-    path = directory.joinpath(filename)
+    path = directory
+    for component in filename.split("/"):
+        path = path.joinpath(component)
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
@@ -271,7 +273,9 @@ def _read_schema_meta(
         return SchemaEntry(present=False)
     return SchemaEntry(
         present=True,
-        path=str(path),
+        # Relative resource name only: the bundle must never disclose the
+        # operator's filesystem layout (absolute checkout or install paths).
+        path=filename,
         id=data.get("$id"),
         schema=data.get("$schema"),
     )
@@ -289,14 +293,15 @@ def _build_schemas_member() -> SchemasMember:
     script remains source-only and its presence is reported independently.
     """
     directory, source = _schema_location()
-    adapter_schema = "adapter-config.schema.json"
-    if directory.joinpath("current").joinpath(adapter_schema).is_file():
-        adapter_schema = "current/" + adapter_schema
+
+    def config_schema(name: str) -> SchemaEntry:
+        if directory.joinpath("current").joinpath(name).is_file():
+            return _read_schema_meta(f"current/{name}", directory)
+        return _read_schema_meta(name, directory)
+
     return SchemasMember(
-        runtime_config_schema=_read_schema_meta(
-            "runtime-config.schema.json", directory
-        ),
-        adapter_config_schema=_read_schema_meta(adapter_schema, directory),
+        runtime_config_schema=config_schema("runtime-config.schema.json"),
+        adapter_config_schema=config_schema("adapter-config.schema.json"),
         routing_config_schema=_read_schema_meta(
             "routing-config.schema.json", directory
         ),

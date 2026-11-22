@@ -1,0 +1,520 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/current/runtime-config.schema.json",
+  "title": "RuntimeConfig",
+  "description": "Full MEDRE runtime configuration structure. Adapter transport names are extensible; installed adapter configuration models validate their fields. medre config check is the authoritative validator, including installed-provider availability, cross-adapter identifiers, and route semantics.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "runtime": {
+      "type": "object",
+      "description": "Top-level runtime behaviour knobs (RuntimeOptions).",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "default": "medre",
+          "description": "Runtime name.",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "adapter_start_timeout_seconds": {
+          "type": "number",
+          "default": 60.0,
+          "exclusiveMinimum": 0,
+          "description": "Cooperative startup deadline per adapter; expiry cancels setup, retires partial resources, and isolates that adapter as failed."
+        },
+        "shutdown_timeout_seconds": {
+          "type": "integer",
+          "default": 10,
+          "description": "Graceful shutdown timeout in seconds.",
+          "minimum": 1
+        },
+        "limits": {
+          "type": "object",
+          "description": "Runtime resource limits (RuntimeLimits).",
+          "additionalProperties": false,
+          "properties": {
+            "max_inflight_deliveries": {
+              "type": "integer",
+              "default": 100,
+              "description": "Maximum concurrently in-flight deliveries; also bounds outbox dispatch tasks, with at most one active handoff per adapter.",
+              "minimum": 1
+            },
+            "max_inflight_replay_events": {
+              "type": "integer",
+              "default": 100,
+              "description": "Maximum concurrently processed replay events.",
+              "minimum": 1
+            },
+            "shutdown_drain_timeout_seconds": {
+              "type": "number",
+              "default": 10,
+              "description": "Shared drain deadline for durable ingress, outbox dispatch shutdown and in-flight delivery/replay work. Retained native dispatch prevents dependency teardown.",
+              "exclusiveMinimum": 0
+            },
+            "delivery_acquire_timeout_seconds": {
+              "type": "number",
+              "default": 1.0,
+              "description": "Timeout in seconds for acquiring a delivery slot when the in-flight limit is reached.",
+              "exclusiveMinimum": 0
+            },
+            "max_inflight_inbound_admissions": {
+              "type": "integer",
+              "default": 100,
+              "minimum": 1,
+              "description": "Maximum concurrently admitted inbound events across all adapters."
+            },
+            "inbound_admission_timeout_seconds": {
+              "type": "number",
+              "default": 5.0,
+              "exclusiveMinimum": 0,
+              "description": "Seconds an inbound arrival may wait for an admission slot before rejection."
+            }
+          }
+        }
+      }
+    },
+    "logging": {
+      "type": "object",
+      "description": "Logging configuration (LoggingConfig).",
+      "additionalProperties": false,
+      "properties": {
+        "level": {
+          "type": "string",
+          "pattern": "^(?:[dD][eE][bB][uU][gG]|[iI][nN][fF][oO]|[wW][aA][rR][nN][iI][nN][gG]|[eE][rR][rR][oO][rR]|[cC][rR][iI][tT][iI][cC][aA][lL])$",
+          "default": "INFO",
+          "description": "MEDRE namespace logger level (e.g. DEBUG, INFO, WARNING). Case-insensitive at load time \u2014 uppercase enum matches the canonical level names enforced by the loader."
+        },
+        "format": {
+          "type": "string",
+          "pattern": "^(?:[tT][eE][xX][tT]|[jJ][sS][oO][nN])$",
+          "default": "text",
+          "description": "Log format preset."
+        },
+        "overrides": {
+          "type": "object",
+          "propertyNames": {"minLength": 1},
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Per-logger namespace level overrides keyed by logger name (e.g. nio: WARNING)."
+        }
+      }
+    },
+    "storage": {
+      "type": "object",
+      "description": "Persistence / storage configuration (StorageConfig).",
+      "additionalProperties": false,
+      "properties": {
+        "backend": {
+          "type": "string",
+          "enum": ["sqlite", "memory"],
+          "default": "sqlite",
+          "description": "Storage backend identifier. Only sqlite and memory are supported at runtime."
+        },
+        "path": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Storage path. Null means the default {state}/medre.sqlite is used."
+        }
+      }
+    },
+    "retry": {
+      "type": ["object", "null"],
+      "description": "Global retry worker configuration (RetryConfig).",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether automatic retry dispatch is active; initial durable outbox delivery remains active."
+        },
+        "interval_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 10.0,
+          "description": "Retry scan interval and minimum delay for startup-unavailable or capacity-refused work. Initial dispatch polls independently."
+        },
+        "batch_size": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 20,
+          "description": "Maximum due outbox items claimed per polling cycle."
+        },
+        "max_attempts": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 3,
+          "description": "Maximum total delivery attempts before dead-lettering."
+        },
+        "deadline_sweep": {
+          "type": ["object", "null"],
+          "description": "Opt-in bounded retirement of deadline-expired unstarted outbox work; disabled by default.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {"type": "boolean", "default": false},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 50},
+            "interval_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 86400, "default": 60.0}
+          }
+        },
+        "ceiling_sweep": {
+          "type": ["object", "null"],
+          "description": "Opt-in bounded enforcement of elapsed hard content ceilings: purge and verify every enumerated content store per expired event, then record the immutable receipt; disabled by default.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {"type": "boolean", "default": false},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 50, "description": "Write an actual YAML integer such as 50, not 50.0; the runtime type validator is authoritative."},
+            "interval_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 86400, "default": 60.0}
+          }
+        }
+      }
+    },
+    "attachments": {
+      "type": "object",
+      "description": "Generic durable-attachment relay policy (AttachmentConfig). Disabled by default: while enabled is false, no attachment bytes are fetched, stored, or transferred, and media events carry honest unavailable descriptors. Range and cross-field validation (positive integers, max_attachment_bytes <= max_retained_bytes, max_concurrent_transfers >= 1, positive finite timeout, booleans are not integers) is enforced by the typed config dataclass at load time.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Master switch for retaining and transferring attachment bytes. When false, previously retained bytes are not transferred either."
+        },
+        "max_attachment_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 10485760,
+          "description": "Maximum measured size of one primary attachment in bytes (default 10 MiB). Must not exceed max_retained_bytes."
+        },
+        "max_retained_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 268435456,
+          "description": "Maximum total of unique retained attachment bytes in bytes (default 256 MiB). Reaching the quota rejects new content explicitly; nothing is evicted \u2014 no retention, TTL, or GC. Raising capacity is an operator action."
+        },
+        "max_concurrent_transfers": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 2,
+          "description": "Maximum concurrent binary transfers (downloads and uploads combined) across the whole runtime."
+        },
+        "transfer_timeout_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 60.0,
+          "description": "Deadline in seconds for one binary transfer."
+        }
+      }
+    },
+    "content_retention": {
+      "type": "object",
+      "description": "Operator content-retention policy declaration (ContentRetentionConfig). Disabled by default: an omitted or disabled section authorizes no retention collector and no policy. mode 'retain' is a declared, observing policy that never collects; mode 'relay-only' is the explicit opt-in to bounded, guarded logical collection and additionally requires enabled=true. Booleans are not integer versions; the declaration is versioned and unknown versions are refused.",
+      "additionalProperties": false,
+      "if": {
+        "properties": { "mode": { "const": "relay-only" } },
+        "required": ["mode"]
+      },
+      "then": {
+        "properties": { "enabled": { "const": true } },
+        "required": ["enabled"]
+      },
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Master switch for the retention policy. While false, no collector is assembled and no content is collected."
+        },
+        "version": {
+          "type": "integer",
+          "const": 1,
+          "default": 1,
+          "description": "Strict policy declaration version. Must be exactly the integer 1; booleans are refused."
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["retain", "relay-only"],
+          "default": "retain",
+          "description": "Closed mode vocabulary. 'retain' never collects; 'relay-only' opts in to bounded guarded logical collection and requires enabled=true."
+        },
+        "interval_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 86400,
+          "default": 300,
+          "description": "Cadence knob bounding the runtime retention worker's sweep interval in seconds."
+        },
+        "batch_limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 25,
+          "description": "Cadence knob bounding the number of candidate events one retention sweep may examine."
+        }
+      }
+    },
+    "content_ceiling": {
+      "type": "object",
+      "description": "Operator hard content privacy ceiling declaration (ContentCeilingConfig). Disabled by default: an omitted or disabled section stops installing new content ceilings at admission. Existing immutable ceilings and their read denials remain authoritative, and the independently enabled retry.ceiling_sweep may still enforce them. When enabled, the declaration states one bounded window; the producer derives each event's absolute UTC ceiling from the trusted local admission time plus that window, writes it into the immutable per-event ceiling row and the mandatory content dependency deadline inside the admission transaction, and refuses mismatched existing policies. An enabled section without max_age_seconds is refused.",
+      "additionalProperties": false,
+      "if": {
+        "properties": { "enabled": { "const": true } },
+        "required": ["enabled"]
+      },
+      "then": {
+        "required": ["max_age_seconds"],
+        "properties": {
+          "max_age_seconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 31536000
+          }
+        }
+      },
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Master switch for creating hard content ceilings on new admissions. While false, admission produces no content deadline; ceilings already installed on existing events remain in force and the separately enabled ceiling sweep continues to enforce them."
+        },
+        "max_age_seconds": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "maximum": 31536000,
+          "description": "Bounded window between the trusted local admission time and the absolute UTC content ceiling (1..31536000 seconds). Null is accepted only while enabled is false; an enabled ceiling requires an integer window, and an unbounded ceiling is refused."
+        }
+      }
+    },
+    "adapters": {
+      "type": "object",
+      "description": "Adapter instances grouped by transport entry-point name. The schema validates structure for any provider; medre config check rejects transports without an installed provider and validates provider-owned settings. An empty mapping is valid when no installed provider contributes an offline sample; runtime startup still requires an enabled adapter.",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_-]*$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "propertyNames": {
+          "pattern": "^(?!(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][1-9]|[Ll][Pp][Tt][1-9])(?:[.]|$))(?!.*[.]$)[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "maxLength": 255
+        },
+        "additionalProperties": {
+          "type": "object"
+        }
+      }
+    },
+    "routes": {
+      "type": "object",
+      "description": "Route definitions keyed by route_id. Each value is a RouteConfig table. Detailed route policy / retry / context_map validation is done by routing-config.schema.json and the typed RouteConfig dataclass at load time.",
+      "patternProperties": {
+        "^[A-Za-z0-9_-]+(?![\\s\\S])": {
+          "$ref": "#/$defs/RouteEntry"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "RouteEntry": {
+      "title": "RouteEntry",
+      "$comment": "Guided authoring validates the existing document before context entry. Disabled routes retain reference validation but do not count as active duplicate deliveries. These cross-route checks belong to typed configuration and the route compiler, not this structural schema.",
+      "description": "A single route definition. Its identifier is the routes mapping key: a non-empty string of ASCII letters, digits, underscores or hyphens, with no line terminators. An entry-level route_id field is not accepted. Policy / retry / context_map are modelled as plain objects here; their internal shape is enforced by the component schema and the typed dataclass.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "forward_typing": {
+          "type": "boolean",
+          "default": false,
+          "description": "Opt-in transient typing for concrete channel mappings; static allowlists apply."
+        },
+        "source_adapters": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "description": "Source adapter IDs for this route."
+        },
+        "dest_adapters": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "description": "Destination adapter IDs for this route."
+        },
+        "directionality": {
+          "type": "string",
+          "enum": ["source_to_dest", "dest_to_source", "bidirectional"],
+          "default": "source_to_dest",
+          "description": "Direction of event flow."
+        },
+        "priority": {
+          "type": "integer",
+          "default": 100,
+          "description": "Route matching/planning priority. Lower values run first; equal priorities break ties by expanded route_id lexicographically. This does not request transport QoS."
+        },
+        "ownership": {
+          "type": "string",
+          "enum": ["shared", "exclusive"],
+          "default": "shared",
+          "description": "Route overlap authority. Shared routes may overlap; enabled exclusive routes must not have overlapping source match domains."
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether this route is enabled at startup."
+        },
+        "source_channel": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Optional source channel / conversation ID."
+        },
+        "dest_channel": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Optional destination channel / conversation ID."
+        },
+        "source_room": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Optional source room ID (alias for source_channel)."
+        },
+        "dest_room": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Optional destination room ID (alias for dest_channel)."
+        },
+        "dest_destination": {
+          "type": ["object", "null"],
+          "default": null,
+          "description": "Optional structured destination addressing (identity/hash form). Shape validated by routing-config.schema.json RouteDestination. Mutually exclusive with dest_channel and dest_room."
+        },
+        "policy": {
+          "type": "object",
+          "description": "Optional static bridge policy. Shape validated by routing-config.schema.json BridgePolicy."
+        },
+        "retry": {
+          "type": "object",
+          "description": "Optional per-route retry policy. Shape validated by routing-config.schema.json RouteRetryConfig."
+        },
+        "context_map": {
+          "type": "object",
+          "description": "Optional mapping of source-side opaque context strings to dest contexts or structured destinations. Shape validated by routing-config.schema.json. Contexts are opaque strings owned by their adapters."
+        },
+        "source_origin_label": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Source-side human-readable label for the forward leg of this route."
+        },
+        "dest_origin_label": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Source-side human-readable label for the reverse leg of this route."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": ["forward_typing"],
+            "properties": {
+              "forward_typing": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "dest_destination": {
+                "type": "null"
+              }
+            },
+            "anyOf": [
+              {
+                "allOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "required": ["source_channel"],
+                        "properties": {
+                          "source_channel": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        }
+                      },
+                      {
+                        "required": ["source_room"],
+                        "properties": {
+                          "source_room": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "anyOf": [
+                      {
+                        "required": ["dest_channel"],
+                        "properties": {
+                          "dest_channel": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        }
+                      },
+                      {
+                        "required": ["dest_room"],
+                        "properties": {
+                          "dest_room": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "required": ["context_map"],
+                "properties": {
+                  "context_map": {
+                    "type": "object",
+                    "minProperties": 1,
+                    "additionalProperties": {
+                      "type": "object",
+                      "required": ["dest_context"],
+                      "properties": {
+                        "dest_context": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "dest_destination": {
+                          "type": "null"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "required": ["source_adapters", "dest_adapters"]
+    }
+  },
+  "examples": [
+    {
+      "runtime": {
+        "name": "core-only"
+      },
+      "storage": {
+        "backend": "memory"
+      },
+      "adapters": {},
+      "routes": {}
+    }
+  ]
+}
