@@ -970,7 +970,10 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
     # resolve (narrow local-only operator write, not native replay)
     resolve_p = sub.add_parser(
         "resolve",
-        help="Preview/apply one exact unstarted cancellation under local OS ownership",
+        help=(
+            "Preview/apply one exact unstarted cancellation or"
+            " confirmation-pending resolution under local OS ownership"
+        ),
     )
     resolve_p.add_argument("--storage-path", required=True, metavar="PATH")
     resolve_p.add_argument("--event", required=True)
@@ -985,7 +988,7 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
     resolve_p.add_argument("--outbox-id", default=None)
     resolve_p.add_argument("--expected-generation", type=int, default=None)
     resolve_p.add_argument(
-        "--expected-status", choices=("pending", "retry_wait"), default=None
+        "--expected-status", choices=("pending", "retry_wait", "queued"), default=None
     )
     resolve_p.add_argument("--expected-updated-at", default=None)
     resolve_p.add_argument("--decision-id", default=None)
@@ -1000,6 +1003,16 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
         help=(
             "Record an audited exact-target decision (preview/apply) instead"
             " of an unstarted cancellation"
+        ),
+    )
+    resolve_p.add_argument(
+        "--resolution",
+        default=None,
+        choices=("delivered", "failed", "cancelled"),
+        help=(
+            "Resolve one observed confirmation-pending (queued) delivery to"
+            " this explicit outcome (preview/apply) instead of an unstarted"
+            " cancellation"
         ),
     )
 
@@ -1113,6 +1126,86 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
         default=False,
         help="Confirm opening a new retention epoch",
     )
+
+    storage_ceiling_p = storage_sub.add_parser(
+        "ceiling",
+        help=(
+            "Audit the hard content-privacy ceiling battery or verify "
+            "enforcement receipts (both read-only)"
+        ),
+    )
+    ceiling_sub = storage_ceiling_p.add_subparsers(
+        dest="ceiling_command", required=True
+    )
+
+    ceiling_audit_p = ceiling_sub.add_parser(
+        "audit",
+        help=(
+            "Report per-store residuals for elapsed ceilings — what the "
+            "enforcement would remove (read-only, content-free)"
+        ),
+    )
+    ceiling_audit_p.add_argument(
+        "--storage-path",
+        required=False,
+        default=None,
+        metavar="PATH",
+        help="Path to SQLite database (default: standard database path)",
+    )
+    ceiling_audit_p.add_argument(
+        "--limit",
+        type=int,
+        default=25,
+        help="Bounded report window size (1-100)",
+    )
+    ceiling_audit_p.add_argument(
+        "--event",
+        default=None,
+        metavar="EVENT_ID",
+        help="Audit exactly one event instead of the bounded window",
+    )
+
+    ceiling_audit_p.add_argument(
+        "--as-of",
+        default=None,
+        metavar="UTC_TIMESTAMP",
+        help="Fix the audit ceiling cutoff across paginated windows (UTC timestamp)",
+    )
+
+    ceiling_verify_p = ceiling_sub.add_parser(
+        "verify",
+        help=(
+            "Re-run the residual battery over enforcement receipts — "
+            "bounded-page receipt verification (read-only, content-free)"
+        ),
+    )
+    ceiling_verify_p.add_argument(
+        "--storage-path",
+        required=False,
+        default=None,
+        metavar="PATH",
+        help="Path to SQLite database (default: standard database path)",
+    )
+    ceiling_verify_p.add_argument(
+        "--limit",
+        type=int,
+        default=25,
+        help="Bounded receipt window size (1-100)",
+    )
+    ceiling_verify_p.add_argument(
+        "--event",
+        default=None,
+        metavar="EVENT_ID",
+        help="Verify exactly one event's receipt instead of the window",
+    )
+
+    for ceiling_window in (ceiling_audit_p, ceiling_verify_p):
+        ceiling_window.add_argument(
+            "--after-event",
+            default=None,
+            metavar="EVENT_ID",
+            help="Continue the report after this event ID",
+        )
 
     # Adapter/plugin contributed commands (adapter, plugin namespaces)
     parser.set_defaults(_adapter_cli_failures=())
@@ -1570,6 +1663,38 @@ def main(argv: list[str] | None = None) -> None:
                 asyncio.run(_storage_retention_status(path))
             elif args.retention_command == "activate":
                 asyncio.run(_storage_retention_activate(path, yes=args.yes))
+        elif args.storage_command == "ceiling":
+            from .ceiling_commands import (
+                _storage_ceiling_audit,
+                _storage_ceiling_verify,
+            )
+
+            if args.storage_path == "":
+                parser.error("--storage-path must not be empty")
+            path = (
+                str(resolve_paths().database_path)
+                if args.storage_path is None
+                else args.storage_path
+            )
+            if args.ceiling_command == "audit":
+                asyncio.run(
+                    _storage_ceiling_audit(
+                        path,
+                        limit=args.limit,
+                        event_id=args.event,
+                        after_event=args.after_event,
+                        as_of=args.as_of,
+                    )
+                )
+            elif args.ceiling_command == "verify":
+                asyncio.run(
+                    _storage_ceiling_verify(
+                        path,
+                        limit=args.limit,
+                        event_id=args.event,
+                        after_event=args.after_event,
+                    )
+                )
         elif args.storage_command == "reset":
             path = args.storage_path or str(resolve_paths().database_path)
             asyncio.run(

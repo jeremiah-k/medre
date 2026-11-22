@@ -454,7 +454,8 @@ def _print_adapter_work_status(
     if uncertainty.stale_queue_reclaimable:
         flags.append(
             f"{uncertainty.stale_queue_reclaimable} queued generation(s) are "
-            "past the reclaim grace: adapter-local acceptance may be stale"
+            "confirmation-pending past the recorded age cutoff: resolve them "
+            "explicitly (medre resolve --resolution ...)"
         )
     for flag in flags:
         print(f"      uncertainty: {flag}")
@@ -508,7 +509,7 @@ def _print_work_status(report: WorkStatusReport, *, storage_path: str) -> None:
         f"{uncertainty.reserved_without_generation_receipt} reserved without "
         f"attempt evidence, {uncertainty.lease_missing_or_expired} missing or "
         f"expired leases, {uncertainty.stale_queue_reclaimable} stale queue "
-        f"admissions, {uncertainty.queue_staleness_unknown} queued with "
+        f"admissions awaiting resolution, {uncertainty.queue_staleness_unknown} queued with "
         "unknown staleness"
     )
     raw = ", ".join(

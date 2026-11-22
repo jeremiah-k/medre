@@ -19,7 +19,8 @@ route, and connect your first two conversations. In a locked uv project, run
 | Investigate a failure                              | [Troubleshooting](troubleshooting.md) and [diagnostics](diagnostics-and-evidence.md)                                                                                                                                              |
 | Test with accounts or hardware                     | [Live validation](live-validation/short-iterations.md)                                                                                                                                                                            |
 | Inspect or replay an outstanding delivery          | [Recovery and replay](recovery-and-replay.md)                                                                                                                                                                                     |
-| Act on one destination or inspect its audit record | [Exact cancellation](exact-cancellation.md), [exact-target decisions](exact-target-decisions.md), and [operator decisions](operator-decisions.md)                                                                                 |
+| Verify the logical purge of expired content        | [Ceiling audit](content-ceiling-audit.md)                                                                                                                                                                                         |
+| Act on one destination or inspect its audit record | [Exact cancellation](exact-cancellation.md), [exact-target decisions](exact-target-decisions.md), [confirmation-pending recovery](confirmation-pending-recovery.md), and [operator decisions](operator-decisions.md)              |
 
 ## Updates and backups
 
