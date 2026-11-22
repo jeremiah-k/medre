@@ -1991,6 +1991,10 @@ and the named rebuild steps in
   `idx_diagnostics_identity`, `idx_events_admission_order`,
   `idx_outbox_snapshot_owner_unique`, and
   `idx_ceiling_enforcement_order` and `idx_attachment_associations_content_ref`.
+- Recognized missing triggers: `trg_scope_version_insert`,
+  `trg_scope_version_update`, and `trg_scope_version_delete` advancing the
+  `delivery_observation_scope_versions` revision on scope insertion, change,
+  or deletion.
 - The exact predecessor of `event_content_access_grants` without nullable
   `expired_at`.
 - The exact predecessor definitions for `operator_delivery_decisions`,
