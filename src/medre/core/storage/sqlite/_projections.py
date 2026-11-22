@@ -77,7 +77,7 @@ _INSPECTION_COLUMNS = {
         "sequence observation_id event_id delivery_plan_id target_adapter target_channel native_channel_id outbox_id attempt_number adapter_message_id state confirmation_level observed_at".split()
     ),
     "delivery_outbox": frozenset(
-        "outbox_id event_id route_id delivery_plan_id target_adapter target_channel target_address attempt_number active_attempt status failure_kind next_attempt_at created_at updated_at last_attempt_at locked_at lease_until worker_id payload_hash receipt_id parent_receipt_id dispatch_source replay_run_id".split()
+        "outbox_id event_id route_id delivery_plan_id target_adapter target_channel target_address attempt_number active_attempt status failure_kind next_attempt_at created_at updated_at last_attempt_at locked_at lease_until worker_id receipt_id parent_receipt_id dispatch_source replay_run_id".split()
     ),
 }
 
