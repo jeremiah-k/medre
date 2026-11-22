@@ -1972,8 +1972,13 @@ class DeliveryLifecycleService:
         acceptance; settle it without dispatching or fabricating evidence.
         """
         accepted = next(
-            receipt for receipt in receipts if receipt.status in {"sent", "queued"}
+            (receipt for receipt in receipts if receipt.status in {"sent", "queued"}),
+            None,
         )
+        if accepted is None:
+            raise StorageError(
+                "Settling a committed acceptance requires a sent or queued receipt"
+            )
         committed = await storage.mark_outbox_sent(
             item.outbox_id,
             receipt_id=accepted.receipt_id,
