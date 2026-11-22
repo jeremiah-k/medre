@@ -45,6 +45,7 @@ if TYPE_CHECKING:
     )
     from medre.core.events.canonical import CanonicalEvent, DeliveryReceipt
     from medre.core.evidence.handoff_resolution import HandoffEvidenceStore
+    from medre.core.storage.sqlite._ceiling_enforcement import CeilingEnforcement
     from medre.core.storage.sqlite._deadline_cleanup import DeadlineRetirement
     from medre.core.supervision.capacity import CapacityController
     from medre.runtime.events import EventBuffer
@@ -70,10 +71,11 @@ from medre.core.evidence.handoff_resolution import (
     UncertainHandoffResolution,
     UncertainNativeHandoffResolver,
 )
-from medre.core.planning.delivery_plan import DeliveryFailureKind
+from medre.core.planning.delivery_plan import DeliveryFailureKind, RetryPolicy
 from medre.core.storage.backend import (
     DeliveryOutboxItem,
     OutboxDispatchSnapshot,
+    OutboxRouteRetryBounds,
     OutboxSnapshotReadError,
 )
 from medre.core.storage.read_contracts import AuthorizedEventRead
@@ -92,6 +94,41 @@ _logger = logging.getLogger(__name__)
 # backend cannot block RetryWorker.start() indefinitely.
 _STARTUP_EVIDENCE_TIMEOUT_SECONDS: float = 5.0
 
+#: Reconciliation-only policy for outbox generations admitted without
+#: persisted route bounds (historical predecessor rows and routes admitted
+#: without a resolved retry policy). ``max_attempts=1`` makes every finalized
+#: or reserved attempt exhausted, so reconciliation settles persisted
+#: evidence exactly as before but dead-letters an ambiguous or unfinalized
+#: attempt instead of scheduling another one. Nothing here consults current
+#: configuration and nothing authorizes a transport dispatch: the bounds are
+#: arithmetic facts for evidence settlement only.
+_RECONCILE_ONLY_RETRY_POLICY = RetryPolicy(
+    max_attempts=1,
+    backoff_base=2.0,
+    max_delay_seconds=60.0,
+    jitter=False,
+)
+
+
+def _route_bounds_retry_policy(
+    bounds: OutboxRouteRetryBounds | None,
+) -> RetryPolicy:
+    """Resolve the post-erasure reconciliation policy for one outbox row.
+
+    Persisted admission bounds restore the route's own historic limits after
+    ceiling enforcement retired the frozen dispatch context. Rows without
+    bounds reconcile with :data:`_RECONCILE_ONLY_RETRY_POLICY`; the worker's
+    current configuration is never consulted for an erased route.
+    """
+    if bounds is None:
+        return _RECONCILE_ONLY_RETRY_POLICY
+    return RetryPolicy(
+        max_attempts=bounds.max_attempts,
+        backoff_base=bounds.backoff_base,
+        max_delay_seconds=bounds.max_delay_seconds,
+        jitter=bounds.jitter,
+    )
+
 
 class RetryWorkerStorage(Protocol):
     """Read/claim storage surface used directly by :class:`RetryWorker`.
@@ -102,9 +139,13 @@ class RetryWorkerStorage(Protocol):
     """
 
     async def health_backlog_adapters(
-        self, candidates: tuple[str, ...], *, queued_as_of: str | None = None
+        self, candidates: tuple[str, ...]
     ) -> tuple[str, ...]:
-        """Return lanes with current work, including stale queued rows if requested."""
+        """Return lanes with dispatchable nonterminal work.
+
+        ``queued`` rows are the durable confirmation-pending disposition and
+        never make a lane a wake candidate.
+        """
         ...
 
     async def claim_due_outbox_items(
@@ -146,6 +187,17 @@ class RetryWorkerStorage(Protocol):
         """Read the frozen dispatch context under the exact outbox identity."""
         ...
 
+    async def get_outbox_route_retry_bounds(
+        self,
+        outbox_id: str,
+    ) -> OutboxRouteRetryBounds | None:
+        """Read the persisted admission-time retry bounds for one generation.
+
+        Returns ``None`` for generations admitted without resolved route
+        bounds.  The bounds are content-free facts, not send authority.
+        """
+        ...
+
 
 if TYPE_CHECKING:
 
@@ -157,6 +209,35 @@ if TYPE_CHECKING:
         ``DeliveryLifecycleService`` for lifecycle-owned evidence reads and
         durable transitions.
         """
+
+
+class CeilingEnforcementStorage(Protocol):
+    """Optional bounded hard-ceiling enforcement surface some backends provide.
+
+    The guarded transition purges and verifies every enumerated content
+    store for events whose immutable hard ceiling has elapsed, then records
+    a content-free receipt. Backends without the transition simply never
+    expose the attribute; the worker resolves it by name at construction
+    and leaves the sweep dormant when it is absent.
+    """
+
+    async def enforce_content_ceilings(
+        self,
+        *,
+        now: datetime | None = None,
+        limit: int = 50,
+    ) -> list["CeilingEnforcement"]: ...
+
+
+class _CeilingSweepStep(Protocol):
+    """The resolved, backend-bound ceiling-enforcement callable."""
+
+    async def __call__(
+        self,
+        *,
+        now: datetime | None = None,
+        limit: int = 50,
+    ) -> list["CeilingEnforcement"]: ...
 
 
 class DeadlineSweepStorage(Protocol):
@@ -239,6 +320,9 @@ class RetryWorkerState:
     deadline_sweep_runs: int = 0
     deadline_sweep_errors: int = 0
     deadline_retired: int = 0
+    ceiling_sweep_runs: int = 0
+    ceiling_sweep_errors: int = 0
+    ceiling_enforced: int = 0
 
 
 class RetryWorker:
@@ -285,7 +369,12 @@ class RetryWorker:
         self._lifecycle = lifecycle
         self._retries_enabled = enabled if enabled is not None else config.enabled
         self._initial_dispatch = initial_dispatch
-        self._enabled = self._retries_enabled or initial_dispatch
+        self._enabled = (
+            self._retries_enabled
+            or initial_dispatch
+            or config.deadline_sweep.enabled
+            or config.ceiling_sweep.enabled
+        )
         self._active: dict[str, asyncio.Task[None]] = {}
         self._adapter_deferred_until: dict[str, datetime] = {}
         self._interval = (
@@ -311,19 +400,33 @@ class RetryWorker:
             storage, "retire_expired_unstarted_outbox", None
         )
         self._next_sweep_at: datetime | None = None
+        # Ceiling-enforcement policy: default-off like the deadline sweep, so
+        # an omitted declaration means the poll cycle never purges content
+        # and prior storage behavior is unchanged. The guarded transition is
+        # a backend-specific surface; backends without it leave the sweep
+        # dormant even when the policy is enabled.
+        ceiling_policy = config.ceiling_sweep
+        self._ceiling_sweep_enabled = ceiling_policy.enabled
+        self._ceiling_sweep_limit = ceiling_policy.limit
+        self._ceiling_sweep_interval = ceiling_policy.interval_seconds
+        self._ceiling_sweep: _CeilingSweepStep | None = getattr(
+            storage, "enforce_content_ceilings", None
+        )
+        self._next_ceiling_sweep_at: datetime | None = None
         # Uncertain-native-handoff remediation: claim reconciliation resolves
         # an ambiguous reserved dispatch from evidence the backend already
-        # holds (retained radio checkpoints and append-only delivery
-        # observations). The evidence reads are a backend-specific surface;
-        # backends without them leave resolution dormant and reconciliation
-        # keeps the merged ambiguous-dispatch behavior unchanged.
+        # holds (retained radio checkpoints and an atomic delivery-observation
+        # snapshot with its packet-scope evidence version). The evidence reads
+        # are a backend-specific surface; backends without them leave
+        # resolution dormant and reconciliation keeps the merged
+        # ambiguous-dispatch behavior unchanged.
         handoff_evidence_store = cast(
             "HandoffEvidenceStore | None",
             (
                 storage
                 if (
                     getattr(storage, "get_radio_attempt", None) is not None
-                    and getattr(storage, "list_delivery_observations_for_attempt", None)
+                    and getattr(storage, "read_handoff_observation_snapshot", None)
                     is not None
                 )
                 else None
@@ -413,7 +516,7 @@ class RetryWorker:
             if self._task is not None and self.state.running:
                 self._dispatch_wake.set()
 
-    async def _health_excluded_adapters(self, now: datetime) -> tuple[str, ...]:
+    async def _health_excluded_adapters(self) -> tuple[str, ...]:
         """Return adapters whose obligations must not be claimed now.
 
         An adapter with a current non-healthy observation is excluded so its
@@ -424,7 +527,9 @@ class RetryWorker:
         work this process never admitted — expires, so normal
         retry/retention rules resume (the admission gate composes with the
         same decision) and an adapter that never recovers cannot strand
-        obligations silently.
+        obligations silently. A ``queued`` row is the durable
+        confirmation-pending disposition: it is not held work, so it never
+        opens a lane for dispatch.
         """
         if self._health_gate is None:
             return ()
@@ -435,10 +540,7 @@ class RetryWorker:
         )
         candidates = self._health_gate.unhealthy_adapters(universe)
         held = (
-            await self._storage.health_backlog_adapters(
-                candidates,
-                queued_as_of=now.isoformat() if self._retries_enabled else None,
-            )
+            await self._storage.health_backlog_adapters(candidates)
             if candidates
             else ()
         )
@@ -599,6 +701,13 @@ class RetryWorker:
                     "parent_receipt_id": item.receipt_id or item.outbox_id,
                     "retry_receipt_id": finalization.receipt_id,
                 },
+            )
+            return
+
+        if finalization.outcome == "queued":
+            self._emit(
+                "retry_queued",
+                {**detail, "receipt_id": finalization.receipt_id},
             )
             return
 
@@ -1086,14 +1195,32 @@ class RetryWorker:
                 try:
                     await asyncio.wait_for(
                         self._dispatch_wake.wait(),
-                        timeout=(
-                            min(self._interval, 0.5)
-                            if self._initial_dispatch
-                            else self._interval
-                        ),
+                        timeout=self._next_poll_timeout(),
                     )
                 except TimeoutError:
                     pass
+
+    def _next_poll_timeout(self) -> float:
+        """Wake for the next configured maintenance deadline, not only retry."""
+        timeout = min(self._interval, 0.5) if self._initial_dispatch else self._interval
+        now = datetime.now(timezone.utc)
+        for enabled, operation, due in (
+            (
+                self._ceiling_sweep_enabled,
+                self._ceiling_sweep,
+                self._next_ceiling_sweep_at,
+            ),
+            (self._deadline_sweep_enabled, self._deadline_sweep, self._next_sweep_at),
+        ):
+            if enabled and operation is not None:
+                # An unarmed maintenance deadline is due now. Otherwise a
+                # worker whose retry interval is longer than the maintenance
+                # cadence would sleep through its first configured sweep.
+                if due is None:
+                    timeout = 0.0
+                else:
+                    timeout = min(timeout, max(0.0, (due - now).total_seconds()))
+        return timeout
 
     async def _process_due(
         self, now: datetime, *, group: asyncio.TaskGroup | None = None
@@ -1105,6 +1232,11 @@ class RetryWorker:
         No row is claimed to wait behind an active send for the same adapter.
         """
         await self._run_deadline_sweep(now)
+        await self._run_ceiling_sweep(now)
+        # Maintenance may have held the SQLite write reservation for a long
+        # period; the claim lease needs a fresh clock, not the pre-sweep
+        # instant. Scheduling bookkeeping keeps the supplied clock so
+        # controlled cadences stay exact.
         for adapter, task in tuple(self._active.items()):
             if task.done():
                 del self._active[adapter]
@@ -1119,26 +1251,32 @@ class RetryWorker:
             if group is None
             else min(self._batch_size, max(0, limit - len(self._active)))
         )
-        if available:
-            retry_scan = self._retries_enabled and (
-                group is None
-                or self._next_retry_scan is None
-                or now >= self._next_retry_scan
-            )
+        retry_scan = self._retries_enabled and (
+            group is None
+            or self._next_retry_scan is None
+            or now >= self._next_retry_scan
+        )
+        initial_claim = self._initial_dispatch and not retry_scan
+        if available and (retry_scan or initial_claim):
             if retry_scan and group is not None:
                 self._next_retry_scan = now + timedelta(seconds=self._interval)
+            # The health exclusion read can itself take longer than a
+            # lease. Resolve it first, then timestamp the claim only
+            # after that final await.
+            health_excluded = await self._health_excluded_adapters()
+            claim_now = max(now, datetime.now(timezone.utc))
             items = await self._storage.claim_due_outbox_items(
-                now=now.isoformat(),
+                now=claim_now.isoformat(),
                 worker_id=f"retry-worker-{uuid.uuid4().hex}",
                 lease_seconds=max(30, int(self._interval * 1.5)),
                 limit=available,
                 excluded_adapters=(
                     *self._active,
                     *self._adapter_deferred_until,
-                    *await self._health_excluded_adapters(now),
+                    *health_excluded,
                 ),
                 one_per_adapter=group is not None,
-                initial_only=self._initial_dispatch and not retry_scan,
+                initial_only=initial_claim,
             )
         else:
             items = []
@@ -1243,6 +1381,56 @@ class RetryWorker:
         else:
             _logger.debug("Outbox dispatch: deadline sweep retired nothing")
 
+    async def _run_ceiling_sweep(self, now: datetime) -> None:
+        """Run one bounded hard-ceiling enforcement step when the policy is due.
+
+        Enabled only by the operator's ``ceiling_sweep`` declaration; the
+        sweep rides this poll cycle after the deadline sweep so
+        ceiling-expired content is purged and verified across every
+        enumerated store. A sweep failure is contained here so the delivery
+        claim in the same cycle still runs. The guarded storage transition
+        alone decides eligibility and verifies its own completeness; the
+        worker only reports what the transition committed.
+        """
+        sweep = self._ceiling_sweep
+        if not self._ceiling_sweep_enabled or sweep is None:
+            return
+        # Deadline maintenance may have elapsed while this poll awaited it.
+        # Test due-ness against the current start instant, not the clock
+        # captured before deadline cleanup; otherwise a due sweep can be
+        # missed by a one-shot poll that proceeds to claim delivery work.
+        started_at = max(now, datetime.now(timezone.utc))
+        if (
+            self._next_ceiling_sweep_at is not None
+            and started_at < self._next_ceiling_sweep_at
+        ):
+            return
+        # Cadence is committed before the await so a slow sweep cannot
+        # re-arm itself on every wake while it is still running. Schedule
+        # from this fresh start instant to preserve the minimum interval.
+        try:
+            self._next_ceiling_sweep_at = started_at + timedelta(
+                seconds=self._ceiling_sweep_interval
+            )
+            enforced = await sweep(limit=self._ceiling_sweep_limit)
+        except Exception:
+            # A sweep failure must never take the worker or the delivery
+            # poll down: elapsed ceilings stay durable and the next due
+            # sweep step retries them.
+            self.state.ceiling_sweep_errors += 1
+            _logger.exception("Outbox dispatch: ceiling enforcement sweep failed")
+            return
+        self.state.ceiling_sweep_runs += 1
+        if enforced:
+            self.state.ceiling_enforced += len(enforced)
+            _logger.info(
+                "Outbox dispatch: ceiling enforcement purged %d expired "
+                "content event(s)",
+                len(enforced),
+            )
+        else:
+            _logger.debug("Outbox dispatch: ceiling enforcement purged nothing")
+
     async def _release_unstarted_claims(self, items: list[DeliveryOutboxItem]) -> None:
         """Return only never-reserved claims skipped during shutdown.
 
@@ -1317,6 +1505,225 @@ class RetryWorker:
                 target_adapter=item.target_adapter,
                 target_channel=item.target_channel,
             )
+            if dispatch_snapshot is None and not item.metadata:
+                # The ceiling sweep retires dispatch context, not the outbox
+                # generation or append-only acceptance evidence. Before
+                # declaring the missing context corrupt, check the actual
+                # content read authority. If it is gone, never send again.
+                try:
+                    authorized = await self._storage.read_event_for_outbox(
+                        item.event_id, item.outbox_id
+                    )
+                except Exception as authority_error:
+                    # An unavailable authority read cannot prove corruption or
+                    # content expiry. Leave the claim for lease-based reclaim;
+                    # never classify a transient storage failure as terminal.
+                    self.state.processed += 1
+                    self._record_lifecycle_persistence_error(
+                        item,
+                        authority_error,
+                        attempt_number=item.active_attempt or item.attempt_number,
+                    )
+                    return
+                if authorized.status != "retained":
+                    # Reconcile exact-attempt evidence before terminal content
+                    # denial, even without a sent/queued receipt. A complete
+                    # radio checkpoint or provider acceptance can still settle.
+                    try:
+                        attempt = item.active_attempt or item.attempt_number
+                        current_receipts = (
+                            await self._lifecycle.list_attempt_receipts(
+                                self._lifecycle_storage,
+                                item.outbox_id,
+                                attempt,
+                            )
+                            if attempt
+                            else []
+                        )
+                        if any(
+                            receipt.status in {"sent", "queued"}
+                            for receipt in current_receipts
+                        ):
+                            # A committed receipt is authoritative acceptance.
+                            # Settle it before any content-denial early return.
+                            finalization = (
+                                await self._lifecycle.settle_committed_acceptance(
+                                    self._lifecycle_storage,
+                                    item,
+                                    attempt_number=attempt,
+                                    receipts=current_receipts,
+                                )
+                            )
+                            self.state.processed += 1
+                            self._record_retry_finalization(
+                                item, finalization, reconciled=True
+                            )
+                            return
+                        resolved: (
+                            RetryAttemptFinalization | UncertainHandoffResolution | None
+                        )
+                        # A reserved attempt with receipt evidence would be
+                        # finalized from the receipt alone below. Weigh
+                        # exact-attempt native evidence first: positive
+                        # evidence settles the obligation sent alongside the
+                        # historical failed receipt, an unreadable read or a
+                        # contradicting receipt leaves the claim untouched,
+                        # and a not-delivered verdict arms the terminal
+                        # write's evidence fence with what this read observed.
+                        fence_observation_count: int | None = None
+                        fence_checkpoint_revision: int | None = None
+                        fence_scope_revision: int | None = None
+                        fence_receipt_count: int | None = None
+                        if (
+                            current_receipts
+                            and self._handoff_resolver is not None
+                            and attempt >= 1
+                            and not any(
+                                receipt.status
+                                in {"dead_lettered", "cancelled", "abandoned"}
+                                for receipt in current_receipts
+                            )
+                        ):
+                            weighed = (
+                                await self._lifecycle.reconcile_content_denied_handoff(
+                                    self._lifecycle_storage,
+                                    item,
+                                    self._handoff_resolver,
+                                    attempt_receipts=current_receipts,
+                                )
+                            )
+                            if isinstance(weighed, RetryAttemptFinalization):
+                                self.state.processed += 1
+                                self._record_retry_finalization(
+                                    item, weighed, reconciled=True
+                                )
+                                return
+                            if isinstance(weighed, UncertainHandoffResolution):
+                                if weighed.observation_count is None:
+                                    self.state.processed += 1
+                                    return
+                                if weighed.verdict == "delivered_with_evidence":
+                                    self.state.processed += 1
+                                    _logger.warning(
+                                        "RetryWorker: conflicting receipt and native "
+                                        "acceptance for outbox %s; leaving claim for "
+                                        "conservative recovery",
+                                        item.outbox_id,
+                                    )
+                                    return
+                                fence_observation_count = weighed.observation_count
+                                fence_checkpoint_revision = weighed.checkpoint_revision
+                                fence_scope_revision = (
+                                    weighed.observation_scope_revision
+                                )
+                                fence_receipt_count = len(current_receipts)
+                        # Post-erasure reconciliation uses the route's own
+                        # persisted bounds, never this worker's current
+                        # configuration. Ceiling enforcement retired the
+                        # frozen dispatch context, so the only authoritative
+                        # remaining facts are the content-free bounds stored
+                        # at admission. Rows without bounds (historical
+                        # predecessors and routes admitted without a resolved
+                        # retry policy) reconcile without bounds: evidence
+                        # settles exactly as below, and an ambiguous or
+                        # unfinalized attempt dead-letters instead of
+                        # scheduling another attempt — no reconstruction from
+                        # globals. This read never authorizes a send; the
+                        # content denial below still bars transport dispatch.
+                        bounds = await self._storage.get_outbox_route_retry_bounds(
+                            item.outbox_id
+                        )
+                        resolved = await self._lifecycle.reconcile_retry_claim(
+                            self._lifecycle_storage,
+                            item,
+                            _route_bounds_retry_policy(bounds),
+                            handoff_resolver=self._handoff_resolver,
+                            expected_observation_count=fence_observation_count,
+                            expected_receipt_count=fence_receipt_count,
+                            expected_checkpoint_revision=fence_checkpoint_revision,
+                            expected_observation_scope_revision=fence_scope_revision,
+                        )
+                        if (
+                            resolved is None
+                            and self._handoff_resolver is not None
+                            and attempt >= 1
+                        ):
+                            resolved = (
+                                await self._lifecycle.reconcile_content_denied_handoff(
+                                    self._lifecycle_storage,
+                                    item,
+                                    self._handoff_resolver,
+                                    attempt_receipts=current_receipts,
+                                )
+                            )
+                    except RetryAttemptCommitRejected as stale:
+                        self.state.processed += 1
+                        self._log_superseded_transition(item, stale)
+                        return
+                    except Exception as lifecycle_exc:
+                        self.state.processed += 1
+                        self._record_lifecycle_persistence_error(
+                            item,
+                            lifecycle_exc,
+                            attempt_number=item.active_attempt or item.attempt_number,
+                        )
+                        return
+                    if isinstance(resolved, RetryAttemptFinalization):
+                        # A reconciled acceptance is committed evidence even
+                        # when its receipt is visible in ``current_receipts``.
+                        # Record the finalization before the receipt guard so
+                        # the worker accounts for the success it just settled.
+                        self.state.processed += 1
+                        self._record_retry_finalization(item, resolved, reconciled=True)
+                        return
+                    if any(r.status in {"sent", "queued"} for r in current_receipts):
+                        # If reconciliation did not settle this acceptance,
+                        # leave the claim for a fresh pass. Terminal denial
+                        # must never overwrite persisted native acceptance.
+                        self.state.processed += 1
+                        return
+                    evidence_count: int | None = None
+                    checkpoint_revision: int | None = None
+                    scope_count: int | None = None
+                    if isinstance(resolved, UncertainHandoffResolution):
+                        if resolved.observation_count is None:
+                            self.state.processed += 1
+                            return
+                        evidence_count = resolved.observation_count
+                        checkpoint_revision = resolved.checkpoint_revision
+                        scope_count = resolved.observation_scope_revision
+                        if (
+                            resolved.verdict == "delivered_with_evidence"
+                            and current_receipts
+                        ):
+                            self.state.processed += 1
+                            _logger.warning(
+                                "RetryWorker: conflicting receipt and native acceptance "
+                                "for outbox %s; leaving claim for conservative recovery",
+                                item.outbox_id,
+                            )
+                            return
+                    self.state.processed += 1
+                    try:
+                        await self._lifecycle.abandon_retry_outbox(
+                            self._lifecycle_storage,
+                            item,
+                            error_summary="content_authority_denied",
+                            expected_observation_count=evidence_count,
+                            expected_checkpoint_revision=checkpoint_revision,
+                            expected_receipt_count=len(current_receipts),
+                            expected_observation_scope_revision=scope_count,
+                        )
+                        self.state.failed += 1
+                    except RetryAttemptCommitRejected as stale:
+                        self._log_superseded_transition(item, stale)
+                    except Exception as lifecycle_exc:
+                        self._record_lifecycle_persistence_error(
+                            item,
+                            lifecycle_exc,
+                            attempt_number=item.active_attempt or item.attempt_number,
+                        )
+                    return
             retry_context = reconstruct_retry_delivery_plan(
                 item=item,
                 previous_receipt=previous_receipt,
@@ -1409,6 +1816,7 @@ class RetryWorker:
         # re-validates every condition itself.
         recheck_observation_count: int | None = None
         recheck_checkpoint_revision: int | None = None
+        recheck_observation_scope_revision: int | None = None
         if (
             self._handoff_resolver is not None
             and item.active_attempt is None
@@ -1442,6 +1850,9 @@ class RetryWorker:
             if isinstance(rechecked, UncertainHandoffResolution):
                 recheck_observation_count = rechecked.observation_count
                 recheck_checkpoint_revision = rechecked.checkpoint_revision
+                recheck_observation_scope_revision = (
+                    rechecked.observation_scope_revision
+                )
                 if recheck_observation_count is None:
                     # Evidence decoding failed. Leaving the owned claim leased
                     # permits a new read after reclaim; dispatch and terminal
@@ -1471,8 +1882,113 @@ class RetryWorker:
             # Reconcile persisted evidence above BEFORE treating an
             # unavailable body as terminal. The outbox attempt remains
             # durable; this refusal never invokes the native transport.
+            if (
+                self._handoff_resolver is not None
+                and recheck_observation_count is None
+                and (item.active_attempt or item.attempt_number) >= 1
+            ):
+                # A failed-receipt generation can still accept an exact
+                # observation before abandonment. Acquire a fresh count and
+                # revision rather than assuming the evidence set is empty.
+                try:
+                    current_attempt = item.active_attempt or item.attempt_number
+                    observed_receipts = await self._lifecycle.list_attempt_receipts(
+                        self._lifecycle_storage, item.outbox_id, current_attempt
+                    )
+                    if any(
+                        receipt.status in {"sent", "queued"}
+                        for receipt in observed_receipts
+                    ):
+                        finalization = (
+                            await self._lifecycle.settle_committed_acceptance(
+                                self._lifecycle_storage,
+                                item,
+                                attempt_number=current_attempt,
+                                receipts=observed_receipts,
+                            )
+                        )
+                        self.state.processed += 1
+                        self._record_retry_finalization(
+                            item, finalization, reconciled=True
+                        )
+                        return
+                    checked = await self._lifecycle.reconcile_content_denied_handoff(
+                        self._lifecycle_storage,
+                        item,
+                        self._handoff_resolver,
+                        attempt_receipts=observed_receipts,
+                    )
+                    if isinstance(checked, UncertainHandoffResolution):
+                        if checked.observation_count is None or (
+                            checked.verdict == "delivered_with_evidence"
+                            and observed_receipts
+                        ):
+                            self.state.processed += 1
+                            return
+                        recheck_observation_count = checked.observation_count
+                        recheck_checkpoint_revision = checked.checkpoint_revision
+                        recheck_observation_scope_revision = (
+                            checked.observation_scope_revision
+                        )
+                    elif checked is not None:
+                        self.state.processed += 1
+                        self._record_retry_finalization(item, checked, reconciled=True)
+                        return
+                except RetryAttemptCommitRejected as stale:
+                    self.state.processed += 1
+                    self._log_superseded_transition(item, stale)
+                    return
+                except Exception as lifecycle_exc:
+                    self.state.processed += 1
+                    self._record_lifecycle_persistence_error(
+                        item,
+                        lifecycle_exc,
+                        attempt_number=item.active_attempt or item.attempt_number,
+                    )
+                    return
+            # Count the current attempt receipts; the terminal write has an
+            # independent atomic acceptance fence, so a late `sent` or
+            # `queued` receipt cannot be mistaken for evaluated evidence.
+            try:
+                denied_receipts = (
+                    await self._lifecycle.list_attempt_receipts(
+                        self._lifecycle_storage,
+                        item.outbox_id,
+                        item.active_attempt or item.attempt_number,
+                    )
+                    if (item.active_attempt or item.attempt_number) >= 1
+                    else []
+                )
+            except Exception as lifecycle_exc:
+                self.state.processed += 1
+                self._record_lifecycle_persistence_error(
+                    item,
+                    lifecycle_exc,
+                    attempt_number=item.active_attempt or item.attempt_number,
+                )
+                return
+            if any(r.status in {"sent", "queued"} for r in denied_receipts):
+                try:
+                    finalization = await self._lifecycle.settle_committed_acceptance(
+                        self._lifecycle_storage,
+                        item,
+                        attempt_number=item.active_attempt or item.attempt_number,
+                        receipts=denied_receipts,
+                    )
+                    self.state.processed += 1
+                    self._record_retry_finalization(item, finalization, reconciled=True)
+                except RetryAttemptCommitRejected as stale:
+                    self.state.processed += 1
+                    self._log_superseded_transition(item, stale)
+                except Exception as lifecycle_exc:
+                    self.state.processed += 1
+                    self._record_lifecycle_persistence_error(
+                        item,
+                        lifecycle_exc,
+                        attempt_number=item.active_attempt or item.attempt_number,
+                    )
+                return
             self.state.processed += 1
-            self.state.failed += 1
             try:
                 await self._lifecycle.abandon_retry_outbox(
                     self._lifecycle_storage,
@@ -1480,7 +1996,16 @@ class RetryWorker:
                     error_summary="content_authority_denied",
                     expected_observation_count=recheck_observation_count,
                     expected_checkpoint_revision=recheck_checkpoint_revision,
+                    expected_observation_scope_revision=(
+                        recheck_observation_scope_revision
+                    ),
+                    expected_receipt_count=(
+                        len(denied_receipts)
+                        if (item.active_attempt or item.attempt_number) >= 1
+                        else None
+                    ),
                 )
+                self.state.failed += 1
             except RetryAttemptCommitRejected as stale:
                 self._log_superseded_transition(item, stale)
             return
@@ -1723,6 +2248,9 @@ class RetryWorker:
                         0 if recheck_observation_count is not None else None
                     ),
                     expected_checkpoint_revision=recheck_checkpoint_revision,
+                    expected_observation_scope_revision=(
+                        recheck_observation_scope_revision
+                    ),
                 )
             except Exception as lifecycle_exc:
                 self.state.processed += 1

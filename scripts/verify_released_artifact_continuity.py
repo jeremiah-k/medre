@@ -412,26 +412,84 @@ def _dump_state(path: Path) -> dict[str, Any]:
     }
 
 
+def _d0_added_tables() -> tuple[tuple[str, str], ...]:
+    _CEILING_LOG = "event_content_ceiling_log"
+    _HANDOFF_FACTS = "docs/schemas/current/content-free-handoff-facts.schema.sql"
+    _ROUTE_BOUNDS = "docs/schemas/current/route-retry-bounds.schema.sql"
+    return (
+        (
+            _HANDOFF_SETTLEMENTS,
+            "docs/schemas/handoff-settlements.schema.sql",
+        ),
+        (
+            _CEILING_LOG,
+            "docs/schemas/event-content-ceiling-log.schema.sql",
+        ),
+        ("delivery_handoff_uncertainty", _HANDOFF_FACTS),
+        ("radio_accepted_part_facts", _HANDOFF_FACTS),
+        ("radio_attempt_evidence_summaries", _HANDOFF_FACTS),
+        ("delivery_observation_scopes", _HANDOFF_FACTS),
+        ("delivery_observation_scope_versions", _HANDOFF_FACTS),
+        ("delivery_route_retry_bounds", _ROUTE_BOUNDS),
+    )
+
+
 def _expected_d0_reopen_state(released: dict[str, Any]) -> dict[str, Any]:
-    """The exact 0.1.0 state after the approved table addition."""
-    _require(
-        _HANDOFF_SETTLEMENTS not in released["rows"],
-        "the released database already contains the handoff settlement table",
-    )
-    ddl = (_REPO_ROOT / "docs/schemas/handoff-settlements.schema.sql").read_text(
-        encoding="utf-8"
-    )
+    """The exact 0.1.0 state after the approved table additions."""
+    added = _d0_added_tables()
+    entries = []
+    for table, export in added:
+        _require(
+            table not in released["rows"],
+            f"the released database already contains the {table} table",
+        )
+        ddl = (_REPO_ROOT / export).read_text(encoding="utf-8")
+        with closing(sqlite3.connect(":memory:")) as reference:
+            reference.executescript(ddl)
+            entry = reference.execute(
+                "SELECT type,name,sql FROM sqlite_master WHERE type='table' AND name=?",
+                (table,),
+            ).fetchone()
+        _require(entry is not None, f"the {table} table definition is missing")
+        entries.append(entry)
+    # Trigger definitions are independently pinned to the published current
+    # schema fragment. Reopening the released fixture must add the same
+    # exact-attempt scope mutation fences as fresh storage.
     with closing(sqlite3.connect(":memory:")) as reference:
-        reference.executescript(ddl)
-        entry = reference.execute(
-            "SELECT type,name,sql FROM sqlite_master WHERE type='table' AND name=?",
-            (_HANDOFF_SETTLEMENTS,),
-        ).fetchone()
-    _require(entry is not None, "the handoff settlement table definition is missing")
+        reference.executescript(
+            (
+                _REPO_ROOT
+                / "docs/schemas/current/content-free-handoff-facts.schema.sql"
+            ).read_text(encoding="utf-8")
+        )
+        entries.extend(
+            reference.execute(
+                "SELECT type,name,sql FROM sqlite_master "
+                "WHERE type='trigger' AND name LIKE 'trg_scope_version_%'"
+            ).fetchall()
+        )
+    # Pin the catalog text for both additive indexes independently of the runtime.
+    entries.extend(
+        (
+            (
+                "index",
+                "idx_ceiling_enforcement_order",
+                "CREATE INDEX idx_ceiling_enforcement_order ON event_content_access_policies(hard_ceiling, event_id)",
+            ),
+            (
+                "index",
+                "idx_attachment_associations_content_ref",
+                "CREATE INDEX idx_attachment_associations_content_ref ON event_attachment_associations(content_ref)",
+            ),
+        )
+    )
     return {
         **released,
-        "catalog": sorted([*released["catalog"], entry]),
-        "rows": {**released["rows"], _HANDOFF_SETTLEMENTS: []},
+        "catalog": sorted([*released["catalog"], *entries]),
+        "rows": {
+            **released["rows"],
+            **{table: [] for table, _export in added},
+        },
     }
 
 
@@ -613,8 +671,7 @@ def _scenario_d0(sandbox: Path, cache: Path) -> dict[str, Any]:
             and o["foreign_keys_clean"]
             for o in opens
         ),
-        "writable reopen differs from the released state plus the empty "
-        "handoff settlement table",
+        "writable reopen differs from the released state plus the empty approved additive tables",
     )
     stamp_changed = any(
         o["schema_version_stamp"] != before["schema_version_stamp"] for o in opens
@@ -713,7 +770,7 @@ def _scenario_d0(sandbox: Path, cache: Path) -> dict[str, Any]:
             "table_count": len(before["rows"]),
             "schema_version_stamp": before["schema_version_stamp"],
             "opens": opens,
-            "expected_added_tables": [_HANDOFF_SETTLEMENTS],
+            "expected_added_tables": sorted(table for table, _ in _d0_added_tables()),
             "persisted_changes_detected": persisted_changes_detected,
             "migration_evidence_scope": "exact persisted state comparison against the approved additive layout",
             "consumer_cli_catalog_current": "Catalog: current" in consumer_status,

@@ -20,11 +20,19 @@ from medre.core.events.delivery import DeliveryAttemptProvenance
 from medre.core.rendering.radio_progress import RadioAttemptProgress, RadioPartProgress
 from medre.core.rendering.radio_text import RadioTextPlan
 from medre.core.storage.backend import StorageError
-from medre.core.storage.radio import RadioAttemptMetadata, StoredRadioAttempt
+from medre.core.storage.radio import (
+    RadioAttemptEvidenceSummary,
+    RadioAttemptMetadata,
+    StoredRadioAttempt,
+)
 from medre.core.storage.radio_handoff import RadioLocalHandoff
 from medre.core.storage.sqlite._content_grants import (
     _native_submission_authorized,
     _utc,
+)
+from medre.core.storage.sqlite._content_identity import (
+    ceiling_read_time,
+    event_content_denied_sql,
 )
 from medre.core.storage.sqlite.serde import _now_iso
 
@@ -43,6 +51,20 @@ def _json(value: object) -> str:
 def _provenance(value: DeliveryAttemptProvenance) -> str:
     """Retain the complete immutable claim, including replay/source lineage."""
     return _json(msgspec.to_builtins(value))
+
+
+def _closed_handoff(
+    part: RadioPartProgress, provenance: DeliveryAttemptProvenance
+) -> str:
+    """Project an accepted part into a bounded, non-authorizing evidence ref."""
+    fact = RadioLocalHandoff.from_part(part, provenance)
+    fact = msgspec.structs.replace(fact, payload_fingerprint=None)
+    if fact.origin is not None and (
+        fact.origin.outbox_id == provenance.outbox_id
+        and fact.origin.attempt_number == provenance.attempt_number
+    ):
+        fact = msgspec.structs.replace(fact, origin=None)
+    return fact.encode()
 
 
 def _delivery_identity(claim: DeliveryAttemptProvenance) -> tuple[str, str, str, str]:
@@ -92,6 +114,64 @@ def _decode(row: Mapping[str, Any]) -> StoredRadioAttempt:
         raise StorageError("Retained radio attempt evidence is invalid") from exc
 
 
+# The evidence reader may inspect a retained checkpoint after the hard
+# ceiling but before a sweep has converted it into a durable compact summary.
+# Denial is evaluated in SQLite (including SQLite lock waits). No public
+# checkpoint read may return the wire plan after that instant.
+_RADIO_EVIDENCE_READ_SQL = (
+    "SELECT p.*, "  # nosec B608 - closed module fragment and bound attempt keys
+    + event_content_denied_sql("o.event_id")
+    + " AS content_denied "
+    "FROM radio_attempt_progress p JOIN delivery_outbox o "
+    "ON o.outbox_id=p.outbox_id "
+    "WHERE p.outbox_id=? AND p.attempt_number=?"
+)
+
+# One statement observes the retained summary and the live checkpoint in a
+# single SQLite snapshot. Reading them separately admits a sweep that
+# commits between the reads: the first read finds no summary and the second
+# finds no checkpoint, and preserved acceptance evidence looks missing.
+# The summary row wins when present; the live projection serves databases
+# that have not been swept yet.
+_RADIO_EVIDENCE_COMBINED_SQL = (
+    "SELECT 1 AS from_summary, s.provenance_json AS provenance_json, "  # nosec B608 - closed module fragment and bound attempt keys
+    "s.parts_json AS parts_json, s.revision AS revision, "
+    "NULL AS plan_json, NULL AS plan_fingerprint, NULL AS outbox_id, "
+    "NULL AS attempt_number, 0 AS content_denied "
+    "FROM radio_attempt_evidence_summaries s "
+    "WHERE s.outbox_id=? AND s.attempt_number=? "
+    "UNION ALL "
+    "SELECT 0 AS from_summary, p.provenance_json, p.parts_json, p.revision, "
+    "p.plan_json, p.plan_fingerprint, p.outbox_id, p.attempt_number, "
+    + event_content_denied_sql("o.event_id")
+    + " AS content_denied "
+    "FROM radio_attempt_progress p JOIN delivery_outbox o "
+    "ON o.outbox_id=p.outbox_id "
+    "WHERE p.outbox_id=? AND p.attempt_number=? "
+    "ORDER BY from_summary DESC"
+)
+
+
+def _closed_checkpoint_evidence(
+    saved: StoredRadioAttempt,
+) -> RadioAttemptEvidenceSummary:
+    """Project one validated live checkpoint to non-authorizing evidence.
+
+    This uses the same closed accepted-part representation as the durable
+    ceiling sweep, never returning the wire plan or payload fingerprint.
+    """
+    parts = []
+    for part in saved.progress.parts:
+        handoff: str | None = None
+        if part.state == "accepted":
+            try:
+                handoff = _closed_handoff(part, saved.provenance)
+            except (ValueError, TypeError, msgspec.DecodeError):
+                handoff = "{}"  # unreadable, never a fabricated acceptance
+        parts.append(RadioPartProgress(part.ordinal, part.state, handoff))
+    return RadioAttemptEvidenceSummary(saved.provenance, tuple(parts), saved.revision)
+
+
 def _accepted_prefix(
     saved: StoredRadioAttempt,
     history: Mapping[tuple[str, int], StoredRadioAttempt],
@@ -136,8 +216,17 @@ def _owns(
     db: sqlite3.Connection,
     claim: DeliveryAttemptProvenance,
     worker_id: str | None,
+    *,
+    require_active_lease: bool = True,
 ) -> bool:
-    """Require an active, unexpired dispatch claim and fence newer generations.
+    """Require an active dispatch claim and fence newer generations.
+
+    ``require_active_lease=False`` is used only for recording completion of a
+    native call that was already authorized. The exact worker, active attempt,
+    status and newer-generation fences still apply, so a takeover or release
+    still refuses the write; a mere lease lapse does not discard acceptance.
+    A malformed lease string is corrupt data, never permission, and refuses
+    every write path in either mode.
 
     Once the parent enters queued it has relinquished its worker reservation;
     a checkpoint must never resurrect native submission authority from that row.
@@ -176,9 +265,14 @@ def _owns(
         return False
     if row["lease_until"] is not None:
         try:
-            if _utc(datetime.fromisoformat(row["lease_until"])) <= _now_iso():
-                return False
+            lease_expired = (
+                _utc(datetime.fromisoformat(row["lease_until"])) <= _now_iso()
+            )
         except (ValueError, TypeError):
+            # A malformed lease is corrupt data, never permission: it refuses
+            # every write path, including recording an authorized completion.
+            return False
+        if require_active_lease and lease_expired:
             return False
     if (
         row["event_id"],
@@ -296,6 +390,18 @@ class _RadioMixin:
         def bind(db: sqlite3.Connection) -> StoredRadioAttempt | None:
             if not _owns(db, provenance, worker_id):
                 return None
+            # The clock read must stay inside this closure: _radio_transaction
+            # runs bind under the storage lock, so the ceiling is evaluated at
+            # execution time. Hoisting this probe out would silently revert it
+            # to statement-build-time evaluation.
+            if db.execute(
+                "SELECT "
+                + event_content_denied_sql(
+                    "?"
+                ),  # nosec B608 - static SQL and bound event ID
+                (provenance.event_id, ceiling_read_time(), provenance.event_id),
+            ).fetchone()[0]:
+                return None
             prior = db.execute(
                 """SELECT progress.* FROM radio_attempt_progress AS progress
                    JOIN delivery_outbox AS parent ON parent.outbox_id=progress.outbox_id
@@ -407,13 +513,139 @@ class _RadioMixin:
                     _utc(observed),
                 ):
                     return None
-            if not _owns(db, claim, worker_id):
+            if not _owns(db, claim, worker_id, require_active_lease=native_start):
                 return None
             row = db.execute(
                 "SELECT * FROM radio_attempt_progress WHERE outbox_id=? AND attempt_number=?",
                 (claim.outbox_id, claim.attempt_number),
             ).fetchone()
-            if row is None or _decode(row) != expected:
+            if row is None:
+                # The privacy sweep may have erased the wire plan after a
+                # native start was already granted. Completion of that
+                # in-flight call remains evidence, not a new send grant.
+                if native_start:
+                    return None
+                retained = db.execute(
+                    "SELECT * FROM radio_attempt_evidence_summaries "
+                    "WHERE outbox_id=? AND attempt_number=?",
+                    (claim.outbox_id, claim.attempt_number),
+                ).fetchone()
+                if retained is None or int(retained["revision"]) != expected.revision:
+                    return None
+                try:
+                    retained_provenance = msgspec.json.decode(
+                        retained["provenance_json"], type=DeliveryAttemptProvenance
+                    )
+                    retained_parts = tuple(
+                        RadioPartProgress(**part)
+                        for part in json.loads(retained["parts_json"])
+                    )
+                    if retained_provenance != claim or len(retained_parts) != len(
+                        expected.progress.parts
+                    ):
+                        return None
+                    changed = [
+                        index
+                        for index, (old, new) in enumerate(
+                            zip(expected.progress.parts, updated.parts, strict=True)
+                        )
+                        if old != new
+                    ]
+                    if len(changed) != 1:
+                        return None
+                    index = changed[0]
+                    old, new = expected.progress.parts[index], updated.parts[index]
+                    if old.state != "submitting" or new.state not in {
+                        "accepted",
+                        "unknown",
+                    }:
+                        return None
+                    if any(
+                        a.state != b.state or a.ordinal != b.ordinal
+                        for a, b in zip(
+                            expected.progress.parts, retained_parts, strict=True
+                        )
+                    ):
+                        return None
+                    # Every retained earlier part must agree with the caller's
+                    # attempt history. The sweep retains an unreadable
+                    # acceptance as a non-authorizing "{}" sentinel; a
+                    # sentinel is compared by existence only and never
+                    # contradicts a decodable closed handoff. Retained earlier
+                    # parts are always copied from storage below — a caller
+                    # value never replaces one.
+                    for old_part, retained_part in zip(
+                        expected.progress.parts, retained_parts, strict=True
+                    ):
+                        if old_part.state != "accepted":
+                            continue
+                        try:
+                            closed = _closed_handoff(old_part, claim)
+                        except (ValueError, TypeError, msgspec.DecodeError):
+                            closed = "{}"
+                        if (
+                            closed != retained_part.handoff_id
+                            and retained_part.handoff_id != "{}"
+                        ):
+                            return None
+                    compact = (
+                        RadioPartProgress(
+                            new.ordinal, "accepted", _closed_handoff(new, claim)
+                        )
+                        if new.state == "accepted"
+                        else RadioPartProgress(new.ordinal, "unknown")
+                    )
+                    parts = list(retained_parts)
+                    parts[index] = compact
+                    revision = expected.revision + 1
+                    written = db.execute(
+                        "UPDATE radio_attempt_evidence_summaries "
+                        "SET parts_json=?, revision=? WHERE outbox_id=? "
+                        "AND attempt_number=? AND revision=?",
+                        (
+                            _json(
+                                [
+                                    {
+                                        "ordinal": part.ordinal,
+                                        "state": part.state,
+                                        "handoff_id": part.handoff_id,
+                                    }
+                                    for part in parts
+                                ]
+                            ),
+                            revision,
+                            claim.outbox_id,
+                            claim.attempt_number,
+                            expected.revision,
+                        ),
+                    ).rowcount
+                    if written != 1:
+                        return None
+                    if new.state == "accepted":
+                        fact = RadioLocalHandoff.from_part(new, claim)
+                        if (
+                            fact.origin is not None
+                            and fact.origin.outbox_id == claim.outbox_id
+                            and fact.origin.attempt_number == claim.attempt_number
+                            and fact.native_message_id
+                        ):
+                            db.execute(
+                                "INSERT INTO radio_accepted_part_facts "
+                                "(outbox_id, attempt_number, ordinal, "
+                                "native_channel_id, native_message_id) "
+                                "VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
+                                (
+                                    claim.outbox_id,
+                                    claim.attempt_number,
+                                    new.ordinal,
+                                    fact.native_channel_id,
+                                    fact.native_message_id,
+                                ),
+                            )
+                    return StoredRadioAttempt(claim, updated, revision)
+                except (ValueError, TypeError, KeyError, msgspec.DecodeError):
+                    return None
+            if _decode(row) != expected:
                 return None
             result = StoredRadioAttempt(claim, updated, expected.revision + 1)
             count = db.execute(
@@ -555,10 +787,46 @@ class _RadioMixin:
     ) -> StoredRadioAttempt | None:
         """Read typed provenance and progress without mutation or send authority."""
         row = await self._read_one(
-            "SELECT * FROM radio_attempt_progress WHERE outbox_id=? AND attempt_number=?",
-            (outbox_id, attempt_number),
+            _RADIO_EVIDENCE_READ_SQL,
+            (ceiling_read_time(), outbox_id, attempt_number),
         )
-        return None if row is None else _decode(row)
+        # A no-receipt hard ceiling is sufficient to deny wire-plan reads.
+        # Resolution may still project the private checkpoint into closed
+        # evidence via get_radio_attempt_evidence; it cannot regain send rights.
+        return None if row is None or row["content_denied"] else _decode(row)
+
+    async def get_radio_attempt_evidence(
+        self, outbox_id: str, attempt_number: int
+    ) -> RadioAttemptEvidenceSummary | None:
+        """Read content-free post-ceiling evidence, never a resume/send grant."""
+        row = await self._read_one(
+            _RADIO_EVIDENCE_COMBINED_SQL,
+            (outbox_id, attempt_number, ceiling_read_time(), outbox_id, attempt_number),
+        )
+        if row is None:
+            return None
+        if not row["from_summary"]:
+            # Sweep may be disabled or late. A stored radio plan cannot cross
+            # the ceiling, but verified checkpoint facts still can settle an
+            # accepted attempt. Project privately without returning plan bytes.
+            if not row["content_denied"]:
+                return None
+            return _closed_checkpoint_evidence(_decode(row))
+        try:
+            provenance = msgspec.json.decode(
+                row["provenance_json"], type=DeliveryAttemptProvenance
+            )
+            parts = tuple(
+                RadioPartProgress(**part) for part in json.loads(row["parts_json"])
+            )
+            if (
+                provenance.outbox_id != outbox_id
+                or provenance.attempt_number != attempt_number
+            ):
+                raise ValueError("radio evidence summary identity mismatch")
+            return RadioAttemptEvidenceSummary(provenance, parts, int(row["revision"]))
+        except (ValueError, TypeError, KeyError, msgspec.DecodeError) as exc:
+            raise StorageError("Retained radio evidence summary is invalid") from exc
 
     async def get_latest_radio_attempt(
         self, outbox_id: str, *, before_attempt: int

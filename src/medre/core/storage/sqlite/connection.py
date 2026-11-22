@@ -27,6 +27,11 @@ from medre.core.ingress.types import AttachmentAdmissionFact
 from medre.core.storage.backend import (
     ContentCeilingMismatchError,
     PreReleaseSchemaMismatchError,
+    StorageInitializationError,
+)
+from medre.core.storage.sqlite._content_identity import (
+    CEILING_CLOCK_AT_EXECUTION,
+    ceiling_read_time,
 )
 from medre.core.storage.sqlite.ingress_sql import (
     CLAIM_INGRESS_SELECT,
@@ -39,6 +44,7 @@ from medre.core.storage.sqlite.ingress_sql import (
 from medre.core.storage.sqlite.schema import _EXPECTED_SCHEMA_VERSION, _INDEXES, _SCHEMA
 from medre.core.storage.sqlite.schema_validation import (
     apply_safe_additions,
+    downgrade_refusal,
     execute_ddl,
     safe_additive_state,
     validate_schema_definition,
@@ -123,11 +129,17 @@ def _existing_attachment_fact(
     )
 
 
+def _install_ceiling_read_clock(db: sqlite3.Connection) -> None:
+    """Evaluate expiry at SQL execution, not only before a SQLite lock wait."""
+    db.create_function("medre_ceiling_now", 1, lambda _bound: ceiling_read_time())
+
+
 def sync_open(db_path: str) -> sqlite3.Connection:
     """Open a writable SQLite connection with WAL mode and full schema."""
     db = sqlite3.connect(db_path, check_same_thread=False)
     try:
         db.row_factory = sqlite3.Row
+        _install_ceiling_read_clock(db)
         # The busy timeout precedes schema initialization so a second
         # opener waits out a live writer like any later write would.
         # BEGIN IMMEDIATE pins the write lock for the whole script: the
@@ -174,6 +186,7 @@ def sync_open_readonly(db_path: str) -> sqlite3.Connection:
     )
     try:
         db.row_factory = sqlite3.Row
+        _install_ceiling_read_clock(db)
         db.execute("PRAGMA busy_timeout=5000")
     except BaseException:
         db.close()
@@ -198,10 +211,17 @@ def sync_write(
     sql: str,
     params: tuple[Any, ...] = (),
 ) -> None:
-    """Execute a write, thread-safe via lock."""
+    """Execute a write, thread-safe via lock.
+
+    The ceiling clock is sampled under this Python lock but before SQLite
+    acquires the writer reservation. A write that waits behind another
+    connection can therefore land after the ceiling. Read mediation masks
+    that value and the residual sweep re-purges it; authorization decisions
+    that must be exact use the in-transaction SQL guards instead.
+    """
     with lock:
         try:
-            db.execute(sql, params)
+            db.execute(sql, _bind_execution_clock(params))
             db.commit()
         except BaseException:
             try:
@@ -265,13 +285,16 @@ def sync_write_with_followups(
 
 def sync_find_schema_shape_mismatch(
     db_path: str, required_columns: dict[str, frozenset[str]]
-) -> PreReleaseSchemaMismatchError | None:
+) -> StorageInitializationError | None:
     """Reject unsupported catalogs before any DDL.
 
     A version-1 stamp authorizes only verified, allowlisted additive DDL.
     Unstamped, nonempty databases cannot be silently adopted as fresh state.
-    All structural comparisons use a read-only handle, so mismatch does not
-    create schema artifacts or rewrite an operator's database.
+    A catalog declaring tables this build does not declare may be newer
+    catalog state, so the refusal names both catalog states and no downgrade
+    is planned. All structural comparisons use a read-only handle, so
+    mismatch does not create schema artifacts or rewrite an operator's
+    database.
     """
     if db_path == ":memory:" or not os.path.exists(db_path):
         return None
@@ -326,13 +349,13 @@ def sync_find_schema_shape_mismatch(
                 return PreReleaseSchemaMismatchError(
                     db_path, table, missing, unexpected_columns=extra
                 )
-        # Reject new or abandoned tables rather than quietly accepting an
-        # otherwise compatible subset of the schema.
+        # Reject tables this build does not declare rather than quietly
+        # accepting an otherwise compatible subset of the schema. Such a
+        # catalog may be NEWER catalog state written by a newer build, so
+        # the refusal names both catalog states and no downgrade is planned.
         extra_tables = sorted(names - required_columns.keys())
         if extra_tables:
-            return PreReleaseSchemaMismatchError(
-                db_path, extra_tables[0], detail="unexpected table"
-            )
+            return downgrade_refusal(db, db_path, [f"table {t}" for t in extra_tables])
         validate_schema_definition(db, db_path)
         return None
     finally:
@@ -498,7 +521,17 @@ def sync_finalize_deferred_handoff(
 
             if native_identity is not None and existing_event_id is None:
                 assert native_insert_params is not None
-                db.execute(_INSERT_NATIVE_REF_STRICT, native_insert_params)
+                cursor = db.execute(
+                    _INSERT_NATIVE_REF_STRICT,
+                    _bind_execution_clock(native_insert_params),
+                )
+                # The strict finalizer must prove it owns the native identity.
+                # A zero-row INSERT means another writer claimed the tuple
+                # between the preflight resolve and this statement; committing
+                # would report a settled handoff with no mapping.
+                if int(cursor.rowcount) != 1:
+                    db.rollback()
+                    return False, None
             db.execute(_INSERT_RECEIPT, receipt_insert_params)
             for diagnostic_sql, diagnostic_params in receipt_diagnostic_ops or []:
                 db.execute(diagnostic_sql, diagnostic_params)
@@ -532,6 +565,8 @@ def sync_finalize_outbox_terminal(
     attempt_receipt_diagnostic_ops: list[tuple[str, tuple[Any, ...]]] | None = None,
     outbox_diagnostic_ops: list[tuple[str, tuple[Any, ...]]] | None = None,
     outbox_update_params: tuple[object, ...],
+    evidence_guard_clauses: tuple[str, ...] = (),
+    evidence_guard_params: tuple[object, ...] = (),
 ) -> bool:
     """Atomically commit one terminal delivery outcome.
 
@@ -540,6 +575,12 @@ def sync_finalize_outbox_terminal(
     ``False`` means the guarded ``UPDATE`` matched no row (stale callback,
     duplicate notification, or a competing attempt/state change won) and
     nothing was written.
+
+    When *evidence_guard_clauses* is non-empty, each static clause is appended
+    to the statement's WHERE with its bound parameters following the base
+    update parameters, fencing the transition to the exact-attempt evidence
+    revision the caller read. The clauses come from the shared storage guard
+    builder; caller values bind only through *evidence_guard_params*.
     """
     from medre.core.storage.sqlite.statements import (
         _FINALIZE_OUTBOX_TERMINAL,
@@ -547,10 +588,20 @@ def sync_finalize_outbox_terminal(
         _RETIRE_OUTBOX_SNAPSHOT,
     )
 
+    statement = _FINALIZE_OUTBOX_TERMINAL
+    update_params = outbox_update_params
+    if evidence_guard_clauses:
+        statement = (
+            _FINALIZE_OUTBOX_TERMINAL.rstrip()
+            + " AND "
+            + " AND ".join(evidence_guard_clauses)
+        )  # nosec B608
+        update_params = outbox_update_params + evidence_guard_params
+
     with lock:
         try:
             db.execute("BEGIN IMMEDIATE")
-            cursor = db.execute(_FINALIZE_OUTBOX_TERMINAL, outbox_update_params)
+            cursor = db.execute(statement, update_params)
             if int(cursor.rowcount) != 1:
                 db.rollback()
                 return False
@@ -582,6 +633,16 @@ def sync_finalize_outbox_terminal(
             raise
 
 
+def _bind_execution_clock(params: tuple[Any, ...]) -> tuple[Any, ...]:
+    """Resolve each deferred ceiling clock after the executor owns the DB lock."""
+    if not any(value is CEILING_CLOCK_AT_EXECUTION for value in params):
+        return params
+    observed = ceiling_read_time()
+    return tuple(
+        observed if value is CEILING_CLOCK_AT_EXECUTION else value for value in params
+    )
+
+
 def sync_read_one(
     db: sqlite3.Connection,
     lock: threading.Lock,
@@ -590,7 +651,7 @@ def sync_read_one(
 ) -> dict[str, Any] | None:
     """Read one row, return dict or None."""
     with lock:
-        row = db.execute(sql, params).fetchone()
+        row = db.execute(sql, _bind_execution_clock(params)).fetchone()
     return dict(row) if row else None
 
 
@@ -602,7 +663,9 @@ def sync_read_all(
 ) -> list[dict[str, Any]]:
     """Read all rows as dicts."""
     with lock:
-        return [dict(r) for r in db.execute(sql, params).fetchall()]
+        return [
+            dict(r) for r in db.execute(sql, _bind_execution_clock(params)).fetchall()
+        ]
 
 
 ReadStatements = list[tuple[str, tuple[Any, ...] | dict[str, Any]]]
@@ -809,7 +872,7 @@ def sync_admit_ingress(
                 for sql, params in attachment_plan.retain_ops:
                     db.execute(sql, params)
             if native_insert is not None:
-                db.execute(*native_insert)
+                db.execute(native_insert[0], _bind_execution_clock(native_insert[1]))
             db.execute(
                 INSERT_INGRESS_WORK,
                 (event_id, provenance, work_status, now_iso, now_iso),

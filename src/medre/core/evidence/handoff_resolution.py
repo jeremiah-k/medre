@@ -76,7 +76,11 @@ from medre.core.delivery_authority import (
 from medre.core.events import DeliveryObservation
 from medre.core.rendering.radio_text import MAX_RADIO_TEXT_PARTS
 from medre.core.storage.backend import DeliveryOutboxItem, StorageError
-from medre.core.storage.radio import RadioAttemptMetadata, StoredRadioAttempt
+from medre.core.storage.radio import (
+    RadioAttemptEvidenceSummary,
+    RadioAttemptMetadata,
+    StoredRadioAttempt,
+)
 from medre.core.storage.radio_handoff import RadioLocalHandoff
 
 __all__ = [
@@ -124,8 +128,11 @@ class UncertainHandoffResolution:
     populated when the radio checkpoint can be classified. The observation
     count fences settlement or the next reservation against appended evidence.
     ``checkpoint_revision=-1`` records the absence of a checkpoint; an actual
-    checkpoint carries its non-negative CAS revision. ``None`` means evidence
-    was unreadable and cannot authorize another transition.
+    checkpoint carries its non-negative CAS revision. The scope revision is the
+    packet-correlation evidence version: the ceiling sweep can restore a
+    legacy packet scope without changing the observation count, so terminal
+    writes must fence it too. ``None`` means evidence was unreadable and
+    cannot authorize another transition.
     """
 
     verdict: HandoffResolutionVerdict
@@ -138,6 +145,7 @@ class UncertainHandoffResolution:
     unsent_parts: int | None = None
     observation_count: int | None = None
     checkpoint_revision: int | None = None
+    observation_scope_revision: int | None = None
 
     def summary(self) -> str:
         """Return a bounded human-readable statement of what was decided."""
@@ -316,7 +324,7 @@ def _resolve_message_level(
 def _resolve_checkpoint(
     *,
     outbox_id: str,
-    checkpoint: StoredRadioAttempt | RadioAttemptMetadata,
+    checkpoint: StoredRadioAttempt | RadioAttemptMetadata | RadioAttemptEvidenceSummary,
     attempt_number: int,
     identity: DeliveryIdentity,
     observations: Sequence[DeliveryObservation],
@@ -487,7 +495,9 @@ def resolve_uncertain_handoff(
     outbox_id: str,
     attempt_number: int,
     identity: DeliveryIdentity,
-    checkpoint: StoredRadioAttempt | RadioAttemptMetadata | None,
+    checkpoint: (
+        StoredRadioAttempt | RadioAttemptMetadata | RadioAttemptEvidenceSummary | None
+    ),
     observations: Sequence[DeliveryObservation],
     attempt_source: str | None = None,
     replay_run_id: str | None = None,
@@ -539,17 +549,22 @@ class UncertainNativeHandoffResolver(Protocol):
 class HandoffEvidenceStore(Protocol):
     """Narrow read surface the evidence-backed resolver needs.
 
-    Backends without both surfaces leave resolution dormant at the runtime
-    composition boundary, mirroring the optional deadline-sweep policy.
+    Backends without these surfaces leave resolution dormant at the runtime
+    composition boundary, mirroring the optional deadline-sweep policy. The
+    observation snapshot returns the evidence rows together with the
+    retained packet-scope revision that terminal-write fences require: a
+    backend that cannot supply that version in one atomic read cannot arm
+    resolution at all, because an unfenced scope version could silently
+    weaken the terminal evidence guarantee.
     """
 
     async def get_radio_attempt(
         self, outbox_id: str, attempt_number: int
     ) -> StoredRadioAttempt | None: ...
 
-    async def list_delivery_observations_for_attempt(
+    async def read_handoff_observation_snapshot(
         self, outbox_id: str, attempt_number: int
-    ) -> list[DeliveryObservation]: ...
+    ) -> tuple[list[DeliveryObservation], int]: ...
 
 
 class EvidenceBackedHandoffResolver:
@@ -586,8 +601,16 @@ class EvidenceBackedHandoffResolver:
             checkpoint = await self._storage.get_radio_attempt(
                 item.outbox_id, attempt_number
             )
-            observations = await self._storage.list_delivery_observations_for_attempt(
-                item.outbox_id, attempt_number
+            if checkpoint is None:
+                evidence_reader = getattr(
+                    self._storage, "get_radio_attempt_evidence", None
+                )
+                if evidence_reader is not None:
+                    checkpoint = await evidence_reader(item.outbox_id, attempt_number)
+            observations, scope_count = (
+                await self._storage.read_handoff_observation_snapshot(
+                    item.outbox_id, attempt_number
+                )
             )
         except StorageError:
             return _resolution(
@@ -625,4 +648,5 @@ class EvidenceBackedHandoffResolver:
             resolution,
             observation_count=len(observations),
             checkpoint_revision=checkpoint.revision if checkpoint is not None else -1,
+            observation_scope_revision=scope_count,
         )

@@ -67,11 +67,21 @@ Retry representation
 Observed transitions
     - Receipt: ``queued`` -> ``sent`` (supplemental, via callback)
     - Receipt: ``failed`` -> ``dead_lettered`` (exhausted retry)
-    - Outbox: ``pending`` / ``retry_wait`` / stale ``queued`` / expired
-      ``in_progress`` -> ``in_progress`` (lease acquisition)
+    - Outbox: ``pending`` / ``retry_wait`` / expired ``in_progress`` ->
+      ``in_progress`` (lease acquisition)
     - Outbox: ``in_progress`` -> ``queued`` / ``sent`` / ``retry_wait`` /
       ``dead_lettered`` (delivery outcome)
     - Outbox: ``queued`` -> ``sent`` (callback confirmation)
+
+The queued outbox disposition
+    A queued receipt records only adapter-local queue acceptance, so a
+    ``queued`` outbox row is the durable, content-free
+    confirmation-pending disposition: never claimable, never reclaimed
+    for redispatch, and never counted as delivery success.  It leaves
+    ``queued`` only through evidence-driven settlement (deferred
+    completion, a provenance-matched ``sent`` receipt, or terminal
+    lifecycle evidence) or the explicit operator confirmation-pending
+    resolution.
 """
 
 from __future__ import annotations
@@ -93,6 +103,7 @@ from medre.core.delivery_authority import (
     delivery_attempt_provenance_mismatch,
     delivery_attempt_receipt_provenance_mismatch,
     delivery_identity,
+    dispatch_source_matches_attempt,
     effective_generation,
     queued_receipts_for_attempt,
     receipts_for_attempt,
@@ -132,6 +143,7 @@ from medre.core.storage.backend import (
     DeferredHandoffFinalization,
     DeliveryOutboxItem,
     OutboxDispatchSnapshot,
+    OutboxRouteRetryBounds,
     StorageError,
     TerminalOutboxFinalization,
 )
@@ -178,6 +190,7 @@ class _ObservationGuard(TypedDict, total=False):
     expected_observation_count: int
     expected_receipt_count: int
     expected_checkpoint_revision: int
+    expected_observation_scope_revision: int
 
 
 # Failed receipt evidence without a canonical taxonomy value is unsafe to
@@ -252,6 +265,17 @@ class DeliveryLifecycleStorage(Protocol):
         """Read the frozen dispatch context under the exact outbox identity."""
         ...
 
+    async def get_outbox_route_retry_bounds(
+        self,
+        outbox_id: str,
+    ) -> OutboxRouteRetryBounds | None:
+        """Read the persisted admission-time retry bounds for one generation.
+
+        Returns ``None`` for generations admitted without resolved route
+        bounds.  The bounds are content-free facts, not send authority.
+        """
+        ...
+
     async def release_outbox_claim(
         self,
         outbox_id: str,
@@ -288,6 +312,7 @@ class DeliveryLifecycleStorage(Protocol):
         expected_observation_count: int | None = None,
         expected_receipt_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
+        expected_observation_scope_revision: int | None = None,
     ) -> int | None:
         """Reserve the next attempt for the current claim owner.
 
@@ -324,6 +349,7 @@ class DeliveryLifecycleStorage(Protocol):
         expected_observation_count: int | None = None,
         expected_receipt_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
+        expected_observation_scope_revision: int | None = None,
     ) -> bool:
         """Commit a sent outcome if the supplied attempt and owner still match.
 
@@ -341,8 +367,10 @@ class DeliveryLifecycleStorage(Protocol):
         receipt_id: str | None = None,
         attempt_number: int | None = None,
         expected_worker_id: str | None = None,
+        *,
+        expected_receipt_count: int | None = None,
     ) -> bool:
-        """Commit queue acceptance if the supplied attempt and owner still match.
+        """Commit queue acceptance against exact attempt, owner and receipt set.
 
         Return ``False`` when the guarded transition did not commit.
         """
@@ -362,6 +390,7 @@ class DeliveryLifecycleStorage(Protocol):
         expected_observation_count: int | None = None,
         expected_receipt_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
+        expected_observation_scope_revision: int | None = None,
     ) -> bool:
         """Schedule the next attempt if the supplied attempt and owner match.
 
@@ -382,6 +411,7 @@ class DeliveryLifecycleStorage(Protocol):
         expected_observation_count: int | None = None,
         expected_receipt_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
+        expected_observation_scope_revision: int | None = None,
     ) -> bool:
         """Commit terminal failure if the supplied attempt and owner match.
 
@@ -416,6 +446,7 @@ class DeliveryLifecycleStorage(Protocol):
         expected_observation_count: int | None = None,
         expected_receipt_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
+        expected_observation_scope_revision: int | None = None,
     ) -> bool:
         """Abandon the row only while its optional claim owner still matches.
 
@@ -441,6 +472,7 @@ class RetryAttemptFinalization:
 
     outcome: Literal[
         "accepted",
+        "queued",
         "suppressed",
         "retry_wait",
         "dead_lettered",
@@ -1267,6 +1299,83 @@ class DeliveryLifecycleService:
 
     # -- Retry-worker outbox transitions -----------------------------------
 
+    @staticmethod
+    def _receipt_provenance_conflicts(
+        item: DeliveryOutboxItem,
+        attempt_number: int,
+        receipts: list[DeliveryReceipt],
+    ) -> bool:
+        """Whether any receipt contradicts the claimed delivery identity.
+
+        Receipts with contradictory event, plan, adapter, destination,
+        origin, or replay-run provenance can never settle an attempt. The
+        check covers the whole receipt set whose count fences a settlement,
+        not only the accepted receipt the settlement would name.
+        """
+        identity = DeliveryIdentity(
+            item.event_id,
+            item.delivery_plan_id,
+            item.target_adapter,
+            item.target_channel,
+        )
+        return any(
+            receipt.outbox_id != item.outbox_id
+            or receipt.attempt_number != attempt_number
+            or delivery_identity(receipt) != identity
+            or (receipt.replay_run_id or None) != (item.replay_run_id or None)
+            or not dispatch_source_matches_attempt(
+                item.dispatch_source or "live", receipt.source, attempt_number
+            )
+            for receipt in receipts
+        )
+
+    async def reconcile_content_denied_handoff(
+        self,
+        storage: DeliveryLifecycleStorage,
+        item: DeliveryOutboxItem,
+        handoff_resolver: UncertainNativeHandoffResolver,
+        *,
+        attempt_receipts: list[DeliveryReceipt],
+    ) -> RetryAttemptFinalization | UncertainHandoffResolution | None:
+        """Reconcile already-authorized acceptance without restoring send authority.
+
+        Called when content has expired and dispatch context is gone. The
+        absence of the old uncertainty label does not erase exact-attempt
+        evidence. Positive native evidence settles only without a conflicting
+        receipt, using the existing observation/receipt/checkpoint CAS.
+
+        *attempt_receipts* is the exact-attempt receipt set the caller
+        reconciled; its length fences the settlement write and every
+        receipt's provenance is validated before positive evidence can
+        settle. A receipt contradicting the claimed delivery identity
+        blocks the settlement: the caller leaves the claim for
+        conservative recovery.
+        """
+        attempt = item.active_attempt or item.attempt_number
+        if attempt < 1:
+            return None
+        resolution = await handoff_resolver.resolve(item, attempt)
+        if resolution.observation_count is None:
+            return resolution
+        if resolution.verdict == "delivered_with_evidence":
+            if self._receipt_provenance_conflicts(item, attempt, attempt_receipts):
+                # A receipt contradicting the claimed delivery identity —
+                # event, plan, adapter, destination, origin, or replay run —
+                # can never settle this attempt. Positive native evidence
+                # does not commit over contradictory evidence.
+                return resolution
+            # Positive exact-attempt evidence wins over historical failed
+            # receipts. A sent/queued receipt is settled from the receipt
+            # itself before this path; either way the counter is fenced.
+            return await self._settle_resolved_handoff(
+                storage,
+                item,
+                attempt,
+                resolution,
+                expected_receipt_count=len(attempt_receipts),
+            )
+        return resolution
+
     async def abandon_retry_outbox(
         self,
         storage: DeliveryLifecycleStorage,
@@ -1275,15 +1384,27 @@ class DeliveryLifecycleService:
         error_summary: str,
         expected_observation_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
+        expected_observation_scope_revision: int | None = None,
+        expected_receipt_count: int | None = None,
     ) -> None:
-        """Persist terminal abandonment for an unreconstructable retry item."""
+        """Persist terminal abandonment only against unchanged attempt evidence."""
+        if expected_observation_count is not None and expected_receipt_count is None:
+            # An observation-only guard historically also required zero
+            # receipts. Preserve that implicit acceptance fence for callers
+            # that do not supply the observed receipt count directly.
+            expected_receipt_count = 0
         evidence_guard: _ObservationGuard = {}
         if expected_observation_count is not None:
             evidence_guard["expected_observation_count"] = expected_observation_count
-            evidence_guard["expected_receipt_count"] = 0
+        if expected_receipt_count is not None:
+            evidence_guard["expected_receipt_count"] = expected_receipt_count
         if expected_checkpoint_revision is not None:
             evidence_guard["expected_checkpoint_revision"] = (
                 expected_checkpoint_revision
+            )
+        if expected_observation_scope_revision is not None:
+            evidence_guard["expected_observation_scope_revision"] = (
+                expected_observation_scope_revision
             )
         committed = await storage.mark_outbox_abandoned(
             item.outbox_id,
@@ -1291,7 +1412,7 @@ class DeliveryLifecycleService:
             attempt_number=(
                 item.active_attempt
                 if item.active_attempt is not None
-                else item.attempt_number if evidence_guard else None
+                else (item.attempt_number if evidence_guard else None)
             ),
             expected_worker_id=item.worker_id,
             **evidence_guard,
@@ -1477,14 +1598,38 @@ class DeliveryLifecycleService:
         unpersisted_error_summary: str | None,
         attempt_number: int | None = None,
         now: datetime | None = None,
+        expected_observation_count: int | None = None,
+        expected_receipt_count: int | None = None,
+        expected_checkpoint_revision: int | None = None,
+        expected_observation_scope_revision: int | None = None,
     ) -> RetryAttemptFinalization:
-        """Commit the outbox state implied by one retry attempt's evidence."""
+        """Commit the outbox state implied by one retry attempt's evidence.
+
+        When the four ``expected_*`` evidence guards are supplied, the
+        terminal ``dead_lettered`` write carries them: it commits only if the
+        exact attempt still shows the evidence revision the caller read. The
+        retry-wait and non-terminal paths stay unfenced so a stale guard
+        never blocks a self-healing reschedule.
+        """
         attempt_number = self._resolve_retry_attempt(item, attempt_number)
 
         if evidence is not None and evidence.status in {"queued", "sent", "suppressed"}:
             accepted = await self.finalize_retry_success(storage, item, evidence)
+            # A queued receipt is adapter-local acceptance only: it is the
+            # third observability outcome, never delivery success. The row
+            # rests in the durable confirmation-pending disposition and no
+            # success/failure counter counts it.
+            outcome: Literal[
+                "accepted",
+                "queued",
+                "suppressed",
+            ] = (
+                "suppressed"
+                if not accepted
+                else ("queued" if evidence.status == "queued" else "accepted")
+            )
             return RetryAttemptFinalization(
-                outcome="accepted" if accepted else "suppressed",
+                outcome=outcome,
                 receipt_id=evidence.receipt_id,
                 failure_kind=evidence.failure_kind,
                 attempt_number=evidence.attempt_number,
@@ -1576,6 +1721,12 @@ class DeliveryLifecycleService:
                     TerminalOutboxFinalization(
                         lifecycle_receipt=lifecycle_receipt,
                         expected_worker_id=item.worker_id,
+                        expected_observation_count=expected_observation_count,
+                        expected_receipt_count=expected_receipt_count,
+                        expected_checkpoint_revision=expected_checkpoint_revision,
+                        expected_observation_scope_revision=(
+                            expected_observation_scope_revision
+                        ),
                     )
                 )
                 receipt_id = lifecycle_receipt.receipt_id
@@ -1646,6 +1797,7 @@ class DeliveryLifecycleService:
         expected_observation_count: int | None = None,
         expected_receipt_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
+        expected_observation_scope_revision: int | None = None,
     ) -> int | None:
         """Durably reserve the next attempt on a row this worker claimed.
 
@@ -1671,6 +1823,10 @@ class DeliveryLifecycleService:
         if expected_checkpoint_revision is not None:
             evidence_guard["expected_checkpoint_revision"] = (
                 expected_checkpoint_revision
+            )
+        if expected_observation_scope_revision is not None:
+            evidence_guard["expected_observation_scope_revision"] = (
+                expected_observation_scope_revision
             )
         return await storage.reserve_outbox_attempt(
             item.outbox_id,
@@ -1704,6 +1860,22 @@ class DeliveryLifecycleService:
             lease_until,
         )
 
+    async def list_attempt_receipts(
+        self,
+        storage: DeliveryLifecycleStorage,
+        outbox_id: str,
+        attempt_number: int,
+    ) -> list[DeliveryReceipt]:
+        """List the immutable receipt history for one exact outbox attempt.
+
+        The exact-attempt view backs evidence-fenced terminal decisions:
+        receipts from any other attempt never inflate the observed count.
+        """
+        receipts = await storage.list_receipts_for_outbox(outbox_id)
+        return [
+            receipt for receipt in receipts if receipt.attempt_number == attempt_number
+        ]
+
     async def reconcile_retry_claim(
         self,
         storage: DeliveryLifecycleStorage,
@@ -1712,12 +1884,21 @@ class DeliveryLifecycleService:
         *,
         now: datetime | None = None,
         handoff_resolver: UncertainNativeHandoffResolver | None = None,
+        expected_observation_count: int | None = None,
+        expected_receipt_count: int | None = None,
+        expected_checkpoint_revision: int | None = None,
+        expected_observation_scope_revision: int | None = None,
     ) -> RetryAttemptFinalization | None:
         """Repair a claimed outbox row from already-persisted attempt evidence.
 
         This preflight closes the partial-persistence window where target
         delivery appended receipt evidence but the corresponding outbox
         transition failed.  Two cases exist:
+
+        When the four ``expected_*`` evidence guards are supplied, a receipt
+        finalization on a reserved attempt arms its terminal write with them:
+        the write commits only if the exact attempt still shows the evidence
+        revision the caller observed. The guards change nothing else.
 
         * The claimed row carries a durable attempt reservation
           (``active_attempt``): evidence for exactly that attempt means a
@@ -1764,6 +1945,12 @@ class DeliveryLifecycleService:
                     unpersisted_error_summary=None,
                     attempt_number=item.active_attempt,
                     now=now,
+                    expected_observation_count=expected_observation_count,
+                    expected_receipt_count=expected_receipt_count,
+                    expected_checkpoint_revision=expected_checkpoint_revision,
+                    expected_observation_scope_revision=(
+                        expected_observation_scope_revision
+                    ),
                 )
             attempt_number = item.active_attempt
             executor = RetryExecutor(retry_policy)
@@ -1789,6 +1976,10 @@ class DeliveryLifecycleService:
                 if resolution.observation_count is not None:
                     evidence_guard["expected_observation_count"] = (
                         resolution.observation_count
+                    )
+                if resolution.observation_scope_revision is not None:
+                    evidence_guard["expected_observation_scope_revision"] = (
+                        resolution.observation_scope_revision
                     )
                 if resolution.verdict == "definitively_not_submitted":
                     failure_detail = HANDOFF_NOT_SUBMITTED_DETAIL
@@ -1880,12 +2071,79 @@ class DeliveryLifecycleService:
             now=now,
         )
 
+    async def settle_committed_acceptance(
+        self,
+        storage: DeliveryLifecycleStorage,
+        item: DeliveryOutboxItem,
+        *,
+        attempt_number: int,
+        receipts: list[DeliveryReceipt],
+    ) -> RetryAttemptFinalization:
+        """Reconcile a committed receipt without promoting local queue admission.
+
+        Content denial can follow a ``queued``/``sent`` receipt whose outbox
+        transition never committed. Only ``sent`` proves completion; a
+        ``queued`` receipt commits the row to the durable, content-free
+        confirmation-pending disposition — never claimable, never
+        redispatched — with deferred completion outstanding until evidence
+        settles it or the operator resolves it. Every receipt's provenance
+        is validated against the claimed delivery identity before any
+        settlement commits.
+        """
+        if self._receipt_provenance_conflicts(item, attempt_number, receipts):
+            raise StorageError(
+                "Committed receipt provenance contradicts the claimed delivery attempt"
+            )
+        # Local queue admission is not a completed native handoff. A queued
+        # receipt cannot close the outbox as sent or suppress its deferred
+        # completion callback. Prefer a completed receipt if both exist.
+        accepted = next((r for r in receipts if r.status == "sent"), None)
+        if accepted is None:
+            accepted = next((r for r in receipts if r.status == "queued"), None)
+        if accepted is None:
+            raise StorageError(
+                "Settling a committed acceptance requires a sent or queued receipt"
+            )
+        outcome: Literal["accepted", "queued"]
+        if accepted.status == "queued":
+            committed = await storage.mark_outbox_queued(
+                item.outbox_id,
+                receipt_id=accepted.receipt_id,
+                attempt_number=attempt_number,
+                expected_worker_id=item.worker_id,
+                expected_receipt_count=len(receipts),
+            )
+            outcome = "queued"
+        else:
+            committed = await storage.mark_outbox_sent(
+                item.outbox_id,
+                receipt_id=accepted.receipt_id,
+                attempt_number=attempt_number,
+                expected_worker_id=item.worker_id,
+                expected_receipt_count=len(receipts),
+            )
+            outcome = "accepted"
+        self._require_retry_commit(
+            committed,
+            item,
+            transition=accepted.status,
+            attempt_number=attempt_number,
+        )
+        return RetryAttemptFinalization(
+            outcome=outcome,
+            receipt_id=accepted.receipt_id,
+            failure_kind=accepted.failure_kind,
+            attempt_number=attempt_number,
+        )
+
     async def _settle_resolved_handoff(
         self,
         storage: DeliveryLifecycleStorage,
         item: DeliveryOutboxItem,
         attempt_number: int,
         resolution: UncertainHandoffResolution,
+        *,
+        expected_receipt_count: int = 0,
     ) -> RetryAttemptFinalization:
         """Commit a delivered-with-evidence settlement from the remediation pass.
 
@@ -1895,8 +2153,10 @@ class DeliveryLifecycleService:
         checkpoint and observation rows remain the evidence, and the settled
         row carries no receipt pointer — any stale pointer left on the row by
         an earlier attempt is cleared atomically with the settlement write.
-        The guarded CAS refuses a stolen or already-settled row, so re-running
-        resolution after a lost commit converges instead of double-committing.
+        Historical failed receipts are counted in the supply fence but do not
+        override positive native evidence. The guarded CAS refuses a stolen
+        or already-settled row, so re-running resolution after a lost commit
+        converges instead of double-committing.
         """
         if resolution.observation_count is None:
             raise StorageError("Cannot settle a handoff without an evidence revision")
@@ -1906,8 +2166,9 @@ class DeliveryLifecycleService:
             expected_worker_id=item.worker_id,
             clear_receipt_id=True,
             expected_observation_count=resolution.observation_count,
-            expected_receipt_count=0,
+            expected_receipt_count=expected_receipt_count,
             expected_checkpoint_revision=resolution.checkpoint_revision,
+            expected_observation_scope_revision=resolution.observation_scope_revision,
         )
         self._require_retry_commit(
             committed,
@@ -2146,9 +2407,11 @@ class DeliveryLifecycleService:
         """Commit a queued, sent, or suppressed retry receipt to the outbox.
 
         Return ``True`` for queued or sent, and ``False`` for suppressed
-        (which abandons the row). Raise :class:`RetryAttemptCommitRejected`
-        if the guarded transition fails, or :class:`ValueError` for another
-        receipt status.
+        (which abandons the row). A queued receipt commits the durable,
+        content-free confirmation-pending disposition: the row is never
+        claimable and never redispatched. Raise
+        :class:`RetryAttemptCommitRejected` if the guarded transition
+        fails, or :class:`ValueError` for another receipt status.
         """
         if receipt.status == "queued":
             committed = await storage.mark_outbox_queued(

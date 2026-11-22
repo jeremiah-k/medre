@@ -107,7 +107,7 @@ async def test_recovered_ingress_preserves_independent_target_retry(
                 "UPDATE delivery_outbox SET next_attempt_at=? WHERE outbox_id=?",
                 ("2000-01-01T00:00:00+00:00", before.outbox_id),
             )
-            retry = RetryWorker(storage, runner, None)
+            retry = RetryWorker(storage, runner, None, enabled=True)
             await retry._process_due(datetime.now(timezone.utc))
             before = await storage.get_outbox_item(before.outbox_id)
             assert before is not None and before.status == "sent"

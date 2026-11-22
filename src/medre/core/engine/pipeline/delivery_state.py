@@ -98,16 +98,17 @@ NON_TERMINAL_OUTBOX_STATUSES: frozenset[str] = (
 )
 
 #: Outbox statuses that are directly claimable by any worker via
-#: ``claim_due_outbox_items``.  Items in ``in_progress`` or ``queued``
-#: may become reclaimable through lease-expiry or staleness queries but
-#: are not directly claimable.
+#: ``claim_due_outbox_items``.  Items in ``in_progress`` may become
+#: reclaimable through lease-expiry but are not directly claimable.
 #:
-#: **Direct claimability ≠ reclaimability.**  ``queued`` appears in
-#: ``OUTBOX_TRANSITIONS`` with ``in_progress`` as a legal target, but
-#: that transition is only valid for *stale queued reclaim* after the
-#: configured grace period (see ``STALE_QUEUED_GRACE_SECONDS`` in the
-#: SQLite storage layer).  ``is_claimable_outbox_status("queued")``
-#: returns ``False``.
+#: **Queued is the durable confirmation-pending disposition.**  A queued
+#: receipt records only adapter-local queue acceptance, so a ``queued``
+#: row is never claimable and never reclaimed for redispatch.  It leaves
+#: ``queued`` only through evidence-driven settlement (deferred
+#: completion, a provenance-matched ``sent`` receipt, or terminal
+#: lifecycle evidence) or the explicit operator confirmation-pending
+#: resolution.  ``is_claimable_outbox_status("queued")`` returns
+#: ``False``.
 CLAIMABLE_OUTBOX_STATUSES: frozenset[str] = frozenset({"pending", "retry_wait"})
 
 # ---------------------------------------------------------------------------
@@ -144,10 +145,11 @@ RECEIPT_TRANSITIONS: dict[str, frozenset[str]] = {
 #: Observed outbox transitions.  Terminal statuses (sent, dead_lettered,
 #: cancelled, abandoned) have no outgoing entries.
 #:
-#: ``queued`` → ``in_progress`` is legal only for stale queued reclaim
-#: after the configured grace period (``STALE_QUEUED_GRACE_SECONDS``).
-#: It does **not** make ``queued`` a directly-claimable status; see
-#: ``CLAIMABLE_OUTBOX_STATUSES``.
+#: ``queued`` has no reclaim edge: the durable confirmation-pending
+#: disposition never dispatches again.  Its exits are evidence-driven
+#: settlement (deferred completion, a provenance-matched ``sent``
+#: receipt, or terminal lifecycle evidence) and the explicit operator
+#: confirmation-pending resolution; see ``CLAIMABLE_OUTBOX_STATUSES``.
 #:
 #: Transition path notes
 #: ~~~~~~~~~~~~~~~~~~~~~
@@ -158,8 +160,7 @@ RECEIPT_TRANSITIONS: dict[str, frozenset[str]] = {
 #:   before performing the transition.  Live delivery paths do not
 #:   produce a ``queued`` → ``sent`` transition directly.
 #: - Lease-style claim transitions (``pending`` → ``in_progress``,
-#:   ``retry_wait`` → ``in_progress``, ``queued`` → ``in_progress``
-#:   for stale reclaim) are performed by
+#:   ``retry_wait`` → ``in_progress``) are performed by
 #:   :meth:`claim_due_outbox_items`, not by the ``mark_outbox_*``
 #:   family of methods.  The transition table is the union of the
 #:   claim path and the explicit ``mark_outbox_*`` paths.
@@ -167,7 +168,10 @@ OUTBOX_TRANSITIONS: dict[str, frozenset[str]] = {
     # Lease acquisition paths (driven by claim_due_outbox_items).
     "pending": frozenset({"in_progress", "cancelled", "abandoned"}),
     "retry_wait": frozenset({"in_progress", "cancelled", "dead_lettered", "abandoned"}),
-    "queued": frozenset({"in_progress", "sent", "cancelled", "abandoned"}),
+    # The durable confirmation-pending disposition: exits are evidence-driven
+    # settlement (deferred completion, a provenance-matched sent receipt, or
+    # deferred terminal feedback) and the explicit operator resolution.
+    "queued": frozenset({"sent", "dead_lettered", "cancelled", "abandoned"}),
     # Delivery outcome from in_progress (driven by mark_outbox_* methods).
     "in_progress": frozenset(
         {
@@ -201,7 +205,7 @@ OUTBOX_TRANSITIONS: dict[str, frozenset[str]] = {
 #    transition tests.
 #
 # Transition tables capture every observed legal status change, including
-# reclaim paths (e.g. queued→in_progress via stale queued reclaim) that are
+# reclaim paths (pending→in_progress and retry_wait→in_progress) that are
 # not direct claims.  Adding a transition here does not make the source
 # status directly claimable; that is governed by CLAIMABLE_OUTBOX_STATUSES.
 

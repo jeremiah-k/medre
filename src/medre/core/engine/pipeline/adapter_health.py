@@ -42,8 +42,7 @@ Once any horizon on a lane has expired, the lane leaves claim exclusion for
 the rest of the episode (until health or a drained-lane observation clears
 it): normal claim rules resume, and the admission gate keeps obligations
 inside their own horizons deferred. Held work that was never admitted by
-this process (rows deferred before a restart, or stale queued rows counted
-as held when automatic retries are enabled) anchors a lane-level fallback
+this process (rows deferred before a restart) anchors a lane-level fallback
 horizon so its lane still reopens for reconciliation. An adapter that never
 recovers therefore cannot strand obligations silently.
 """
@@ -132,8 +131,7 @@ class AdapterHealthGate:
         # rest of the episode and makes the expiry line log exactly once.
         self._obligation_expired: dict[str, set[str]] = {}
         # Fallback episode anchor for held work this process never admitted
-        # (rows deferred before a restart, stale queued rows counted as held
-        # under automatic retries). Preserves the held-work episode
+        # (rows deferred before a restart). Preserves the held-work episode
         # semantics for lanes whose obligations carry no known horizon.
         self._lane_started: dict[str, float] = {}
         self._lane_expired: set[str] = set()

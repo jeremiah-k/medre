@@ -397,9 +397,12 @@ class StorageBackend(Protocol):
         self, now: datetime, worker_id: str, limit: int = 50
     ) -> list[DeliveryOutboxItem]:
         """Claim due outbox items for processing.  Items with pending,
-        retry_wait, missing/expired in_progress leases, or stale queued status
-        are eligible only when no sibling row for the same delivery identity
-        represents the same or a newer effective attempt generation."""
+        retry_wait, or missing/expired in_progress lease status are eligible
+        only when no sibling row for the same delivery identity represents
+        the same or a newer effective attempt generation.  Queued rows are
+        never claimed: a queued receipt records only adapter-local queue
+        acceptance, so the row rests in the durable confirmation-pending
+        disposition."""
         ...
 
     async def reserve_outbox_attempt(
@@ -1197,6 +1200,14 @@ exists to supersede. Structured provider/adapter metadata (`metadata`
 columns) is deliberately NOT separated: it stays inline, content-classified,
 and conservative in its family table.
 
+An append made after the owning event's hard ceiling has elapsed or an
+enforcement receipt has committed MUST preserve its durable parent evidence
+without inserting nonempty diagnostic text. The receipt, observation, outbox,
+and ingress follow-up writers enforce this in the same SQLite transaction
+using a statement-execution clock. Content-free clearing markers on mutable
+outbox and ingress work are permitted; the typed handoff-uncertainty ledger
+is independent of diagnostic content.
+
 The table is append-only: runtime code **MUST NOT** update or delete a
 diagnostic row. A successful handoff writes no new failure diagnostic; prior diagnostic
 rows, if any, remain append-only historical evidence. A delivery that has
@@ -1826,9 +1837,9 @@ Outbox idempotency is scoped to the logical delivery-attempt key `(event_id, del
 - `list_outbox_items_for_delivery`: Returns every durable outbox generation for one complete `DeliveryIdentity`, ordered by effective attempt generation. This is the mutable-history counterpart to `list_receipts_for_delivery`; incomplete identities are rejected.
 - `list_outbox_items`: Lists items, optionally filtered by status.
 - `list_outbox_items_for_event`: Returns all outbox items for a specific event, ordered by `created_at ASC, outbox_id ASC`. Read-only.
-- `claim_due_outbox_items`: Claims eligible items for a worker only when no sibling row for the same event-scoped delivery identity represents the same or a newer effective attempt generation. Older superseded rows remain durable history and are not re-dispatched.
+- `claim_due_outbox_items`: Claims eligible items for a worker only when no sibling row for the same event-scoped delivery identity represents the same or a newer effective attempt generation. Older superseded rows remain durable history and are not re-dispatched. A `queued` row is never claimed: it rests in the durable confirmation-pending disposition (§9.4).
 - `reserve_outbox_attempt`: Reserves `attempt_number + 1` on an owned `in_progress` row only when no sibling row for the same event-scoped delivery identity already represents that generation or a newer one. For an evidence-rechecked finalized attempt, the observation count, receipt count, and radio checkpoint revision supplied by the caller MUST be checked in the same reservation transaction. Zero is a valid expected count; checkpoint revision `-1` means absence. A changed fact MUST refuse the reservation and MUST NOT start another transport call.
-- `mark_outbox_sent` / `mark_outbox_queued`: Guarded success transitions; return whether the transition committed.
+- `mark_outbox_sent` / `mark_outbox_queued`: Guarded success transitions; return whether the transition committed. `mark_outbox_queued` commits the durable confirmation-pending disposition (§9.4): the row is never claimable and never re-dispatched.
 - `mark_outbox_retry_wait` / `mark_outbox_dead_lettered`: Guarded failure transitions; return whether the transition committed.
 - `mark_outbox_cancelled` / `mark_outbox_abandoned`: Terminal transitions; return commit status. Evidence-backed abandonment MUST use the same exact-attempt guards as evidence-only settlement; a late receipt, observation, or checkpoint change MUST refuse an unobserved terminal decision.
 - Guarded evidence-based transitions (`sent`, `retry_wait`, `dead_lettered`, `abandoned`) MUST check supplied counts and checkpoint revisions atomically with status and owner. A missing/unknown evidence revision cannot be treated as an empty set. A read error cannot authorize an unfenced transition. For explicitly uncertain receipt-less attempts, a delayed whole-message observation MAY be stored during `retry_wait` for the finalized attempt only; it MUST be refused after terminal settlement or after reservation of the next attempt.
@@ -1956,11 +1967,16 @@ Explicit replay remains the operation for deliberately allocating a fresh delive
 generation. A failure to re-read existing work MUST fail closed; storage MUST NOT
 return the unpersisted candidate as though the caller owned it.
 
-### 9.4 Stale Queued Reclaim
+### 9.4 The Confirmation-Pending Disposition
 
-The `queued` → `in_progress` transition (via `claim_due_outbox_items`) reclaims outbox rows whose `updated_at` is older than the configured grace threshold (`STALE_QUEUED_GRACE_SECONDS`, default 300 s). This recovers items that were handed to an adapter-local queue but never reached `sent` — for example because the worker crashed or the adapter lost the queued message.
+A `queued` receipt records only adapter-local queue acceptance; it never proves that a send occurred. A `queued` outbox row is therefore the durable confirmation-pending disposition: it is never claimable by `claim_due_outbox_items`, is never reclaimed, and is never re-dispatched — there is no automatic path out of `queued` and no grace-based staleness query. Queued never implies sent, and `queued` status is not itself a content statement: the content-free claim belongs to the receipt and to what the disposition records, not to whatever storage the row carries. Entering `queued` clears nothing. Whatever the row held as a non-terminal outbox row — inline frozen context on historical rows, a retained frozen snapshot, or a `payload_hash`, which the content registry classifies as content — remains stored under the event's content ceiling until ceiling enforcement clears it or a terminal transition retires the snapshot.
 
-`queued` is **not** directly claimable; stale reclaim requires a storage-level staleness query and is distinct from the directly claimable statuses (`pending`, `retry_wait`). See [state-machines.md](state-machines.md) §2.3 "Stale Queued Reclaim" for the full transition semantics.
+The disposition exits only two ways:
+
+- **Evidence-driven settlement** — the paths that already exist: the deferred-completion callback (`finalize_deferred_handoff`) proving the exact deferred attempt reached transport hand-off, a provenance-matched `sent` receipt, deferred terminal failure feedback, or terminal lifecycle evidence (`cancelled`, `abandoned`).
+- **Explicit operator resolution** — `resolve_confirmation_pending` commits the ruled terminal transition (`delivered` → `sent`, `failed` → `dead_lettered` with the typed `operator_ruling` failure kind, `cancelled` → `cancelled`) on one observed `queued` row under the frozen refusal vocabulary. It never dispatches a send and never fabricates a receipt; the ruled terminal row is the durable record.
+
+The deadline sweep never resolves a confirmation-pending row: `retire_expired_unstarted_outbox` retires only unclaimed `pending`/`retry_wait` rows, so a confirmation-pending row can outlive its delivery deadline until the operator resolves it. See [state-machines.md](state-machines.md) §2.3 for the full transition semantics.
 
 ## 10. Database Compatibility Policy
 
@@ -1979,13 +1995,23 @@ and the named rebuild steps in
 [`_prerelease_migrate.py`](../../src/medre/core/storage/sqlite/_prerelease_migrate.py)
 (the legacy module name is retained). The recognized changes are:
 
-- Recognized missing tables: `event_content_collection_log`, `content_retention_epochs`,
+- Recognized missing tables: `event_content_collection_log`,
+  `event_content_ceiling_log`, `content_retention_epochs`,
   `delivery_evidence_diagnostics`, `event_routing_facts`,
-  `delivery_outbox_snapshots`, `delivery_handoff_settlements`, and
-  `inbound_pressure_outage_gaps`.
+  `delivery_outbox_snapshots`, `delivery_handoff_settlements`,
+  `delivery_handoff_uncertainty`, `radio_accepted_part_facts`,
+  `radio_attempt_evidence_summaries`, `delivery_observation_scopes`,
+  `delivery_observation_scope_versions` (with three mutation triggers),
+  `delivery_route_retry_bounds` (content-free admission-time route retry
+  bounds; never purged), and `inbound_pressure_outage_gaps`.
 - Recognized missing indexes: `idx_outbox_deadline_cleanup_order`,
-  `idx_diagnostics_identity`, `idx_events_admission_order`, and
-  `idx_outbox_snapshot_owner_unique`.
+  `idx_diagnostics_identity`, `idx_events_admission_order`,
+  `idx_outbox_snapshot_owner_unique`, and
+  `idx_ceiling_enforcement_order` and `idx_attachment_associations_content_ref`.
+- Recognized missing triggers: `trg_scope_version_insert`,
+  `trg_scope_version_update`, and `trg_scope_version_delete` advancing the
+  `delivery_observation_scope_versions` revision on scope insertion, change,
+  or deletion.
 - The exact predecessor of `event_content_access_grants` without nullable
   `expired_at`.
 - The exact predecessor definitions for `operator_delivery_decisions`,
@@ -2244,7 +2270,7 @@ FROM delivery_outbox
 WHERE event_id = ?;
 ```
 
-An `in_progress` row with a missing or expired lease is re-claimable by `claim_due_outbox_items()` on restart when it is still the newest effective outbox generation for its event-scoped delivery identity. A `queued` row is ambiguous; stale rows past `STALE_QUEUED_GRACE_SECONDS` (default 300 s) are automatically reclaimed under the same generation guard. A `pending` or `retry_wait` row is eligible for automatic retry only while no sibling row represents the same or a newer effective attempt. Older superseded rows remain durable history and are not re-dispatched. Rows with no match indicate the event was stored before outbox creation and cannot be automatically retried.
+An `in_progress` row with a missing or expired lease is re-claimable by `claim_due_outbox_items()` on restart when it is still the newest effective outbox generation for its event-scoped delivery identity. A `queued` row is the durable confirmation-pending disposition (§9.4): it is never reclaimed or re-dispatched, and it leaves `queued` only through evidence-driven settlement or the explicit operator resolution. A `pending` or `retry_wait` row is eligible for automatic retry only while no sibling row represents the same or a newer effective attempt. Older superseded rows remain durable history and are not re-dispatched. Rows with no match indicate the event was stored before outbox creation and cannot be automatically retried.
 
 ### 13.6 Database Integrity Verification
 

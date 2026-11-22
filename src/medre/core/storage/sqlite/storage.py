@@ -49,6 +49,9 @@ from medre.core.storage.sqlite._attachments import (  # noqa: F401  -- public re
     StorageAttachmentAccess,
     _AttachmentsMixin,
 )
+from medre.core.storage.sqlite._ceiling_enforcement import (
+    _CeilingEnforcementMixin,
+)
 from medre.core.storage.sqlite._collection import _CollectionMixin
 from medre.core.storage.sqlite._content_grants import _ContentGrantsMixin
 from medre.core.storage.sqlite._content_identity import _ContentIdentityMixin
@@ -688,6 +691,7 @@ class _SQLiteStorageBase:
 class SQLiteStorage(
     _CollectionMixin,
     _RetentionMixin,
+    _CeilingEnforcementMixin,
     _ContentIdentityMixin,
     _ContentGrantsMixin,
     _EventMixin,

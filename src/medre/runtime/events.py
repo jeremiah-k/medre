@@ -93,6 +93,9 @@ class RuntimeEventType(str, enum.Enum):
     * ``retry_attempted`` — a single retry attempt was dispatched.
     * ``retry_succeeded`` — the message was delivered successfully on
       a retry attempt.
+    * ``retry_queued`` — reconciliation recovered a durable queue
+      admission: the deferred completion stays outstanding and is never
+      counted as delivery success or failure.
     * ``retry_failed`` — a retry attempt failed; more attempts may
       follow.
     * ``retry_dead_lettered`` — all retries exhausted; message moved to
@@ -182,6 +185,9 @@ class RuntimeEventType(str, enum.Enum):
     RETRY_STARTED = "retry_started"  # retry loop began for a message
     RETRY_ATTEMPTED = "retry_attempted"  # single retry attempt dispatched
     RETRY_SUCCEEDED = "retry_succeeded"  # message delivered on a retry attempt
+    RETRY_QUEUED = (
+        "retry_queued"  # reconciled queue admission; deferred completion outstanding
+    )
     RETRY_FAILED = "retry_failed"  # retry attempt failed (more may follow)
     RETRY_DEAD_LETTERED = (
         "retry_dead_lettered"  # all retries exhausted; message dead-lettered (terminal)

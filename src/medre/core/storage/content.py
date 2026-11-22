@@ -46,7 +46,14 @@ CONTENT_SURFACES = (
     ContentSurface("event_relation_excerpts", ("excerpt",), ("reply_quotes",)),
     ContentSurface("native_message_refs", ("metadata",), ("native_correlation",)),
     ContentSurface("delivery_observations", ("metadata",), ("delivery_evidence",)),
-    ContentSurface("delivery_outbox", ("metadata",), ("delivery", "recovery")),
+    # The outbox row carries the event's content-derived render digest
+    # (``payload_hash``) beside the inline frozen dispatch context. Ceiling
+    # enforcement measures both into logical bytes removed, clears both on
+    # surviving rows, and residual-verifies both; metadata-only outbox
+    # projections withhold the digest.
+    ContentSurface(
+        "delivery_outbox", ("metadata", "payload_hash"), ("delivery", "recovery")
+    ),
     # Write-time separated free-form diagnostics for the delivery-evidence
     # families (receipts, observations, outbox records, ingress work).  A
     # diagnostic row never exists without its parent, but separate diagnostic

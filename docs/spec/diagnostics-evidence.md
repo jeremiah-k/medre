@@ -1234,8 +1234,11 @@ Key fields:
 | `resume_expected`        | `bool`        | `True` when non-terminal outbox work exists and runtime is in `stopped`/`stopping` state. Indicates pending work survives for restart recovery.                     |
 | `outbox_shutdown_policy` | `str or None` | `"resumable"` when outbox data was provided, indicating non-terminal rows were intentionally preserved. `None` when no outbox data was available.                   |
 
-Pending outbox rows (`pending`, `retry_wait`, expired `in_progress`, stale `queued`) are discovered through
-`claim_due_outbox_items()` on next startup. The RetryWorker claims due retry
+Pending outbox rows (`pending`, `retry_wait`, expired `in_progress`) are discovered through
+`claim_due_outbox_items()` on next startup. `queued` rows hold the
+confirmation-pending disposition and are never claimed; they leave only
+through evidence-driven settlement or explicit operator resolution. The
+RetryWorker claims due retry
 work from that outbox path; receipts remain immutable evidence and are not a
 separate processing or scheduling authority.
 

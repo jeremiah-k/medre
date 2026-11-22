@@ -513,6 +513,36 @@ class TestDDLRequiredColumnsParity:
 # ===================================================================
 
 
+# A Python source string may spell SQL whitespace as ``\n`` or ``\t``.
+# Match that escape as a boundary too, rather than treating its final letter
+# as part of the SQL identifier immediately before DELETE.
+_DELETE_PREFIX = r"(?:\\[nrt]|(?<![\w$]))DELETE\s+FROM\b"
+_DELETE_PATTERN = re.compile(_DELETE_PREFIX, re.IGNORECASE)
+_DELETE_TARGET_PATTERN = re.compile(
+    _DELETE_PREFIX
+    + r'\s+(?:"((?:[^"]|"")+)"|`((?:[^`]|``)+)`|\[((?:[^\]]|\]\])+?)\]|([^\s;(),=<>!{}\\\'"`]+))',
+    re.IGNORECASE,
+)
+
+
+def _delete_targets(line: str) -> tuple[str, ...] | None:
+    """Parse every DELETE destination on one source line.
+
+    ``None`` means at least one ``DELETE FROM`` had no extractable target;
+    a mixed line is never accepted by its first recognizable destination.
+    """
+    deletes = list(_DELETE_PATTERN.finditer(line))
+    if not deletes:
+        return ()
+    targets = []
+    for match in _DELETE_TARGET_PATTERN.finditer(line):
+        target = next((group for group in match.groups() if group), None)
+        if target is None:
+            return None
+        targets.append(target)
+    return tuple(targets) if len(targets) == len(deletes) else None
+
+
 class TestNoDeleteInStorageModule:
     """Only the guarded content collector may delete isolated content rows.
 
@@ -522,20 +552,49 @@ class TestNoDeleteInStorageModule:
     """
 
     def test_only_classified_content_rows_are_deleted(self) -> None:
-        delete_pattern = re.compile(r"\bDELETE\s+FROM\b", re.IGNORECASE)
         permitted = {"event_body_content", "event_relation_excerpts"}
+        # The guarded ceiling-enforcement transition deletes exactly the
+        # census-declared content-potential rows of an elapsed-ceiling event
+        # (docs/spec/content-privacy-ceiling.md §3); linkage and evidence
+        # rows are never deleted there.
+        ceiling_permitted = {
+            "event_body_content",
+            "event_relation_excerpts",
+            "delivery_evidence_diagnostics",
+            "radio_attempt_progress",
+            "delivery_outbox_snapshots",
+            "event_attachment_associations",
+            "attachment_blobs",
+        }
         found: set[str] = set()
+        ceiling_found: set[str] = set()
         violations: list[str] = []
         for py_file in _sqlite_source_files():
             for line_no, line in enumerate(py_file.read_text().split("\n"), 1):
                 stripped = line.lstrip()
-                if stripped.startswith("#") or not delete_pattern.search(line):
+                if stripped.startswith("#") or not _DELETE_PATTERN.search(line):
                     continue
-                if py_file.name == "_collection.py":
-                    matches = {table for table in permitted if table in line}
-                    if len(matches) == 1:
-                        found.update(matches)
-                        continue
+                parsed = _delete_targets(line)
+                if parsed is None:
+                    violations.append(
+                        f"{py_file.name}:{line_no}: unparseable DELETE target: "
+                        f"{line.strip()}"
+                    )
+                    continue
+                targets = list(parsed)
+                if py_file.name == "_collection.py" and all(
+                    table in permitted for table in targets
+                ):
+                    found.update(targets)
+                    continue
+                # The ceiling-enforcement purge targets every DELETE
+                # destination on the line exactly; subqueries may name
+                # surviving linkage tables.
+                if py_file.name == "_ceiling_enforcement.py" and all(
+                    table in ceiling_permitted for table in targets
+                ):
+                    ceiling_found.update(targets)
+                    continue
                 # Frozen work context is an owned, transient projection, not
                 # durable delivery evidence. Its one exact-table DELETE is
                 # guarded by a terminal transition in the same transaction.
@@ -550,6 +609,7 @@ class TestNoDeleteInStorageModule:
             violations
         )
         assert found == permitted
+        assert ceiling_found == ceiling_permitted
 
     def test_no_delete_method_on_storage(self) -> None:
         """SQLiteStorage has no delete/remove method.
@@ -581,3 +641,49 @@ class TestSchemaVersionFrozen:
     def test_schema_version_constant_type(self) -> None:
         """_EXPECTED_SCHEMA_VERSION is an int, not a float or string."""
         assert isinstance(_EXPECTED_SCHEMA_VERSION, int)
+
+
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        (r'sql = "\nDELETE FROM delivery_receipts"', ("delivery_receipts",)),
+        (r'sql = "\tDELETE FROM event_body_content"', ("event_body_content",)),
+        ('DELETE FROM "event_body_content""archive"', ('event_body_content""archive',)),
+        (
+            "DELETE FROM event_body_content\u0301 WHERE event_id=?",
+            ("event_body_content\u0301",),
+        ),
+        ("DELETE FROM event_body_content$archive", ("event_body_content$archive",)),
+        ("DELETE FROM event_body_content", ("event_body_content",)),
+        (
+            "DELETE FROM event_body_content; DELETE FROM delivery_receipts",
+            ("event_body_content", "delivery_receipts"),
+        ),
+        ("DELETE FROM event_body_content WHERE id=?", ("event_body_content",)),
+        (
+            'DELETE FROM event_body_content; DELETE FROM "delivery_receipts"',
+            ("event_body_content", "delivery_receipts"),
+        ),
+        ('DELETE FROM "delivery_receipts"', ("delivery_receipts",)),
+        ("DELETE FROM", None),
+    ],
+)
+def test_delete_scanner_does_not_accept_partial_or_escaped_destinations(
+    sql: str, expected: tuple[str, ...] | None
+) -> None:
+    """SQLite identifier syntax must not split a DELETE destination.
+
+    SQLite accepts ``$`` inside identifiers, so ``event_body_content$archive``
+    is ONE table name. The parser must capture the complete identifier: a
+    partial capture would let a suffixed name pass an exact-table allowlist,
+    and a statement with no extractable destination parses to ``None``.
+    """
+    assert _delete_targets(sql) == expected
+    assert (
+        expected is None
+        or expected == ("event_body_content",)
+        or any(
+            table not in {"event_body_content", "event_relation_excerpts"}
+            for table in _delete_targets(sql) or ()
+        )
+    )

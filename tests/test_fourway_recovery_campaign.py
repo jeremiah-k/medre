@@ -151,7 +151,7 @@ async def test_fourway_fanout_broken_link_does_not_replay_healthy_targets(
 
         # Advance scheduling deterministically, without wall-clock sleeps.
         due_at = datetime.fromisoformat(waiting.next_attempt_at) + timedelta(seconds=1)
-        retry = RetryWorker(restored_store, resumed, None)
+        retry = RetryWorker(restored_store, resumed, None, enabled=True)
         await retry._process_due(due_at)
         assert retry.state.succeeded == 1
         assert len(restored["FXLF"].delivered_payloads) == 1

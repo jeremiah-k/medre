@@ -48,6 +48,7 @@ from medre.core.routing.models import Route, RouteTarget
 from medre.core.storage.backend import (
     DeliveryOutboxItem,
     OutboxDispatchSnapshotWrite,
+    OutboxRouteRetryBoundsWrite,
     StorageBackend,
     TerminalOutboxFinalization,
 )
@@ -203,6 +204,26 @@ class OutboxManager:
                     context=_reduced_context,
                 )
 
+            # The accepted route's resolved retry bounds freeze as content-free
+            # admission facts in the same creation transaction as the frozen
+            # dispatch context. After ceiling enforcement retires that context,
+            # post-erasure reconciliation reads these bounds instead of any
+            # current configuration. Routes admitted without a resolved retry
+            # policy persist no bounds: there are no historic limits to store,
+            # and those rows reconcile without bounds rather than
+            # reconstructing policy from globals. Adopted existing rows never
+            # gain bounds — storage writes the facts only with a fresh row.
+            route_retry_bounds = (
+                OutboxRouteRetryBoundsWrite(
+                    max_attempts=route_plan.retry_policy.max_attempts,
+                    backoff_base=route_plan.retry_policy.backoff_base,
+                    max_delay_seconds=route_plan.retry_policy.max_delay_seconds,
+                    jitter=route_plan.retry_policy.jitter,
+                )
+                if route_plan.retry_policy is not None
+                else None
+            )
+
             outbox_item = DeliveryOutboxItem(
                 outbox_id=f"obox-{uuid.uuid4()}",
                 event_id=event.event_id,
@@ -229,6 +250,7 @@ class OutboxManager:
                 outbox_item,
                 allocate_new_generation=(source == "replay"),
                 dispatch_snapshot=dispatch_snapshot,
+                route_retry_bounds=route_retry_bounds,
             )
             outbox_id = created.outbox_id
             outbox_created = True

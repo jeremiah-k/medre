@@ -346,6 +346,9 @@ _EXPECTED_DIAG_SNAPSHOT_KEYS: frozenset[str] = frozenset({"routes", "replay"})
 _EXPECTED_RETRY_KEYS: frozenset[str] = frozenset(
     {
         "abandoned",
+        "ceiling_enforced",
+        "ceiling_sweep_errors",
+        "ceiling_sweep_runs",
         "dead_lettered",
         "deadline_retired",
         "deadline_sweep_errors",

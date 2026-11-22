@@ -118,7 +118,8 @@ _PROBE_AUTHORITY_GATES: dict[str, frozenset[tuple[str, str]]] = {
 #: Retained durable delivery/native/ingress evidence probes.  Their row
 #: families survive collection; a family blocks only while its mapped
 #: table's registry content-potential columns still carry a value on the
-#: event's rows (non-empty provider metadata).  Delivery diagnostics live
+#: event's rows (non-empty provider metadata, or the outbox's
+#: content-derived render digest).  Delivery diagnostics live
 #: only in the write-time separated ``delivery_evidence_diagnostics`` side
 #: table, so the receipt and ingress families carry no inline content
 #: columns at all.  The side table is retained durable evidence too: its
@@ -127,7 +128,9 @@ _PROBE_AUTHORITY_GATES: dict[str, frozenset[tuple[str, str]]] = {
 _PROBE_RETAINED_EVIDENCE: dict[str, frozenset[tuple[str, str]]] = {
     "delivery_receipts": frozenset(),
     "delivery_observations": frozenset({("delivery_observations", "metadata")}),
-    "outbox_records": frozenset({("delivery_outbox", "metadata")}),
+    "outbox_records": frozenset(
+        {("delivery_outbox", "metadata"), ("delivery_outbox", "payload_hash")}
+    ),
     "native_references": frozenset({("native_message_refs", "metadata")}),
     "ingress_work": frozenset(),
     "retained_diagnostics": frozenset(

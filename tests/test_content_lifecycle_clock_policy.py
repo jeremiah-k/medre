@@ -43,7 +43,9 @@ import pytest
 
 from medre.config.model import ContentRetentionConfig, RuntimeOptions, StorageConfig
 from medre.config.paths import MedrePaths, resolve
-from medre.core.storage.backend import PreReleaseSchemaMismatchError
+from medre.core.storage.backend import (
+    StorageDowngradeRefusedError,
+)
 from medre.core.storage.content_availability import AvailabilityPolicy, ContentHold
 from medre.core.storage.content_retention import ContentRetentionPolicy
 from medre.core.storage.sqlite.storage import SQLiteStorage
@@ -585,7 +587,7 @@ async def test_unknown_schema_refusal_unexpected_table_refuses_open_and_worker_c
         db.close()
 
     refused = SQLiteStorage(path)
-    with pytest.raises(PreReleaseSchemaMismatchError):
+    with pytest.raises(StorageDowngradeRefusedError):
         await refused.initialize()
 
     # The runtime worker over the refused handle fails closed: the loop

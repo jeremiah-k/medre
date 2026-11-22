@@ -157,6 +157,19 @@ STORAGE_COLUMN_CLASSES: dict[str, dict[str, ColumnClass]] = {
         "rows_removed": ColumnClass.IMMUTABLE_IDENTITY,
         "logical_bytes_removed": ColumnClass.IMMUTABLE_IDENTITY,
     },
+    # Immutable hard-ceiling enforcement receipt: content-free counters and
+    # the elapsed ceiling instant, written once by the guarded ceiling
+    # enforcement transition and never rewritten. Presence is the durable
+    # fact that the ceiling purge committed and verified for this event.
+    "event_content_ceiling_log": {
+        "event_id": ColumnClass.IMMUTABLE_IDENTITY,
+        "enforced_at": ColumnClass.IMMUTABLE_IDENTITY,
+        "ceiling": ColumnClass.IMMUTABLE_IDENTITY,
+        "rows_removed": ColumnClass.IMMUTABLE_IDENTITY,
+        "logical_bytes_removed": ColumnClass.IMMUTABLE_IDENTITY,
+        "blobs_removed": ColumnClass.IMMUTABLE_IDENTITY,
+        "blob_bytes_removed": ColumnClass.IMMUTABLE_IDENTITY,
+    },
     # Durable relay-only activation epochs. Every column is the activation
     # boundary the retention worker relies on and none holds content: the
     # AUTOINCREMENT epoch number is written once identity, the closed mode
@@ -276,7 +289,7 @@ STORAGE_COLUMN_CLASSES: dict[str, dict[str, ColumnClass]] = {
         "locked_at": ColumnClass.OPERATIONAL_AUTHORITY,
         "lease_until": ColumnClass.OPERATIONAL_AUTHORITY,
         "worker_id": ColumnClass.OPERATIONAL_AUTHORITY,
-        "payload_hash": ColumnClass.OPERATIONAL_AUTHORITY,
+        "payload_hash": ColumnClass.INDEPENDENTLY_OWNED_CONTENT,
         "receipt_id": ColumnClass.OPERATIONAL_AUTHORITY,
         "parent_receipt_id": ColumnClass.IMMUTABLE_IDENTITY,
         "dispatch_source": ColumnClass.OPERATIONAL_AUTHORITY,
@@ -313,6 +326,52 @@ STORAGE_COLUMN_CLASSES: dict[str, dict[str, ColumnClass]] = {
         "field": ColumnClass.IMMUTABLE_IDENTITY,
         "diagnostic": ColumnClass.INDEPENDENTLY_OWNED_CONTENT,
         "created_at": ColumnClass.IMMUTABLE_IDENTITY,
+    },
+    "delivery_handoff_uncertainty": {
+        "outbox_id": ColumnClass.IMMUTABLE_IDENTITY,
+        "attempt_number": ColumnClass.OPERATIONAL_AUTHORITY,
+        "state": ColumnClass.OPERATIONAL_AUTHORITY,
+    },
+    # Content-free post-ceiling evidence. Provenance is write-once identity;
+    # the part projection and its CAS revision advance through guarded
+    # transitions, so they are operational authority rather than immutable
+    # identity. None of these columns carries wire text.
+    "radio_attempt_evidence_summaries": {
+        "outbox_id": ColumnClass.IMMUTABLE_IDENTITY,
+        "attempt_number": ColumnClass.IMMUTABLE_IDENTITY,
+        "provenance_json": ColumnClass.IMMUTABLE_IDENTITY,
+        "parts_json": ColumnClass.OPERATIONAL_AUTHORITY,
+        "revision": ColumnClass.OPERATIONAL_AUTHORITY,
+    },
+    "delivery_observation_scopes": {
+        "observation_id": ColumnClass.IMMUTABLE_IDENTITY,
+        "scope_json": ColumnClass.OPERATIONAL_AUTHORITY,
+    },
+    "delivery_observation_scope_versions": {
+        "outbox_id": ColumnClass.IMMUTABLE_IDENTITY,
+        "attempt_number": ColumnClass.IMMUTABLE_IDENTITY,
+        "revision": ColumnClass.OPERATIONAL_AUTHORITY,
+    },
+    "radio_accepted_part_facts": {
+        "outbox_id": ColumnClass.IMMUTABLE_IDENTITY,
+        "attempt_number": ColumnClass.IMMUTABLE_IDENTITY,
+        "ordinal": ColumnClass.IMMUTABLE_IDENTITY,
+        "native_channel_id": ColumnClass.IMMUTABLE_IDENTITY,
+        "native_message_id": ColumnClass.IMMUTABLE_IDENTITY,
+    },
+    # Content-free admission-time retry bounds for one outbox generation,
+    # written once atomically with the outbox row and never rewritten or
+    # purged. Every column is a numeric/boolean policy fact with no message
+    # content or content-derived bytes; after ceiling enforcement retires the
+    # frozen dispatch context, post-erasure reconciliation reads these bounds
+    # instead of any current configuration. They govern retry-budget
+    # arithmetic only and never authorize another native send.
+    "delivery_route_retry_bounds": {
+        "outbox_id": ColumnClass.IMMUTABLE_IDENTITY,
+        "max_attempts": ColumnClass.IMMUTABLE_IDENTITY,
+        "backoff_base": ColumnClass.IMMUTABLE_IDENTITY,
+        "max_delay_seconds": ColumnClass.IMMUTABLE_IDENTITY,
+        "jitter": ColumnClass.IMMUTABLE_IDENTITY,
     },
     "delivery_handoff_settlements": {
         "outbox_id": ColumnClass.IMMUTABLE_IDENTITY,

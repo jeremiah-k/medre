@@ -60,14 +60,17 @@ async def test_rollback_after_mid_transaction_error(
 
 
 # ===================================================================
-# Stale queued reclaim
+# Queued rows are never claimable (confirmation-pending disposition)
 # ===================================================================
 
 
-class TestStaleQueuedReclaim:
-    """Verify that claim_due_outbox_items reclaims stale queued rows
-    (updated_at older than STALE_QUEUED_GRACE_SECONDS) while leaving
-    fresh queued rows untouched."""
+class TestQueuedRowsNeverClaimed:
+    """Verify that claim_due_outbox_items never claims a queued row.
+
+    A queued receipt records only adapter-local queue acceptance, so the
+    row rests in the durable confirmation-pending disposition whether
+    fresh or stale: no claim, no reclaim, no redispatch.
+    """
 
     async def _create_and_queue(
         self,
@@ -96,11 +99,10 @@ class TestStaleQueuedReclaim:
             )
         return oid
 
-    async def test_stale_queued_claimed_after_grace(
+    async def test_stale_queued_row_is_never_claimed(
         self, outbox_temp_storage: SQLiteStorage
     ) -> None:
-        """A queued row whose updated_at is older than the grace period
-        should be reclaimed by claim_due_outbox_items."""
+        """A queued row far past any grace threshold is never reclaimed."""
         now_claim = "2026-01-01T01:00:00"
         # Make the queued row appear stale: updated_at is well before
         # now_claim - grace.
@@ -117,16 +119,18 @@ class TestStaleQueuedReclaim:
             lease_seconds=30,
             limit=10,
         )
-        matched = [c for c in claimed if c.outbox_id == oid]
-        assert len(matched) == 1
-        assert matched[0].status == "in_progress"
-        assert matched[0].worker_id == "worker-2"
+        assert not any(c.outbox_id == oid for c in claimed)
+
+        item = await outbox_temp_storage.get_outbox_item(oid)
+        assert item is not None
+        assert item.status == "queued"
+        assert item.worker_id is None and item.lease_until is None
+        assert item.attempt_number == 1 and item.active_attempt is None
 
     async def test_fresh_queued_not_claimed(
         self, outbox_temp_storage: SQLiteStorage
     ) -> None:
-        """A queued row whose updated_at is within the grace period
-        should NOT be claimed."""
+        """A freshly queued row is not claimed either."""
         now_claim = "2026-01-01T01:00:00"
         grace = STALE_QUEUED_GRACE_SECONDS
         # Set updated_at to exactly now_claim - grace + 10s (still fresh).

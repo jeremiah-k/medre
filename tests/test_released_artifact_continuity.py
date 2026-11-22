@@ -196,13 +196,15 @@ def test_all_scenarios_use_separate_work_directories(
     "unexpected_sql",
     [
         "INSERT INTO delivery_handoff_settlements VALUES ('work', 1, 0)",
+        "INSERT INTO event_content_ceiling_log VALUES ('work', 'x', 'y', 0, 0, 0, 0)",
         "DELETE FROM delivery_outbox",
         "UPDATE _medre_schema_meta SET value = '99'",
         "CREATE TABLE unexpected (id INTEGER)",
+        "CREATE INDEX unexpected_index ON delivery_outbox(outbox_id)",
         "ALTER TABLE delivery_handoff_settlements ADD COLUMN unexpected TEXT",
     ],
 )
-def test_d0_expected_state_allows_only_the_empty_handoff_table(
+def test_d0_expected_state_allows_only_the_empty_approved_tables(
     tmp_path: Path, unexpected_sql: str
 ) -> None:
     driver = _load_driver()
@@ -212,16 +214,34 @@ def test_d0_expected_state_allows_only_the_empty_handoff_table(
             "CREATE TABLE _medre_schema_meta (key TEXT PRIMARY KEY, value TEXT);"
             "INSERT INTO _medre_schema_meta VALUES ('schema_version', '1');"
             "CREATE TABLE delivery_outbox (outbox_id TEXT PRIMARY KEY);"
+            "CREATE TABLE event_attachment_associations (content_ref TEXT);"
             "INSERT INTO delivery_outbox VALUES ('work');"
+            "CREATE TABLE event_content_access_policies "
+            "(hard_ceiling TEXT, event_id TEXT);"
         )
         released = driver._dump_state(path)
         expected = driver._expected_d0_reopen_state(released)
-        ddl = next(
-            sql
-            for kind, name, sql in expected["catalog"]
-            if kind == "table" and name == "delivery_handoff_settlements"
+        approved = (
+            "delivery_handoff_settlements",
+            "event_content_ceiling_log",
+            "delivery_handoff_uncertainty",
+            "radio_accepted_part_facts",
+            "radio_attempt_evidence_summaries",
+            "delivery_observation_scopes",
+            "delivery_observation_scope_versions",
+            "delivery_route_retry_bounds",
         )
-        db.execute(ddl)
+        approved_indexes = {
+            "idx_ceiling_enforcement_order",
+            "idx_attachment_associations_content_ref",
+        }
+        for kind, name, sql in expected["catalog"]:
+            if kind == "table" and name in approved:
+                db.execute(sql)
+            elif kind == "index" and name in approved_indexes:
+                db.execute(sql)
+            elif kind == "trigger" and name.startswith("trg_scope_version_"):
+                db.execute(sql)
         assert driver._dump_state(path) == expected
         with db:
             db.execute(unexpected_sql)
@@ -266,7 +286,16 @@ def test_released_010_database_reopens_on_current_wheel(tmp_path: Path) -> None:
 
     # Writable reopen adds the empty table once and keeps the upgraded state stable.
     reopen = d0["reopen"]
-    assert reopen["expected_added_tables"] == ["delivery_handoff_settlements"]
+    assert reopen["expected_added_tables"] == [
+        "delivery_handoff_settlements",
+        "delivery_handoff_uncertainty",
+        "delivery_observation_scope_versions",
+        "delivery_observation_scopes",
+        "delivery_route_retry_bounds",
+        "event_content_ceiling_log",
+        "radio_accepted_part_facts",
+        "radio_attempt_evidence_summaries",
+    ]
     assert reopen["schema_version_stamp"] == "1"
     assert reopen["identity_counts"]["canonical_events"] >= 1
     assert reopen["identity_counts"]["delivery_receipts"] >= 1

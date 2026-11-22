@@ -27,6 +27,7 @@ from medre.core.engine.pipeline.delivery_lifecycle import (
     RetryAttemptFinalization,
 )
 from medre.core.engine.pipeline.retry_plan import ReconstructedRetryPlan
+from medre.core.events import DeliveryReceipt
 from medre.core.evidence.handoff_resolution import (
     UNCERTAIN_NATIVE_HANDOFF_DETAIL,
     EvidenceBackedHandoffResolver,
@@ -63,7 +64,7 @@ def _gated_item(**overrides) -> DeliveryOutboxItem:
 
 def _retained_storage(
     *,
-    evidence_methods=("get_radio_attempt", "list_delivery_observations_for_attempt"),
+    evidence_methods=("get_radio_attempt", "read_handoff_observation_snapshot"),
 ):
     """Expose only explicit evidence-read surfaces, not dynamic mock attributes."""
     storage = MagicMock(
@@ -72,6 +73,8 @@ def _retained_storage(
             "get",
             "delivery_status",
             "get_outbox_dispatch_context",
+            "get_outbox_route_retry_bounds",
+            "list_receipts_for_outbox",
             "read_event_for_outbox",
             *evidence_methods,
         ]
@@ -83,6 +86,7 @@ def _retained_storage(
     storage.get = AsyncMock(return_value=stored)
     storage.delivery_status = AsyncMock(return_value=None)
     storage.get_outbox_dispatch_context = AsyncMock(return_value=None)
+    storage.get_outbox_route_retry_bounds = AsyncMock(return_value=None)
     storage.read_event_for_outbox = AsyncMock(
         return_value=SimpleNamespace(status="retained", event=stored)
     )
@@ -97,7 +101,10 @@ def _lifecycle(recheck_result) -> MagicMock:
     await-expectation assertions are valid on each fake method."""
     lifecycle = MagicMock()
     lifecycle.reconcile_retry_claim = AsyncMock(return_value=None)
+    lifecycle.reconcile_content_denied_handoff = AsyncMock(return_value=None)
+    lifecycle.settle_committed_acceptance = AsyncMock(return_value=None)
     lifecycle.recheck_last_uncertain_handoff = AsyncMock(return_value=recheck_result)
+    lifecycle.list_attempt_receipts = AsyncMock(return_value=[])
     lifecycle.reserve_retry_attempt = AsyncMock(return_value=None)
     lifecycle.abandon_retry_outbox = AsyncMock(return_value=None)
     return lifecycle
@@ -146,7 +153,7 @@ async def _run_with_emit(worker, item) -> MagicMock:
 
 @pytest.mark.parametrize(
     "evidence_methods",
-    [(), ("get_radio_attempt",), ("list_delivery_observations_for_attempt",)],
+    [(), ("get_radio_attempt",), ("read_handoff_observation_snapshot",)],
 )
 async def test_recheck_gate_resolver_absent_skips_recheck(evidence_methods):
     """Backends without the evidence-store surface leave the gate dormant."""
@@ -260,7 +267,11 @@ async def test_recheck_settlement_skips_transport():
     assert lifecycle.recheck_last_uncertain_handoff.await_count == 1
     lifecycle.reserve_retry_attempt.assert_not_called()
     pipeline.deliver_execution_to_target.assert_not_called()
-    storage.read_event_for_outbox.assert_not_called()
+    # Missing dispatch context consults the content authority even on the
+    # settlement path; a retained verdict lets the recheck settle undisturbed.
+    storage.read_event_for_outbox.assert_awaited_once_with(
+        "evt-handoff-recheck", "obox-handoff-recheck"
+    )
     assert worker.state.processed == 1
     assert worker.state.succeeded == 1
     assert worker.state.failed == 0
@@ -381,6 +392,7 @@ async def test_recheck_passes_observation_count_to_reservation(count):
         expected_observation_count=count,
         expected_receipt_count=0,
         expected_checkpoint_revision=None,
+        expected_observation_scope_revision=None,
     )
     pipeline.deliver_execution_to_target.assert_not_called()
     emit.assert_not_called()
@@ -428,3 +440,123 @@ async def test_claim_owner_identifier_is_full_uuid_hex(monkeypatch):
     await worker._process_due(datetime.now(timezone.utc))
 
     assert claim.await_args.kwargs["worker_id"] == f"retry-worker-{owner.hex}"
+
+
+async def test_committed_acceptance_records_before_visible_receipt_guard():
+    """A committed acceptance is recorded before the receipt early return."""
+    item = _gated_item(metadata={})
+    storage = _retained_storage()
+    storage.read_event_for_outbox.return_value = SimpleNamespace(status="expired")
+    lifecycle = _lifecycle(None)
+    lifecycle.reconcile_retry_claim = AsyncMock(
+        return_value=RetryAttemptFinalization(
+            outcome="accepted",
+            receipt_id="rcpt-visible-acceptance",
+            failure_kind=None,
+            attempt_number=1,
+        )
+    )
+    lifecycle.list_attempt_receipts = AsyncMock(
+        return_value=[
+            DeliveryReceipt(
+                receipt_id="rcpt-visible-acceptance",
+                event_id=item.event_id,
+                delivery_plan_id=item.delivery_plan_id,
+                target_adapter=item.target_adapter,
+                outbox_id=item.outbox_id,
+                attempt_number=1,
+                status="sent",
+                source="retry",
+            )
+        ]
+    )
+    finalization = RetryAttemptFinalization(
+        outcome="accepted",
+        receipt_id="rcpt-visible-acceptance",
+        failure_kind=None,
+        attempt_number=1,
+    )
+    lifecycle.settle_committed_acceptance = AsyncMock(return_value=finalization)
+    worker, pipeline = _worker(storage, lifecycle)
+
+    emit = await _run_with_emit(worker, item)
+
+    lifecycle.settle_committed_acceptance.assert_awaited_once()
+    lifecycle.abandon_retry_outbox.assert_not_awaited()
+    pipeline.deliver_execution_to_target.assert_not_awaited()
+    assert worker.state.processed == 1
+    assert worker.state.succeeded == 1
+    emitted = {call.args[0]: call.args[1] for call in emit.call_args_list}
+    assert emitted["retry_succeeded"]["receipt_id"] == "rcpt-visible-acceptance"
+    assert emitted["retry_succeeded"]["reconciled"] is True
+
+
+async def test_expired_dispatch_context_fences_existing_failed_receipt():
+    item = _gated_item(failure_kind_detail=None)
+    storage = _retained_storage()
+    storage.read_event_for_outbox.return_value = SimpleNamespace(status="expired")
+    lifecycle = _lifecycle(recheck_result=None)
+    lifecycle.list_attempt_receipts = AsyncMock(
+        return_value=[
+            DeliveryReceipt(
+                receipt_id="failed-before-expiry",
+                event_id=item.event_id,
+                delivery_plan_id=item.delivery_plan_id,
+                target_adapter=item.target_adapter,
+                outbox_id=item.outbox_id,
+                attempt_number=item.attempt_number,
+                status="failed",
+            )
+        ]
+    )
+    worker, pipeline = _worker(storage, lifecycle)
+
+    await worker._retry_outbox_item(item)
+
+    lifecycle.abandon_retry_outbox.assert_awaited_once_with(
+        storage,
+        item,
+        error_summary="content_authority_denied",
+        expected_observation_count=None,
+        expected_checkpoint_revision=None,
+        expected_receipt_count=1,
+        expected_observation_scope_revision=None,
+    )
+    pipeline.deliver_execution_to_target.assert_not_awaited()
+
+
+async def test_content_denied_settles_committed_receipt_before_abandon():
+    """A persisted sent receipt is terminal even when content is denied."""
+    item = _gated_item(metadata={})
+    storage = _retained_storage()
+    storage.read_event_for_outbox.return_value = SimpleNamespace(status="expired")
+    lifecycle = _lifecycle(None)
+    receipt = DeliveryReceipt(
+        receipt_id="sent-current-attempt",
+        event_id=item.event_id,
+        delivery_plan_id=item.delivery_plan_id,
+        target_adapter=item.target_adapter,
+        outbox_id=item.outbox_id,
+        attempt_number=1,
+        status="sent",
+        source="retry",
+    )
+    lifecycle.list_attempt_receipts = AsyncMock(return_value=[receipt])
+    finalization = RetryAttemptFinalization(
+        outcome="accepted",
+        receipt_id="sent-current-attempt",
+        failure_kind=None,
+        attempt_number=1,
+    )
+    lifecycle.settle_committed_acceptance = AsyncMock(return_value=finalization)
+    worker, pipeline = _worker(storage, lifecycle)
+
+    emit = await _run_with_emit(worker, item)
+
+    lifecycle.settle_committed_acceptance.assert_awaited_once()
+    lifecycle.abandon_retry_outbox.assert_not_awaited()
+    pipeline.deliver_execution_to_target.assert_not_awaited()
+    assert worker.state.processed == 1
+    assert worker.state.succeeded == 1
+    emitted = {call.args[0]: call.args[1] for call in emit.call_args_list}
+    assert emitted["retry_succeeded"]["receipt_id"] == "sent-current-attempt"
