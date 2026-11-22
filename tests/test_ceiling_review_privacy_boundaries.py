@@ -18,7 +18,11 @@ from medre.core.storage.sqlite._ceiling_enforcement import (
 )
 from medre.core.storage.sqlite.schema import _INDEXES, _SCHEMA
 from medre.core.storage.sqlite.storage import SQLiteStorage
-from tests.helpers.ceiling_audit import _admit_with_ceiling, _install_elapsed_policy
+from tests.helpers.ceiling_audit import (
+    _admit_plain,
+    _admit_with_ceiling,
+    _install_elapsed_policy,
+)
 from tests.helpers.handoff_resolution import _observation, _seed_reserved_claim
 
 
@@ -180,6 +184,7 @@ def test_conflicting_radio_provenance_is_never_rewritten() -> None:
 
 async def test_incoming_quote_read_cannot_outlive_quoted_events_ceiling(
     temp_storage: SQLiteStorage,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """B retains its own authority but never reads A's expired quoted text."""
     from tests.helpers.storage import make_storage_event
@@ -231,13 +236,83 @@ async def test_incoming_quote_read_cannot_outlive_quoted_events_ceiling(
         "private-direct",
         "private-native",
     ]
-    after = await temp_storage.read_event_for_ingress(
-        neighbor, now=ceiling + timedelta(seconds=1)
-    )
-    assert after.status == "retained" and after.event is not None
-    assert [r.fallback_text for r in after.event.relations] == [None, None]
+    # Denial evaluates the quoted target's ceiling while the statement runs:
+    # a read bound before the ceiling cannot expose the excerpt after it.
+    real_clock = connection.ceiling_read_time
+
+    def elapsed_clock() -> str:
+        return (ceiling + timedelta(seconds=1)).isoformat(timespec="microseconds")
+
+    monkeypatch.setattr(connection, "ceiling_read_time", elapsed_clock)
+    try:
+        after = await temp_storage.read_event_for_ingress(
+            neighbor, now=ceiling - timedelta(seconds=1)
+        )
+        assert after.status == "retained" and after.event is not None
+        assert [r.fallback_text for r in after.event.relations] == [None, None]
+    finally:
+        monkeypatch.setattr(connection, "ceiling_read_time", real_clock)
     assert after.event.payload["text"] == "live neighbor"
     rows = await temp_storage._read_all(
         "SELECT excerpt FROM event_relation_excerpts ORDER BY relation_id"
     )
     assert {r["excerpt"] for r in rows} == {"private-direct", "private-native"}
+
+
+async def test_quoted_excerpt_denies_at_sql_execution_time(
+    temp_storage: SQLiteStorage,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A read stalled across the quoted target's ceiling hides the excerpt.
+
+    The excerpt denial evaluates the quoted target's ceiling while the
+    statement runs, not from the caller's earlier bound read clock, and no
+    enforcement receipt is needed for the denial.
+    """
+    target_id = "excerpt-ceiling-target"
+    neighbor_id = "excerpt-ceiling-neighbor"
+    await _admit_with_ceiling(temp_storage, target_id, seconds=3600)
+    await _admit_plain(temp_storage, neighbor_id)
+    now = datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    await temp_storage._write(
+        "INSERT INTO event_relations (event_id, relation_type, target_event_id, "
+        "key, metadata, created_at) VALUES (?, 'reply', ?, NULL, '{}', ?)",
+        (neighbor_id, target_id, now),
+    )
+    relation = await temp_storage._read_one(
+        "SELECT id FROM event_relations WHERE event_id=?", (neighbor_id,)
+    )
+    await temp_storage._write(
+        "INSERT INTO event_relation_excerpts (relation_id, excerpt) VALUES (?, ?)",
+        (relation["id"], "quoted synthetic excerpt text"),
+    )
+
+    bound_before_ceiling = datetime.now(timezone.utc)
+    read = await temp_storage.read_event_for_ingress(
+        neighbor_id, now=bound_before_ceiling
+    )
+    assert read.status == "retained" and read.event is not None
+    assert read.event.relations[0].fallback_text is not None
+
+    ceiling = datetime.now(timezone.utc) + timedelta(seconds=3600)
+    real_clock = connection.ceiling_read_time
+
+    def stalled_clock() -> str:
+        return (ceiling + timedelta(seconds=1)).isoformat(timespec="microseconds")
+
+    monkeypatch.setattr(connection, "ceiling_read_time", stalled_clock)
+    try:
+        stalled = await temp_storage.read_event_for_ingress(
+            neighbor_id, now=bound_before_ceiling
+        )
+        assert stalled.status == "retained" and stalled.event is not None
+        # The bound pre-ceiling clock no longer governs the excerpt: the
+        # statement evaluated the quoted target's elapsed ceiling.
+        assert stalled.event.relations[0].fallback_text is None
+    finally:
+        monkeypatch.setattr(connection, "ceiling_read_time", real_clock)
+    # Execution-time denial never records an enforcement receipt.
+    row = await temp_storage._read_one(
+        "SELECT 1 FROM event_content_ceiling_log WHERE event_id=?", (target_id,)
+    )
+    assert row is None

@@ -424,6 +424,11 @@ _QUOTED_TARGET_EVENTS_SQL = (
     "AND n.native_channel_id IS r.target_native_channel_id "
     "AND n.native_message_id=r.target_native_message_id)"
 )
+# The quoted target's ceiling is evaluated while the statement runs, not
+# when the read clock was bound: a read that waits on a lock across the
+# ceiling cannot expose the excerpt through an earlier bound instant. The
+# receipt-existence check stays independent so a backward clock adjustment
+# cannot restore access once enforcement has committed.
 _QUOTED_EXCERPT_READ_SQL = (
     "SELECT r.*, x.excerpt AS resolved_fallback_text "  # nosec B608 - closed module fragments; bound target ids only
     "FROM event_relations r "
@@ -432,7 +437,7 @@ _QUOTED_EXCERPT_READ_SQL = (
     "WHERE p.event_id IN ("
     + _QUOTED_TARGET_EVENTS_SQL
     + ") "  # nosec B608 - closed module fragment; bound target ids only
-    "AND p.hard_ceiling<=?) "
+    "AND p.hard_ceiling<=medre_ceiling_now(?)) "
     "AND NOT EXISTS (SELECT 1 FROM event_content_ceiling_log l "
     "WHERE l.event_id IN ("
     + _QUOTED_TARGET_EVENTS_SQL
