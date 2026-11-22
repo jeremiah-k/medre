@@ -685,3 +685,208 @@ async def test_late_packet_ack_refuses_fact_from_superseded_unreadable_summary(
         )
         is None
     )
+
+
+async def test_late_packet_ack_records_without_any_ceiling_policy(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """Without a policy the retained checkpoint admits the ACK directly.
+
+    ``radio_attempt_evidence_summaries`` is populated only by the ceiling
+    sweep, never for routine attempts. The packet fence is consulted only
+    where the sweep erased the checkpoint, so an attempt with no ceiling
+    policy keeps recording packet observations with no summary row at all.
+    """
+    stored, provenance = await _seed_reserved_claim(temp_storage)
+    await _bind_and_progress(temp_storage, provenance, ["accepted", "unsent", "unsent"])
+    assert (
+        await temp_storage._read_one(
+            "SELECT outbox_id FROM radio_attempt_evidence_summaries "
+            "WHERE outbox_id=? AND attempt_number=1",
+            (stored.outbox_id,),
+        )
+        is None
+    )
+    assert await temp_storage.append_radio_packet_observation(
+        _observation(
+            "ack-no-policy",
+            provenance,
+            radio_packet={
+                "ordinal": 1,
+                "origin_outbox_id": stored.outbox_id,
+                "origin_attempt_number": 1,
+            },
+        )
+    )
+    assert (
+        await temp_storage._read_one(
+            "SELECT observation_id FROM delivery_observations "
+            "WHERE observation_id='ack-no-policy'"
+        )
+        is not None
+    )
+
+
+async def test_late_packet_ack_records_after_a_retry_reservation(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """The compacted summary carries attempt-local provenance, not the lane.
+
+    The attempt-one checkpoint was bound under the row's live origin; a
+    later retry reservation stamps the row ``retry``. The sweep's compacted
+    summary keeps the attempt's own provenance and native identity, so the
+    late ACK neither consults nor is refused by the row's current lane.
+    """
+    stored, provenance = await _seed_reserved_claim(temp_storage)
+    await _bind_and_progress(temp_storage, provenance, ["accepted", "unsent", "unsent"])
+    now = await _install_elapsed_policy(temp_storage, provenance.event_id)
+    await temp_storage.enforce_content_ceilings(now=now)
+    # Model the retry worker's later reservation: the reserved generation
+    # becomes 2 and the row's origin moves to the retry lane exactly as
+    # reserve_outbox_attempt stamps it for a live-origin row.
+    await temp_storage._write(
+        "UPDATE delivery_outbox SET dispatch_source='retry', attempt_number=1, "
+        "active_attempt=2 WHERE outbox_id=?",
+        (stored.outbox_id,),
+    )
+    assert await temp_storage.append_radio_packet_observation(
+        _observation(
+            "ack-after-retry-reservation",
+            provenance,
+            radio_packet={
+                "ordinal": 1,
+                "origin_outbox_id": stored.outbox_id,
+                "origin_attempt_number": 1,
+            },
+        )
+    )
+    assert (
+        await temp_storage._read_one(
+            "SELECT observation_id FROM delivery_observations "
+            "WHERE observation_id='ack-after-retry-reservation'"
+        )
+        is not None
+    )
+
+
+async def test_late_packet_ack_refuses_when_the_summary_is_missing(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """A retained fact without its summary cannot authenticate a packet.
+
+    Production writers commit the summary and erase the checkpoint inside
+    one transaction, so the missing-summary state is not reachable through
+    them; the fence must still fail closed when storage is corrupted or
+    restored into that state.
+    """
+    stored, provenance = await _seed_reserved_claim(temp_storage)
+    await _bind_and_progress(temp_storage, provenance, ["accepted", "unsent", "unsent"])
+    now = await _install_elapsed_policy(temp_storage, provenance.event_id)
+    await temp_storage.enforce_content_ceilings(now=now)
+    await temp_storage._write(
+        "DELETE FROM radio_attempt_evidence_summaries "
+        "WHERE outbox_id=? AND attempt_number=1",
+        (stored.outbox_id,),
+    )
+    assert not await temp_storage.append_radio_packet_observation(
+        _observation(
+            "ack-missing-summary",
+            provenance,
+            radio_packet={
+                "ordinal": 1,
+                "origin_outbox_id": stored.outbox_id,
+                "origin_attempt_number": 1,
+            },
+        )
+    )
+    assert (
+        await temp_storage._read_one(
+            "SELECT observation_id FROM delivery_observations "
+            "WHERE observation_id='ack-missing-summary'"
+        )
+        is None
+    )
+
+
+async def test_late_packet_ack_refuses_a_summary_from_another_attempt(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """A summary whose provenance names another attempt cannot authorize."""
+    stored, provenance = await _seed_reserved_claim(temp_storage)
+    await _bind_and_progress(temp_storage, provenance, ["accepted", "unsent", "unsent"])
+    now = await _install_elapsed_policy(temp_storage, provenance.event_id)
+    await temp_storage.enforce_content_ceilings(now=now)
+    row = await temp_storage._read_one(
+        "SELECT provenance_json FROM radio_attempt_evidence_summaries "
+        "WHERE outbox_id=? AND attempt_number=1",
+        (stored.outbox_id,),
+    )
+    assert row is not None
+    foreign = replace(
+        msgspec.json.decode(row["provenance_json"], type=DeliveryAttemptProvenance),
+        attempt_number=2,
+    )
+    await temp_storage._write(
+        "UPDATE radio_attempt_evidence_summaries SET provenance_json=? "
+        "WHERE outbox_id=? AND attempt_number=1",
+        (msgspec.json.encode(foreign).decode(), stored.outbox_id),
+    )
+    assert not await temp_storage.append_radio_packet_observation(
+        _observation(
+            "ack-foreign-attempt",
+            provenance,
+            radio_packet={
+                "ordinal": 1,
+                "origin_outbox_id": stored.outbox_id,
+                "origin_attempt_number": 1,
+            },
+        )
+    )
+    assert (
+        await temp_storage._read_one(
+            "SELECT observation_id FROM delivery_observations "
+            "WHERE observation_id='ack-foreign-attempt'"
+        )
+        is None
+    )
+
+
+async def test_late_packet_ack_refuses_a_foreign_native_identity(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """A summary part naming another native message cannot authorize."""
+    stored, provenance = await _seed_reserved_claim(temp_storage)
+    await _bind_and_progress(temp_storage, provenance, ["accepted", "unsent", "unsent"])
+    now = await _install_elapsed_policy(temp_storage, provenance.event_id)
+    await temp_storage.enforce_content_ceilings(now=now)
+    foreign_handoff = RadioLocalHandoff(
+        1, "native-9", "ch-0", "local_transport"
+    ).encode()
+    await temp_storage._write(
+        "UPDATE radio_attempt_evidence_summaries SET parts_json=? "
+        "WHERE outbox_id=? AND attempt_number=1",
+        (
+            msgspec.json.encode(
+                [{"ordinal": 1, "state": "accepted", "handoff_id": foreign_handoff}]
+            ).decode(),
+            stored.outbox_id,
+        ),
+    )
+    assert not await temp_storage.append_radio_packet_observation(
+        _observation(
+            "ack-foreign-native",
+            provenance,
+            radio_packet={
+                "ordinal": 1,
+                "origin_outbox_id": stored.outbox_id,
+                "origin_attempt_number": 1,
+            },
+        )
+    )
+    assert (
+        await temp_storage._read_one(
+            "SELECT observation_id FROM delivery_observations "
+            "WHERE observation_id='ack-foreign-native'"
+        )
+        is None
+    )
