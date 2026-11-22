@@ -470,3 +470,84 @@ async def test_evidence_reader_prefers_the_summary_in_one_snapshot(
     assert combined is not None
     assert combined.revision == 9
     assert [part.state for part in combined.parts] == ["accepted"]
+
+
+async def test_sweep_does_not_project_checkpoint_from_incoherent_dispatch_lane(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """A decodable but alien dispatch source cannot mint packet acceptance."""
+    stored, provenance = await _seed_reserved_claim(temp_storage)
+    await _bind_and_progress(temp_storage, provenance, ["accepted", "unsent", "unsent"])
+    from dataclasses import replace
+
+    forged = replace(provenance, source="live")
+    await temp_storage._write(
+        "UPDATE delivery_outbox SET dispatch_source='retry' WHERE outbox_id=?",
+        (stored.outbox_id,),
+    )
+    await temp_storage._write(
+        "UPDATE radio_attempt_progress SET provenance_json=? WHERE outbox_id=?",
+        (msgspec.json.encode(forged).decode(), stored.outbox_id),
+    )
+    now = await _install_elapsed_policy(temp_storage, provenance.event_id)
+    await temp_storage.enforce_content_ceilings(now=now)
+    assert (
+        await temp_storage._read_one(
+            "SELECT 1 FROM radio_accepted_part_facts WHERE outbox_id=?",
+            (stored.outbox_id,),
+        )
+        is None
+    )
+    summary = await temp_storage.get_radio_attempt_evidence(stored.outbox_id, 1)
+    assert summary is not None and summary.parts[0].handoff_id == "{}"
+
+
+async def test_stale_checkpoint_cannot_mint_acceptance_behind_newer_summary(
+    temp_storage: SQLiteStorage,
+) -> None:
+    """An old accepted checkpoint cannot modify a newer undecided attempt."""
+    import json
+
+    stored, provenance = await _seed_reserved_claim(temp_storage)
+    await _bind_and_progress(temp_storage, provenance, ["accepted", "unsent", "unsent"])
+    await temp_storage._write(
+        "DELETE FROM radio_accepted_part_facts WHERE outbox_id=?",
+        (stored.outbox_id,),
+    )
+    assert (
+        await temp_storage._read_one(
+            "SELECT 1 FROM radio_accepted_part_facts WHERE outbox_id=?",
+            (stored.outbox_id,),
+        )
+        is None
+    )
+    await temp_storage._write(
+        "INSERT INTO radio_attempt_evidence_summaries "
+        "(outbox_id, attempt_number, provenance_json, parts_json, revision) "
+        "VALUES (?, ?, ?, ?, 9)",
+        (
+            stored.outbox_id,
+            provenance.attempt_number,
+            msgspec.json.encode(provenance).decode(),
+            json.dumps(
+                [
+                    {"ordinal": 1, "state": "submitting", "handoff_id": None},
+                    {"ordinal": 2, "state": "unsent", "handoff_id": None},
+                    {"ordinal": 3, "state": "unsent", "handoff_id": None},
+                ],
+                separators=(",", ":"),
+            ),
+        ),
+    )
+    now = await _install_elapsed_policy(temp_storage, provenance.event_id)
+    await temp_storage.enforce_content_ceilings(now=now)
+    summary = await temp_storage.get_radio_attempt_evidence(stored.outbox_id, 1)
+    assert summary is not None and summary.revision == 9
+    assert summary.parts[0].state == "submitting"
+    assert (
+        await temp_storage._read_one(
+            "SELECT 1 FROM radio_accepted_part_facts WHERE outbox_id=?",
+            (stored.outbox_id,),
+        )
+        is None
+    )

@@ -61,6 +61,7 @@ from typing import TYPE_CHECKING, Any
 
 import msgspec
 
+from medre.core.delivery_authority import dispatch_source_matches_attempt
 from medre.core.events.delivery import DeliveryAttemptProvenance
 from medre.core.storage.backend import StorageError
 from medre.core.storage.radio_handoff import RadioLocalHandoff
@@ -694,7 +695,7 @@ def _measure_and_purge(
         # wire plan is erased.
         parent = db.execute(
             "SELECT event_id, delivery_plan_id, target_adapter, target_channel, "
-            "replay_run_id FROM delivery_outbox WHERE outbox_id=?",
+            "dispatch_source, replay_run_id FROM delivery_outbox WHERE outbox_id=?",
             (saved.provenance.outbox_id,),
         ).fetchone()
         if parent is None or (
@@ -706,6 +707,11 @@ def _measure_and_purge(
             or (saved.provenance.target_channel or "")
             != (parent["target_channel"] or "")
             or saved.provenance.replay_run_id != parent["replay_run_id"]
+            or not dispatch_source_matches_attempt(
+                str(parent["dispatch_source"]),
+                saved.provenance.source,
+                saved.provenance.attempt_number,
+            )
         ):
             _retain_unreadable_radio_checkpoint(
                 db,
@@ -714,6 +720,7 @@ def _measure_and_purge(
             )
             continue
         evidence_parts: list[dict[str, Any]] = []
+        accepted_facts: list[tuple[str, int, int, str | None, str]] = []
         for part in saved.progress.parts:
             if part.state != "accepted":
                 evidence_parts.append(
@@ -746,22 +753,44 @@ def _measure_and_purge(
             if not original_attempt or fact.origin is None:
                 continue  # A continuation cannot create original acceptance.
             if fact.native_message_id:
-                db.execute(
-                    "INSERT INTO radio_accepted_part_facts "
-                    "(outbox_id, attempt_number, ordinal, native_channel_id, native_message_id) "
-                    "VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
+                accepted_facts.append(
                     (
                         fact.origin.outbox_id,
                         fact.origin.attempt_number,
                         fact.ordinal,
                         fact.native_channel_id,
                         fact.native_message_id,
-                    ),
+                    )
                 )
         if evidence_parts:
             _retain_radio_evidence_summary(
                 db, saved.provenance, evidence_parts, saved.revision
             )
+            # A newer or conflicting retained summary may reject this old
+            # checkpoint. Only the exact summary that actually won may mint
+            # corresponding original-acceptance facts. Both actions share the
+            # sweep transaction; an old checkpoint can never add authority
+            # behind an unchanged newer summary.
+            committed_summary = db.execute(
+                "SELECT provenance_json, parts_json, revision "
+                "FROM radio_attempt_evidence_summaries "
+                "WHERE outbox_id=? AND attempt_number=?",
+                (saved.provenance.outbox_id, saved.provenance.attempt_number),
+            ).fetchone()
+            if committed_summary is not None and (
+                committed_summary["revision"] == saved.revision
+                and committed_summary["provenance_json"]
+                == msgspec.json.encode(saved.provenance).decode()
+                and committed_summary["parts_json"]
+                == json.dumps(evidence_parts, separators=(",", ":"))
+            ):
+                for fact_params in accepted_facts:
+                    db.execute(
+                        "INSERT INTO radio_accepted_part_facts "
+                        "(outbox_id, attempt_number, ordinal, native_channel_id, native_message_id) "
+                        "VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
+                        fact_params,
+                    )
     db.execute(
         "DELETE FROM radio_attempt_progress WHERE outbox_id IN "
         "(SELECT outbox_id FROM delivery_outbox WHERE event_id=?)",
