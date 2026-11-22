@@ -50,6 +50,198 @@ def _load_schema() -> dict[str, Any]:
     return json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
 
 
+def test_current_runtime_schema_adds_the_optional_ceiling_sweep() -> None:
+    if not _HAS_JSONSCHEMA:
+        pytest.skip("jsonschema is optional")
+    from jsonschema import Draft202012Validator
+
+    from medre.config.model import (
+        CEILING_SWEEP_MAX_INTERVAL_SECONDS,
+        CEILING_SWEEP_MAX_LIMIT,
+        CeilingSweepConfig,
+    )
+
+    current = json.loads(
+        (_SCHEMAS_DIR / "current" / _SCHEMA_PATH.name).read_text(encoding="utf-8")
+    )
+    Draft202012Validator.check_schema(current)
+    expected = _load_schema()
+    frozen = _load_schema()
+    expected["$id"] = expected["$id"].replace(
+        "/schemas/runtime-config", "/schemas/current/runtime-config"
+    )
+    sweep = current["properties"]["retry"]["properties"]["ceiling_sweep"]
+    defaults = CeilingSweepConfig()
+    assert sweep["type"] == ["object", "null"]
+    assert sweep["additionalProperties"] is False
+    assert sweep.get("required", []) == []
+    assert sweep["properties"] == {
+        "enabled": {"type": "boolean", "default": defaults.enabled},
+        "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": CEILING_SWEEP_MAX_LIMIT,
+            "default": defaults.limit,
+            "description": "Write an actual YAML integer such as 50, not 50.0; the runtime type validator is authoritative.",
+        },
+        "interval_seconds": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": CEILING_SWEEP_MAX_INTERVAL_SECONDS,
+            "default": defaults.interval_seconds,
+        },
+    }
+    # Current-schema validation tracks loader coercions; the published export
+    # stays byte-for-byte unchanged. Every expected delta below is derived
+    # from the frozen schema at a named leaf with a pinned literal, so an
+    # unenumerated change inside any copied subtree fails the comparison.
+    expected["properties"]["retry"]["properties"]["ceiling_sweep"] = sweep
+    expected["properties"]["retry"]["type"] = ["object", "null"]
+    expected["properties"]["retry"]["properties"]["deadline_sweep"]["type"] = [
+        "object",
+        "null",
+    ]
+    retry_numbers = expected["properties"]["retry"]["properties"]
+    retry_numbers["interval_seconds"]["exclusiveMinimum"] = 0
+    retry_numbers["batch_size"]["minimum"] = 1
+    retry_numbers["max_attempts"]["minimum"] = 1
+
+    frozen_logging = frozen["properties"]["logging"]["properties"]
+    logging_props = expected["properties"]["logging"]["properties"]
+    logging_props["level"].pop("enum")
+    logging_props["level"]["pattern"] = (
+        "^(?:[dD][eE][bB][uU][gG]|[iI][nN][fF][oO]|[wW][aA][rR][nN][iI][nN][gG]"
+        "|[eE][rR][rR][oO][rR]|[cC][rR][iI][tT][iI][cC][aA][lL])$"
+    )
+    logging_props["format"].pop("enum")
+    logging_props["format"]["pattern"] = "^(?:[tT][eE][xX][tT]|[jJ][sS][oO][nN])$"
+    logging_props["overrides"]["propertyNames"] = {"minLength": 1}
+
+    context_map = expected["$defs"]["RouteEntry"]["allOf"][0]["then"]["anyOf"][1][
+        "properties"
+    ]["context_map"]
+    context_map["additionalProperties"]["type"] = "object"
+
+    content_ceiling = expected["properties"]["content_ceiling"]
+    content_ceiling["properties"]["max_age_seconds"]["type"] = ["integer", "null"]
+    content_ceiling["properties"]["max_age_seconds"]["description"] = (
+        "Bounded window between the trusted local admission time and the"
+        " absolute UTC content ceiling (1..31536000 seconds). Null is accepted"
+        " only while enabled is false; an enabled ceiling requires an integer"
+        " window, and an unbounded ceiling is refused."
+    )
+    content_ceiling["properties"]["enabled"]["description"] = (
+        "Master switch for creating hard content ceilings on new admissions."
+        " While false, admission produces no content deadline; ceilings already"
+        " installed on existing events remain in force and the separately"
+        " enabled ceiling sweep continues to enforce them."
+    )
+    content_ceiling["description"] = (
+        "Operator hard content privacy ceiling declaration"
+        " (ContentCeilingConfig). Disabled by default: an omitted or disabled"
+        " section stops installing new content ceilings at admission. Existing"
+        " immutable ceilings and their read denials remain authoritative, and"
+        " the independently enabled retry.ceiling_sweep may still enforce"
+        " them. When enabled, the declaration states one bounded window; the"
+        " producer derives each event's absolute UTC ceiling from the trusted"
+        " local admission time plus that window, writes it into the immutable"
+        " per-event ceiling row and the mandatory content dependency deadline"
+        " inside the admission transaction, and refuses mismatched existing"
+        " policies. An enabled section without max_age_seconds is refused."
+    )
+    accepted_window = (
+        content_ceiling["then"]
+        .setdefault("properties", {})
+        .setdefault("max_age_seconds", {})
+    )
+    accepted_window["type"] = "integer"
+    accepted_window["minimum"] = 1
+    accepted_window["maximum"] = 31536000
+    assert current == expected
+
+    # Independent leaf assertions: each enumerated delta names the frozen
+    # leaf it replaces, so a frozen-schema change alone fails here too.
+    current_logging = current["properties"]["logging"]["properties"]
+    assert "enum" in frozen_logging["level"]
+    assert "pattern" not in frozen_logging["level"]
+    assert current_logging["level"]["pattern"] == logging_props["level"]["pattern"]
+    assert "enum" in frozen_logging["format"]
+    assert "pattern" not in frozen_logging["format"]
+    assert current_logging["format"]["pattern"] == logging_props["format"]["pattern"]
+    frozen_route = frozen["$defs"]["RouteEntry"]
+    frozen_context_map = frozen_route["allOf"][0]["then"]["anyOf"][1]["properties"][
+        "context_map"
+    ]
+    assert "type" not in frozen_context_map["additionalProperties"]
+    assert (
+        current["$defs"]["RouteEntry"]["allOf"][0]["then"]["anyOf"][1]["properties"][
+            "context_map"
+        ]["additionalProperties"]["type"]
+        == "object"
+    )
+    assert frozen["properties"]["retry"]["properties"]["deadline_sweep"]["type"] == (
+        "object"
+    )
+    assert current["properties"]["retry"]["properties"]["deadline_sweep"]["type"] == [
+        "object",
+        "null",
+    ]
+    assert (
+        frozen["properties"]["content_ceiling"]["properties"]["max_age_seconds"]["type"]
+        == "integer"
+    )
+    assert current["properties"]["content_ceiling"]["properties"]["max_age_seconds"][
+        "type"
+    ] == ["integer", "null"]
+    Draft202012Validator(current).validate(
+        {"retry": {"ceiling_sweep": {"enabled": True}}}
+    )
+    Draft202012Validator(current).validate({"retry": None})
+
+
+@pytest.mark.parametrize(
+    "config,valid",
+    [
+        ({"logging": {"level": "dEbUg", "format": "JSON"}}, True),
+        ({"logging": {"level": 10}}, False),
+        ({"logging": {"format": "yaml"}}, False),
+        (
+            {"retry": {"interval_seconds": 0.5, "batch_size": 1, "max_attempts": 1}},
+            True,
+        ),
+        ({"retry": {"interval_seconds": 0}}, False),
+        ({"retry": {"batch_size": 0}}, False),
+        ({"retry": {"max_attempts": 0}}, False),
+        ({"content_ceiling": {"enabled": False, "max_age_seconds": None}}, True),
+        ({"content_ceiling": {"enabled": True, "max_age_seconds": None}}, False),
+        ({"content_ceiling": {"enabled": True, "max_age_seconds": 60}}, True),
+    ],
+)
+def test_current_runtime_schema_checks_logging_and_retry_values(config, valid):
+    validator = pytest.importorskip("jsonschema").Draft202012Validator
+    current = json.loads(
+        (_SCHEMAS_DIR / "current" / _SCHEMA_PATH.name).read_text(encoding="utf-8")
+    )
+    assert validator(current).is_valid(config) is valid
+
+
+@pytest.mark.parametrize(
+    "target,valid", [({"dest_context": "room"}, True), ("room", False)]
+)
+def test_current_runtime_schema_requires_structured_context_for_typing(target, valid):
+    validator = pytest.importorskip("jsonschema").Draft202012Validator
+    current = json.loads(
+        (_SCHEMAS_DIR / "current" / _SCHEMA_PATH.name).read_text(encoding="utf-8")
+    )
+    route = {
+        "source_adapters": ["source"],
+        "dest_adapters": ["target"],
+        "forward_typing": True,
+        "context_map": {"source-channel": target},
+    }
+    assert validator(current).is_valid({"routes": {"bridge": route}}) is valid
+
+
 def _load_yaml(path: Path) -> dict[str, Any]:
     """Load and parse a YAML config file as a Python dict."""
     import yaml

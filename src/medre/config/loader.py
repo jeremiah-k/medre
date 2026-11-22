@@ -31,10 +31,13 @@ from medre.config.errors import (
     ConfigValidationError,
 )
 from medre.config.model import (
+    CEILING_SWEEP_DEFAULT_INTERVAL_SECONDS,
+    CEILING_SWEEP_DEFAULT_LIMIT,
     DEADLINE_SWEEP_DEFAULT_INTERVAL_SECONDS,
     DEADLINE_SWEEP_DEFAULT_LIMIT,
     AdapterConfigSet,
     AttachmentConfig,
+    CeilingSweepConfig,
     ContentCeilingConfig,
     ContentRetentionConfig,
     DeadlineSweepConfig,
@@ -108,11 +111,23 @@ _KNOWN_TRANSPORTS: frozenset[str] = frozenset(registered_transports())
 #: Per-route retry sections have their own accepted-keys set in
 #: :mod:`medre.config.routes`.
 _GLOBAL_RETRY_KNOWN_KEYS: frozenset[str] = frozenset(
-    {"enabled", "interval_seconds", "batch_size", "max_attempts", "deadline_sweep"}
+    {
+        "enabled",
+        "interval_seconds",
+        "batch_size",
+        "max_attempts",
+        "deadline_sweep",
+        "ceiling_sweep",
+    }
 )
 
 #: Keys accepted in the ``[retry.deadline_sweep]`` subsection.
 _RETRY_DEADLINE_SWEEP_KNOWN_KEYS: frozenset[str] = frozenset(
+    {"enabled", "limit", "interval_seconds"}
+)
+
+#: Keys accepted in the ``[retry.ceiling_sweep]`` subsection.
+_RETRY_CEILING_SWEEP_KNOWN_KEYS: frozenset[str] = frozenset(
     {"enabled", "limit", "interval_seconds"}
 )
 
@@ -590,6 +605,15 @@ def parse_runtime_config(data: dict[str, Any], paths: MedrePaths) -> RuntimeConf
         _RETRY_DEADLINE_SWEEP_KNOWN_KEYS,
         section_path="retry.deadline_sweep",
     )
+    # [retry.ceiling_sweep] subsection — same bounded-sweep pattern.
+    ceiling_sweep_data = _get_section_dict(
+        retry_data, "ceiling_sweep", section_path="retry.ceiling_sweep"
+    )
+    _reject_unknown_keys(
+        ceiling_sweep_data,
+        _RETRY_CEILING_SWEEP_KNOWN_KEYS,
+        section_path="retry.ceiling_sweep",
+    )
     retry = RetryConfig(
         enabled=retry_data.get("enabled", False),
         interval_seconds=retry_data.get("interval_seconds", 10.0),
@@ -600,6 +624,13 @@ def parse_runtime_config(data: dict[str, Any], paths: MedrePaths) -> RuntimeConf
             limit=sweep_data.get("limit", DEADLINE_SWEEP_DEFAULT_LIMIT),
             interval_seconds=sweep_data.get(
                 "interval_seconds", DEADLINE_SWEEP_DEFAULT_INTERVAL_SECONDS
+            ),
+        ),
+        ceiling_sweep=CeilingSweepConfig(
+            enabled=ceiling_sweep_data.get("enabled", False),
+            limit=ceiling_sweep_data.get("limit", CEILING_SWEEP_DEFAULT_LIMIT),
+            interval_seconds=ceiling_sweep_data.get(
+                "interval_seconds", CEILING_SWEEP_DEFAULT_INTERVAL_SECONDS
             ),
         ),
     ).validate()
@@ -625,7 +656,10 @@ def parse_runtime_config(data: dict[str, Any], paths: MedrePaths) -> RuntimeConf
         msg = (
             f"adapters: unknown transport group(s): "
             f"{sorted(unknown_transports, key=lambda k: repr(k))}. "
-            f"Accepted transports: {sorted(_KNOWN_TRANSPORTS)}"
+            f"Accepted transports: {sorted(_KNOWN_TRANSPORTS)}. Transport "
+            "groups come from installed adapter distributions: run "
+            "`medre dev sync` for this checkout's SDK-free compatibility "
+            "set, or `medre adapters install <transport>` for one."
         )
         raise ConfigValidationError(msg, section_path="adapters")
     adapter_groups = {
