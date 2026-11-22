@@ -167,6 +167,8 @@ def _owns(
     native call that was already authorized. The exact worker, active attempt,
     status and newer-generation fences still apply, so a takeover or release
     still refuses the write; a mere lease lapse does not discard acceptance.
+    A malformed lease string is corrupt data, never permission, and refuses
+    every write path in either mode.
 
     Once the parent enters queued it has relinquished its worker reservation;
     a checkpoint must never resurrect native submission authority from that row.
@@ -203,11 +205,16 @@ def _owns(
     ).fetchone()
     if row is None:
         return False
-    if require_active_lease and row["lease_until"] is not None:
+    if row["lease_until"] is not None:
         try:
-            if _utc(datetime.fromisoformat(row["lease_until"])) <= _now_iso():
-                return False
+            lease_expired = (
+                _utc(datetime.fromisoformat(row["lease_until"])) <= _now_iso()
+            )
         except (ValueError, TypeError):
+            # A malformed lease is corrupt data, never permission: it refuses
+            # every write path, including recording an authorized completion.
+            return False
+        if require_active_lease and lease_expired:
             return False
     if (
         row["event_id"],
