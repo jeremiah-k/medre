@@ -52,7 +52,7 @@ never authorizes any read, retention action, or collection.
 2. **Operational authority** — statuses, ownership and lease facts
    (`worker_id`, `lease_until`, `locked_at`), attempt generations, guarded
    state pointers (`receipt_id` on the outbox), duplicate-prevention
-   authority (`payload_hash`), settlement and expiry bounds (`released_at`,
+   authority, settlement and expiry bounds (`released_at`,
    `revoked_at`, `expired_at`, ceilings), confirmation levels, and
    rebuildable conversation membership fields
    (root, conversation, resolved target, relation type and depth). Authority
@@ -63,8 +63,12 @@ never authorizes any read, retention action, or collection.
    separated `delivery_evidence_diagnostics.diagnostic` surface), the frozen
    outbox work snapshot document
    (`delivery_outbox_snapshots.context_json`), retained blobs, radio plan
-   JSON, and adapter cursor state: data whose lifetime is content ownership
-   rather than any delivery fact. This class mirrors the
+   JSON, the outbox's content-derived render digest
+   (`delivery_outbox.payload_hash`), and adapter cursor state: data whose
+   lifetime is content ownership rather than any delivery fact. Ceiling
+   enforcement measures the digest into logical bytes removed, clears it on
+   surviving outbox rows, and residual-verifies its removal; metadata-only
+   outbox projections withhold it. This class mirrors the
    enforced `CONTENT_SURFACES` inventory in
    `src/medre/core/storage/content.py` exactly; the guard test asserts set
    equality in both directions.
