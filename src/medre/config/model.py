@@ -292,7 +292,7 @@ class DeadlineSweepConfig:
         if not 1 <= self.limit <= DEADLINE_SWEEP_MAX_LIMIT:
             raise ConfigValidationError(
                 "deadline_sweep.limit must be between 1 and "
-                f"{DEADLINE_SWEEP_MAX_LIMIT}, got {self.limit}"
+                f"{DEADLINE_SWEEP_MAX_LIMIT}"
             )
         interval = self.interval_seconds
         if isinstance(interval, bool) or not isinstance(interval, (int, float)):
