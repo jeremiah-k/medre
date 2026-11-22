@@ -100,7 +100,7 @@ def start_synapse(data_dir: Path) -> SynapseInstance:
     registration secret and account passwords are generated per run.
     """
     # Removing a non-existent container exits nonzero; that is expected.
-    _docker(["rm", "-f", _CONTAINER], timeout=30, check=False)
+    _docker(["rm", "-f", "-v", _CONTAINER], timeout=30, check=False)
     registration_secret, bot_password, peer_password = _fresh_credentials()
 
     # Wipe stale artifacts from a previous run.  Both the generate step
@@ -313,7 +313,7 @@ def stop_synapse(*, suppress_errors: bool = False) -> None:
     it cannot replace the failure that triggered the cleanup.
     """
     try:
-        _docker(["rm", "-f", _CONTAINER], timeout=30)
+        _docker(["rm", "-f", "-v", _CONTAINER], timeout=30)
     except Exception:
         if not suppress_errors:
             raise
