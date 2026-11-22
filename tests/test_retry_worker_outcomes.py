@@ -1444,3 +1444,69 @@ async def test_retry_worker_abandons_outbox_when_content_authority_is_denied(
     assert worker.state.succeeded == 0
     # A rejected terminal CAS is not a second committed failure.
     assert worker.state.failed == 1
+
+
+async def test_reconciled_queued_outcome_reaches_the_event_buffer() -> None:
+    """A reconciled queue admission emits ``retry_queued`` on a real buffer.
+
+    Queue admission is neither delivery success nor failure: the counters
+    must not move, and the event must carry the admitted receipt identity.
+    """
+
+    from medre.core.engine.pipeline.delivery_lifecycle import (
+        RetryAttemptFinalization,
+    )
+    from medre.core.storage.backend import DeliveryOutboxItem
+    from medre.runtime.events import EventBuffer, RuntimeEventType
+    from medre.runtime.retry import RetryWorker
+
+    item = DeliveryOutboxItem(
+        outbox_id="obox-queued-reconciled",
+        event_id="evt-queued-reconciled",
+        route_id="route-queued-reconciled",
+        delivery_plan_id="plan-queued-reconciled",
+        target_adapter="target_a",
+        attempt_number=1,
+        status="in_progress",
+        worker_id="retry-worker-test",
+    )
+    storage = MagicMock()
+    storage.get_outbox_dispatch_context = AsyncMock(return_value=None)
+    storage.count_outbox_by_status = AsyncMock(return_value={})
+    pipeline = MagicMock()
+    event_buffer = EventBuffer(maxlen=64)
+
+    worker = RetryWorker(
+        storage=storage,
+        pipeline=pipeline,
+        capacity_controller=None,
+        enabled=True,
+        interval_seconds=300,
+        event_buffer=event_buffer,
+        stop_timeout_seconds=2.0,
+    )
+
+    worker._record_retry_finalization(
+        item,
+        RetryAttemptFinalization(
+            outcome="queued",
+            receipt_id="rcpt-queued-reconciled",
+            failure_kind=None,
+            attempt_number=1,
+        ),
+        reconciled=True,
+    )
+
+    events = list(event_buffer)
+    queued = [
+        event for event in events if event.event_type == RuntimeEventType.RETRY_QUEUED
+    ]
+    assert len(queued) == 1
+    assert queued[0].detail["event_id"] == item.event_id
+    assert queued[0].detail["receipt_id"] == "rcpt-queued-reconciled"
+    assert queued[0].detail["attempt_number"] == 1
+    assert queued[0].detail["reconciled"] is True
+    # Queue admission is distinct from delivery success and failure.
+    assert worker.state.succeeded == 0
+    assert worker.state.failed == 0
+    assert worker.state.dead_lettered == 0
