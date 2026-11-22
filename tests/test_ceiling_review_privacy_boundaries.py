@@ -154,10 +154,10 @@ def test_conflicting_radio_provenance_is_never_rewritten() -> None:
         assert row["provenance_json"] == before
         assert row["parts_json"] == _UNREADABLE_RADIO_PARTS
         assert row["revision"] == 6
-        from medre.core.rendering.radio_progress import RadioPartProgress
-        from medre.core.storage.radio import RadioAttemptEvidenceSummary
         from medre.core.delivery_authority import DeliveryIdentity
         from medre.core.evidence.handoff_resolution import resolve_uncertain_handoff
+        from medre.core.rendering.radio_progress import RadioPartProgress
+        from medre.core.storage.radio import RadioAttemptEvidenceSummary
 
         summary = RadioAttemptEvidenceSummary(
             original,
