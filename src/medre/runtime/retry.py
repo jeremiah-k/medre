@@ -654,6 +654,13 @@ class RetryWorker:
             )
             return
 
+        if finalization.outcome == "queued":
+            self._emit(
+                "retry_queued",
+                {**detail, "receipt_id": finalization.receipt_id},
+            )
+            return
+
         if finalization.outcome == "dead_lettered":
             self.state.failed += 1
             self.state.dead_lettered += 1
@@ -1563,7 +1570,7 @@ class RetryWorker:
                             return
                         evidence_count = resolved.observation_count
                         checkpoint_revision = resolved.checkpoint_revision
-                        scope_count = resolved.observation_scope_count
+                        scope_count = resolved.observation_scope_revision
                         if (
                             resolved.verdict == "delivered_with_evidence"
                             and current_receipts
@@ -1584,7 +1591,7 @@ class RetryWorker:
                             expected_observation_count=evidence_count,
                             expected_checkpoint_revision=checkpoint_revision,
                             expected_receipt_count=len(current_receipts),
-                            expected_observation_scope_count=scope_count,
+                            expected_observation_scope_revision=scope_count,
                         )
                         self.state.failed += 1
                     except RetryAttemptCommitRejected as stale:
@@ -1688,7 +1695,7 @@ class RetryWorker:
         # re-validates every condition itself.
         recheck_observation_count: int | None = None
         recheck_checkpoint_revision: int | None = None
-        recheck_observation_scope_count: int | None = None
+        recheck_observation_scope_revision: int | None = None
         if (
             self._handoff_resolver is not None
             and item.active_attempt is None
@@ -1722,7 +1729,9 @@ class RetryWorker:
             if isinstance(rechecked, UncertainHandoffResolution):
                 recheck_observation_count = rechecked.observation_count
                 recheck_checkpoint_revision = rechecked.checkpoint_revision
-                recheck_observation_scope_count = rechecked.observation_scope_count
+                recheck_observation_scope_revision = (
+                    rechecked.observation_scope_revision
+                )
                 if recheck_observation_count is None:
                     # Evidence decoding failed. Leaving the owned claim leased
                     # permits a new read after reclaim; dispatch and terminal
@@ -1797,8 +1806,8 @@ class RetryWorker:
                             return
                         recheck_observation_count = checked.observation_count
                         recheck_checkpoint_revision = checked.checkpoint_revision
-                        recheck_observation_scope_count = (
-                            checked.observation_scope_count
+                        recheck_observation_scope_revision = (
+                            checked.observation_scope_revision
                         )
                     elif checked is not None:
                         self.state.processed += 1
@@ -1837,6 +1846,27 @@ class RetryWorker:
                     attempt_number=item.active_attempt or item.attempt_number,
                 )
                 return
+            if any(r.status in {"sent", "queued"} for r in denied_receipts):
+                try:
+                    finalization = await self._lifecycle.settle_committed_acceptance(
+                        self._lifecycle_storage,
+                        item,
+                        attempt_number=item.active_attempt or item.attempt_number,
+                        receipts=denied_receipts,
+                    )
+                    self.state.processed += 1
+                    self._record_retry_finalization(item, finalization, reconciled=True)
+                except RetryAttemptCommitRejected as stale:
+                    self.state.processed += 1
+                    self._log_superseded_transition(item, stale)
+                except Exception as lifecycle_exc:
+                    self.state.processed += 1
+                    self._record_lifecycle_persistence_error(
+                        item,
+                        lifecycle_exc,
+                        attempt_number=item.active_attempt or item.attempt_number,
+                    )
+                return
             self.state.processed += 1
             try:
                 await self._lifecycle.abandon_retry_outbox(
@@ -1845,7 +1875,9 @@ class RetryWorker:
                     error_summary="content_authority_denied",
                     expected_observation_count=recheck_observation_count,
                     expected_checkpoint_revision=recheck_checkpoint_revision,
-                    expected_observation_scope_count=(recheck_observation_scope_count),
+                    expected_observation_scope_revision=(
+                        recheck_observation_scope_revision
+                    ),
                     expected_receipt_count=(
                         len(denied_receipts)
                         if (item.active_attempt or item.attempt_number) >= 1
@@ -2095,7 +2127,9 @@ class RetryWorker:
                         0 if recheck_observation_count is not None else None
                     ),
                     expected_checkpoint_revision=recheck_checkpoint_revision,
-                    expected_observation_scope_count=(recheck_observation_scope_count),
+                    expected_observation_scope_revision=(
+                        recheck_observation_scope_revision
+                    ),
                 )
             except Exception as lifecycle_exc:
                 self.state.processed += 1

@@ -79,7 +79,7 @@ plus the SQLite-level remnants. Coverage classes:
 | `canonical_events`                                              | `payload`, `metadata`                                                                                                                                                                | cleared-on-surviving-rows | values set to `'{}'`; identity columns retained                                                                                                                                                                           |
 | `event_relations`                                               | `key`, `metadata`                                                                                                                                                                    | cleared-on-surviving-rows | `key` nulled, `metadata` set to `'{}'`; relation identity retained                                                                                                                                                        |
 | `native_message_refs`                                           | `metadata`                                                                                                                                                                           | cleared-on-surviving-rows | set to `'{}'`; correlation identity retained                                                                                                                                                                              |
-| `delivery_outbox`                                               | `metadata` (inline frozen dispatch context)                                                                                                                                          | cleared-on-surviving-rows | set to `'{}'`; generations never deleted                                                                                                                                                                                  |
+| `delivery_outbox`                                               | `metadata` (inline frozen dispatch context), `payload_hash` (render-input digest)                                                                                           | cleared-on-surviving-rows | metadata set to `'{}'` and payload hash set to `NULL`; generations never deleted                                                                                                                                                                                  |
 | `delivery_observations`                                         | `metadata`                                                                                                                                                                           | cleared-on-surviving-rows | set to `'{}'`; evidence rows retained                                                                                                                                                                                     |
 | `delivery_evidence_diagnostics`                                 | `diagnostic`                                                                                                                                                                         | purged                    | rows deleted for the event's receipts, observations, outbox rows, and ingress work                                                                                                                                        |
 | `radio_attempt_progress`                                        | `plan_json`, `provenance_json`, `parts_json`                                                                                                                                         | purged                    | rows deleted for the event's outbox generations                                                                                                                                                                           |
@@ -109,6 +109,7 @@ plus the SQLite-level remnants. Coverage classes:
 | SQLite free pages and WAL frames                                | former page images of any of the above                                                                                                                                               | unmeasured                | explicit operator erasure step (§5)                                                                                                                                                                                       |
 | `radio_attempt_evidence_summaries`                              | Exact attempt provenance, packet states and native correlation, revision, or a closed unreadable-checkpoint marker. No wire bytes, grants, diagnostic text, or payload fingerprints. | retained-identity         | Preserve only the typed evidence projection; an undecodable checkpoint keeps a non-authorizing blocker so it cannot become message-only proof.                                                                            |
 | `delivery_observation_scopes`                                   | Verified original outbox and attempt identity, packet ordinal, or an unreadable-scope marker.                                                                                        | retained-identity         | Preserve scope while clearing provider metadata.                                                                                                                                                                          |
+| `delivery_observation_scope_versions`                          | Exact-attempt monotonic revision for every packet-scope mutation, without provider text.                                                                                             | retained-identity         | Three atomic triggers advance the revision on scope insertion, change, or deletion; a row count alone cannot fence an in-place rewrite.                                                                                  |
 
 The registry contract (`STORAGE_COLUMN_CLASSES`) is the column-level
 authority for "content-potential": the enforcement purge and the residual
@@ -155,19 +156,27 @@ The guarded ceiling-enforcement transition is a single mutation boundary:
   values cleared.
 - Writes racing the sweep from the pre-ceiling authorization window MAY
   append evidence rows afterwards; the sweep's residual pass removes
-  their content values, and the receipt stays valid. This is the honest
+  their content values, and the receipt stays valid. An authorized read of
+  event B also withholds an excerpt quoted from A as soon as A expires,
+  even if B remains unexpired and the excerpt has not yet been purged.
+  This includes canonical and native-target quote references. This is the honest
   boundary between "gone by enforcement" and writes already authorized
   before the instant.
 - A terminal evidence fence MUST cover every retained evidence version that
   can change the decision: the exact-attempt observation count, receipt count,
-  checkpoint revision, and retained packet-scope count. A sweep that restores
+  checkpoint revision, and retained packet-scope mutation revision. A sweep that restores
   packet correlation for a legacy acknowledgment therefore invalidates a
   stale abandonment decision rather than letting it commit.
 - When content is denied after a receipt was persisted, a committed `sent`
-  or `queued` receipt for the claimed attempt settles the outbox `sent`
-  without another dispatch. Positive exact-attempt native evidence also
-  settles `sent` alongside a historical failed receipt; both the accepted
-  and failed receipt rows remain immutable history. No settlement fabricates a
+  receipt for the exact delivery identity may settle the outbox `sent`
+  without another dispatch. A `queued` receipt proves only local queue
+  acceptance: reconciliation retains `queued` and leaves deferred completion
+  outstanding. Receipts with contradictory event, plan, adapter, destination,
+  origin, or replay-run provenance cannot settle either state. Positive
+  exact-attempt native evidence also settles `sent` alongside a historical
+  failed receipt; both rows remain immutable. A receipt-less evidence
+  settlement fences the exact-attempt packet-scope mutation revision so an
+  in-place repair invalidates stale conclusions. No settlement fabricates a
   receipt or restores send authority.
 
 Runtime invocation rides the existing LIVE-mode outbox poll cycle behind

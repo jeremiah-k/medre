@@ -22,6 +22,7 @@ from medre.core.storage.sqlite.schema import _INDEXES, _SCHEMA
                 "radio_accepted_part_facts",
                 "radio_attempt_evidence_summaries",
                 "delivery_observation_scopes",
+                "delivery_observation_scope_versions",
             },
         ),
         (

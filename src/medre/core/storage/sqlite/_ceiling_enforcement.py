@@ -174,7 +174,7 @@ _RESIDUAL_BATTERY: tuple[tuple[str, str], ...] = (
     (
         "delivery_outbox",
         "EXISTS (SELECT 1 FROM delivery_outbox o WHERE o.event_id={ev} "  # nosec B608 - closed module-owned fragment; event reference is a bind parameter or correlated column
-        "AND o.metadata<>'{}')",
+        "AND (o.metadata<>'{}' OR o.payload_hash IS NOT NULL))",
     ),
     # Provider metadata on the event's delivery observations.
     (
@@ -413,11 +413,16 @@ def _retain_unreadable_radio_checkpoint(
     db: sqlite3.Connection, outbox_id: str, attempt_number: int
 ) -> None:
     """Retain a non-authorizing blocker for a checkpoint we cannot trust."""
+    prior = db.execute(
+        "SELECT revision FROM radio_attempt_evidence_summaries "
+        "WHERE outbox_id=? AND attempt_number=?",
+        (outbox_id, attempt_number),
+    ).fetchone()
     _retain_radio_evidence_summary(
         db,
         _radio_summary_provenance(db, outbox_id, attempt_number),
         json.loads(_UNREADABLE_RADIO_PARTS),
-        2,
+        max(2, int(prior["revision"]) + 1 if prior is not None else 2),
     )
 
 
@@ -427,26 +432,41 @@ def _retain_radio_evidence_summary(
     parts: list[dict[str, Any]],
     revision: int,
 ) -> None:
-    """Upsert the content-free evidence summary without regressing revision.
+    """Advance closed evidence without rewriting the attempt's provenance.
 
-    An equal-revision write wins so a newly observed unreadable checkpoint can
-    replace an older summary with the same transition count. A strictly older
-    checkpoint never overwrites newer retained evidence.
+    A stale checkpoint cannot regress a newer summary. Conflicting provenance
+    or a different claim at the *same* revision is incoherent evidence, not
+    permission to reattribute an accepted handoff: preserve the original
+    identity, replace only the parts with a content-free unreadable marker,
+    and advance the revision so stale settlements are rejected.
     """
     db.execute(
         "INSERT INTO radio_attempt_evidence_summaries "
         "(outbox_id, attempt_number, provenance_json, parts_json, revision) "
         "VALUES (?, ?, ?, ?, ?) "
         "ON CONFLICT(outbox_id, attempt_number) DO UPDATE SET "
-        "provenance_json=excluded.provenance_json, "
-        "parts_json=excluded.parts_json, revision=excluded.revision "
-        "WHERE excluded.revision >= radio_attempt_evidence_summaries.revision",
+        "parts_json=CASE "
+        "WHEN excluded.provenance_json<>radio_attempt_evidence_summaries.provenance_json "
+        "OR (excluded.revision=radio_attempt_evidence_summaries.revision "
+        "AND excluded.parts_json<>radio_attempt_evidence_summaries.parts_json) "
+        "THEN ? "
+        "WHEN excluded.revision>=radio_attempt_evidence_summaries.revision "
+        "THEN excluded.parts_json ELSE radio_attempt_evidence_summaries.parts_json END, "
+        "revision=CASE "
+        "WHEN excluded.provenance_json<>radio_attempt_evidence_summaries.provenance_json "
+        "OR (excluded.revision=radio_attempt_evidence_summaries.revision "
+        "AND excluded.parts_json<>radio_attempt_evidence_summaries.parts_json) "
+        "THEN MAX(excluded.revision, radio_attempt_evidence_summaries.revision)+1 "
+        "ELSE MAX(excluded.revision, radio_attempt_evidence_summaries.revision) END "
+        "WHERE excluded.revision>=radio_attempt_evidence_summaries.revision "
+        "OR excluded.provenance_json<>radio_attempt_evidence_summaries.provenance_json",
         (
             provenance.outbox_id,
             provenance.attempt_number,
             msgspec.json.encode(provenance).decode(),
             json.dumps(parts, separators=(",", ":")),
             revision,
+            _UNREADABLE_RADIO_PARTS,
         ),
     )
 
@@ -542,7 +562,16 @@ def _measure_and_purge(
         (event_id,),
     ).fetchone()
     logical_bytes += int(outbox_metadata[0])
-    db.execute("UPDATE delivery_outbox SET metadata='{}' WHERE event_id=?", (event_id,))
+    outbox_hashes = db.execute(
+        "SELECT COALESCE(SUM(length(CAST(payload_hash AS BLOB))), 0) "
+        "FROM delivery_outbox WHERE event_id=? AND payload_hash IS NOT NULL",
+        (event_id,),
+    ).fetchone()
+    logical_bytes += int(outbox_hashes[0])
+    db.execute(
+        "UPDATE delivery_outbox SET metadata='{}', payload_hash=NULL WHERE event_id=?",
+        (event_id,),
+    )
 
     # Provider metadata on the event's delivery observations.
     observation_metadata = db.execute(
@@ -561,7 +590,9 @@ def _measure_and_purge(
     ):
         try:
             metadata = json.loads(observation["metadata"])
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, RecursionError):
+            # Legacy JSON can be syntactically valid but too deeply nested
+            # to decode. It must not block enforcement of unrelated events.
             metadata = {"radio_packet": None}
         scope = observation_scope(
             metadata,
@@ -647,7 +678,7 @@ def _measure_and_purge(
     ):
         try:
             saved = _decode(checkpoint_row)
-        except (StorageError, ValueError, TypeError):
+        except (StorageError, ValueError, TypeError, RecursionError):
             # Invalid wire plans must still be erased, but their existence
             # must survive. Without a retained blocker, a later whole-message
             # observation could settle through the no-checkpoint path as if
@@ -668,7 +699,9 @@ def _measure_and_purge(
             (saved.provenance.outbox_id,),
         ).fetchone()
         if parent is None or (
-            saved.provenance.event_id != parent["event_id"]
+            saved.provenance.outbox_id != checkpoint_row["outbox_id"]
+            or saved.provenance.attempt_number != checkpoint_row["attempt_number"]
+            or saved.provenance.event_id != parent["event_id"]
             or saved.provenance.delivery_plan_id != parent["delivery_plan_id"]
             or saved.provenance.target_adapter != parent["target_adapter"]
             or (saved.provenance.target_channel or "")

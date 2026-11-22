@@ -106,5 +106,9 @@ class RadioAttemptEvidenceSummary:
             0 if part.state == "unsent" else 1 if part.state == "submitting" else 2
             for part in self.parts
         )
-        if type(self.revision) is not int or self.revision != transitions:
+        # A compact evidence summary keeps its original transition count as a
+        # lower bound, but its CAS revision can advance further when a later
+        # unreadable or contradictory checkpoint invalidates prior evidence.
+        # The summary is never a resumable radio checkpoint or send grant.
+        if type(self.revision) is not int or self.revision < transitions:
             raise ValueError("radio evidence summary revision is inconsistent")

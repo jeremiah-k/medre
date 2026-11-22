@@ -424,6 +424,45 @@ CREATE TABLE IF NOT EXISTS delivery_observations (
     CHECK (confirmation_level IN ('unknown', 'local_queue', 'local_transport', 'remote_service', 'end_to_end'))
 );
 
+-- An exact-attempt serial for every stored packet-scope insertion, repair, or
+-- removal. A scope row count cannot fence an in-place repair: revisions are
+-- advanced by triggers in the same transaction as every scope mutation.
+-- Only content-free identities and a monotone integer are retained.
+CREATE TABLE IF NOT EXISTS delivery_observation_scope_versions (
+    outbox_id TEXT NOT NULL REFERENCES delivery_outbox(outbox_id),
+    attempt_number INTEGER NOT NULL CHECK (attempt_number >= 1),
+    revision INTEGER NOT NULL CHECK (revision >= 1),
+    PRIMARY KEY (outbox_id, attempt_number)
+);
+
+CREATE TRIGGER IF NOT EXISTS trg_scope_version_insert
+AFTER INSERT ON delivery_observation_scopes
+BEGIN
+    INSERT INTO delivery_observation_scope_versions (outbox_id, attempt_number, revision)
+    SELECT o.outbox_id, o.attempt_number, 1 FROM delivery_observations o
+    WHERE o.observation_id=NEW.observation_id
+    ON CONFLICT(outbox_id, attempt_number) DO UPDATE SET revision=revision+1;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_scope_version_update
+AFTER UPDATE OF scope_json ON delivery_observation_scopes
+WHEN OLD.scope_json IS NOT NEW.scope_json
+BEGIN
+    INSERT INTO delivery_observation_scope_versions (outbox_id, attempt_number, revision)
+    SELECT o.outbox_id, o.attempt_number, 1 FROM delivery_observations o
+    WHERE o.observation_id=NEW.observation_id
+    ON CONFLICT(outbox_id, attempt_number) DO UPDATE SET revision=revision+1;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_scope_version_delete
+AFTER DELETE ON delivery_observation_scopes
+BEGIN
+    INSERT INTO delivery_observation_scope_versions (outbox_id, attempt_number, revision)
+    SELECT o.outbox_id, o.attempt_number, 1 FROM delivery_observations o
+    WHERE o.observation_id=OLD.observation_id
+    ON CONFLICT(outbox_id, attempt_number) DO UPDATE SET revision=revision+1;
+END;
+
 -- Free-form delivery diagnostic text, separated at write time from the durable
 -- delivery facts that remain inline in the evidence rows.  One append-only row
 -- per written field; evidence rows carry no inline diagnostic columns and
@@ -867,6 +906,9 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
         {"outbox_id", "attempt_number", "provenance_json", "parts_json", "revision"}
     ),
     "delivery_observation_scopes": frozenset({"observation_id", "scope_json"}),
+    "delivery_observation_scope_versions": frozenset(
+        {"outbox_id", "attempt_number", "revision"}
+    ),
     "radio_accepted_part_facts": frozenset(
         {
             "outbox_id",
@@ -1384,6 +1426,15 @@ _HANDOFF_FACTS_DDL = _SCHEMA[
     _SCHEMA.index(
         "-- Content-free exact-attempt uncertainty evidence."
     ) : _SCHEMA.index("CREATE TABLE IF NOT EXISTS delivery_observations (")
+]
+
+# Scope revision objects extend the existing content-free evidence tables
+# without editing any released schema bytes. Existing scope rows start at
+# revision zero; their first subsequent mutation advances to one.
+_SCOPE_VERSIONS_DDL = _SCHEMA[
+    _SCHEMA.index(
+        "-- An exact-attempt serial for every stored packet-scope"
+    ) : _SCHEMA.index("-- Free-form delivery diagnostic text, separated")
 ]
 
 # Derive the approved additive snapshot-table DDL verbatim from the

@@ -228,6 +228,7 @@ def test_d0_expected_state_allows_only_the_empty_approved_tables(
             "radio_accepted_part_facts",
             "radio_attempt_evidence_summaries",
             "delivery_observation_scopes",
+            "delivery_observation_scope_versions",
         )
         approved_indexes = {
             "idx_ceiling_enforcement_order",
@@ -237,6 +238,8 @@ def test_d0_expected_state_allows_only_the_empty_approved_tables(
             if kind == "table" and name in approved:
                 db.execute(sql)
             elif kind == "index" and name in approved_indexes:
+                db.execute(sql)
+            elif kind == "trigger" and name.startswith("trg_scope_version_"):
                 db.execute(sql)
         assert driver._dump_state(path) == expected
         with db:
@@ -286,6 +289,7 @@ def test_released_010_database_reopens_on_current_wheel(tmp_path: Path) -> None:
         "delivery_handoff_settlements",
         "delivery_handoff_uncertainty",
         "delivery_observation_scopes",
+        "delivery_observation_scope_versions",
         "event_content_ceiling_log",
         "radio_accepted_part_facts",
         "radio_attempt_evidence_summaries",

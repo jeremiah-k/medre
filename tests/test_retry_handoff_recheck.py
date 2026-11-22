@@ -390,7 +390,7 @@ async def test_recheck_passes_observation_count_to_reservation(count):
         expected_observation_count=count,
         expected_receipt_count=0,
         expected_checkpoint_revision=None,
-        expected_observation_scope_count=None,
+        expected_observation_scope_revision=None,
     )
     pipeline.deliver_execution_to_target.assert_not_called()
     emit.assert_not_called()
@@ -518,7 +518,7 @@ async def test_expired_dispatch_context_fences_existing_failed_receipt():
         expected_observation_count=None,
         expected_checkpoint_revision=None,
         expected_receipt_count=1,
-        expected_observation_scope_count=None,
+        expected_observation_scope_revision=None,
     )
     pipeline.deliver_execution_to_target.assert_not_awaited()
 

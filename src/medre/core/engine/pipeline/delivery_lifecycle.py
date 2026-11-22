@@ -93,6 +93,7 @@ from medre.core.delivery_authority import (
     delivery_attempt_provenance_mismatch,
     delivery_attempt_receipt_provenance_mismatch,
     delivery_identity,
+    dispatch_source_matches_attempt,
     effective_generation,
     queued_receipts_for_attempt,
     receipts_for_attempt,
@@ -178,7 +179,7 @@ class _ObservationGuard(TypedDict, total=False):
     expected_observation_count: int
     expected_receipt_count: int
     expected_checkpoint_revision: int
-    expected_observation_scope_count: int
+    expected_observation_scope_revision: int
 
 
 # Failed receipt evidence without a canonical taxonomy value is unsafe to
@@ -289,7 +290,7 @@ class DeliveryLifecycleStorage(Protocol):
         expected_observation_count: int | None = None,
         expected_receipt_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
-        expected_observation_scope_count: int | None = None,
+        expected_observation_scope_revision: int | None = None,
     ) -> int | None:
         """Reserve the next attempt for the current claim owner.
 
@@ -326,7 +327,7 @@ class DeliveryLifecycleStorage(Protocol):
         expected_observation_count: int | None = None,
         expected_receipt_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
-        expected_observation_scope_count: int | None = None,
+        expected_observation_scope_revision: int | None = None,
     ) -> bool:
         """Commit a sent outcome if the supplied attempt and owner still match.
 
@@ -344,8 +345,10 @@ class DeliveryLifecycleStorage(Protocol):
         receipt_id: str | None = None,
         attempt_number: int | None = None,
         expected_worker_id: str | None = None,
+        *,
+        expected_receipt_count: int | None = None,
     ) -> bool:
-        """Commit queue acceptance if the supplied attempt and owner still match.
+        """Commit queue acceptance against exact attempt, owner and receipt set.
 
         Return ``False`` when the guarded transition did not commit.
         """
@@ -365,7 +368,7 @@ class DeliveryLifecycleStorage(Protocol):
         expected_observation_count: int | None = None,
         expected_receipt_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
-        expected_observation_scope_count: int | None = None,
+        expected_observation_scope_revision: int | None = None,
     ) -> bool:
         """Schedule the next attempt if the supplied attempt and owner match.
 
@@ -386,7 +389,7 @@ class DeliveryLifecycleStorage(Protocol):
         expected_observation_count: int | None = None,
         expected_receipt_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
-        expected_observation_scope_count: int | None = None,
+        expected_observation_scope_revision: int | None = None,
     ) -> bool:
         """Commit terminal failure if the supplied attempt and owner match.
 
@@ -421,7 +424,7 @@ class DeliveryLifecycleStorage(Protocol):
         expected_observation_count: int | None = None,
         expected_receipt_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
-        expected_observation_scope_count: int | None = None,
+        expected_observation_scope_revision: int | None = None,
     ) -> bool:
         """Abandon the row only while its optional claim owner still matches.
 
@@ -447,6 +450,7 @@ class RetryAttemptFinalization:
 
     outcome: Literal[
         "accepted",
+        "queued",
         "suppressed",
         "retry_wait",
         "dead_lettered",
@@ -1315,7 +1319,7 @@ class DeliveryLifecycleService:
         error_summary: str,
         expected_observation_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
-        expected_observation_scope_count: int | None = None,
+        expected_observation_scope_revision: int | None = None,
         expected_receipt_count: int | None = None,
     ) -> None:
         """Persist terminal abandonment only against unchanged attempt evidence."""
@@ -1333,9 +1337,9 @@ class DeliveryLifecycleService:
             evidence_guard["expected_checkpoint_revision"] = (
                 expected_checkpoint_revision
             )
-        if expected_observation_scope_count is not None:
-            evidence_guard["expected_observation_scope_count"] = (
-                expected_observation_scope_count
+        if expected_observation_scope_revision is not None:
+            evidence_guard["expected_observation_scope_revision"] = (
+                expected_observation_scope_revision
             )
         committed = await storage.mark_outbox_abandoned(
             item.outbox_id,
@@ -1698,7 +1702,7 @@ class DeliveryLifecycleService:
         expected_observation_count: int | None = None,
         expected_receipt_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
-        expected_observation_scope_count: int | None = None,
+        expected_observation_scope_revision: int | None = None,
     ) -> int | None:
         """Durably reserve the next attempt on a row this worker claimed.
 
@@ -1725,9 +1729,9 @@ class DeliveryLifecycleService:
             evidence_guard["expected_checkpoint_revision"] = (
                 expected_checkpoint_revision
             )
-        if expected_observation_scope_count is not None:
-            evidence_guard["expected_observation_scope_count"] = (
-                expected_observation_scope_count
+        if expected_observation_scope_revision is not None:
+            evidence_guard["expected_observation_scope_revision"] = (
+                expected_observation_scope_revision
             )
         return await storage.reserve_outbox_attempt(
             item.outbox_id,
@@ -1863,9 +1867,9 @@ class DeliveryLifecycleService:
                     evidence_guard["expected_observation_count"] = (
                         resolution.observation_count
                     )
-                if resolution.observation_scope_count is not None:
-                    evidence_guard["expected_observation_scope_count"] = (
-                        resolution.observation_scope_count
+                if resolution.observation_scope_revision is not None:
+                    evidence_guard["expected_observation_scope_revision"] = (
+                        resolution.observation_scope_revision
                     )
                 if resolution.verdict == "definitively_not_submitted":
                     failure_detail = HANDOFF_NOT_SUBMITTED_DETAIL
@@ -1965,35 +1969,68 @@ class DeliveryLifecycleService:
         attempt_number: int,
         receipts: list[DeliveryReceipt],
     ) -> RetryAttemptFinalization:
-        """Commit a ``sent`` transition from an already-persisted acceptance.
+        """Reconcile a committed receipt without promoting local queue admission.
 
         Content denial can follow a ``queued``/``sent`` receipt whose outbox
-        transition never committed. The receipt is authoritative native
-        acceptance; settle it without dispatching or fabricating evidence.
+        transition never committed. Only ``sent`` proves completion; queued
+        retains the deferred-completion obligation without redispatching.
         """
-        accepted = next(
-            (receipt for receipt in receipts if receipt.status in {"sent", "queued"}),
-            None,
+        identity = DeliveryIdentity(
+            item.event_id,
+            item.delivery_plan_id,
+            item.target_adapter,
+            item.target_channel,
         )
+        for receipt in receipts:
+            if (
+                receipt.outbox_id != item.outbox_id
+                or receipt.attempt_number != attempt_number
+                or delivery_identity(receipt) != identity
+                or (receipt.replay_run_id or None) != (item.replay_run_id or None)
+                or not dispatch_source_matches_attempt(
+                    item.dispatch_source or "live", receipt.source, attempt_number
+                )
+            ):
+                raise StorageError(
+                    "Committed receipt provenance contradicts the claimed delivery attempt"
+                )
+        # Local queue admission is not a completed native handoff. A queued
+        # receipt cannot close the outbox as sent or suppress its deferred
+        # completion callback. Prefer a completed receipt if both exist.
+        accepted = next((r for r in receipts if r.status == "sent"), None)
+        if accepted is None:
+            accepted = next((r for r in receipts if r.status == "queued"), None)
         if accepted is None:
             raise StorageError(
                 "Settling a committed acceptance requires a sent or queued receipt"
             )
-        committed = await storage.mark_outbox_sent(
-            item.outbox_id,
-            receipt_id=accepted.receipt_id,
-            attempt_number=attempt_number,
-            expected_worker_id=item.worker_id,
-            expected_receipt_count=len(receipts),
-        )
+        outcome: Literal["accepted", "queued"]
+        if accepted.status == "queued":
+            committed = await storage.mark_outbox_queued(
+                item.outbox_id,
+                receipt_id=accepted.receipt_id,
+                attempt_number=attempt_number,
+                expected_worker_id=item.worker_id,
+                expected_receipt_count=len(receipts),
+            )
+            outcome = "queued"
+        else:
+            committed = await storage.mark_outbox_sent(
+                item.outbox_id,
+                receipt_id=accepted.receipt_id,
+                attempt_number=attempt_number,
+                expected_worker_id=item.worker_id,
+                expected_receipt_count=len(receipts),
+            )
+            outcome = "accepted"
         self._require_retry_commit(
             committed,
             item,
-            transition="sent",
+            transition=accepted.status,
             attempt_number=attempt_number,
         )
         return RetryAttemptFinalization(
-            outcome="accepted",
+            outcome=outcome,
             receipt_id=accepted.receipt_id,
             failure_kind=accepted.failure_kind,
             attempt_number=attempt_number,
@@ -2031,6 +2068,7 @@ class DeliveryLifecycleService:
             expected_observation_count=resolution.observation_count,
             expected_receipt_count=expected_receipt_count,
             expected_checkpoint_revision=resolution.checkpoint_revision,
+            expected_observation_scope_revision=resolution.observation_scope_revision,
         )
         self._require_retry_commit(
             committed,

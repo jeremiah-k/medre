@@ -128,7 +128,7 @@ class UncertainHandoffResolution:
     populated when the radio checkpoint can be classified. The observation
     count fences settlement or the next reservation against appended evidence.
     ``checkpoint_revision=-1`` records the absence of a checkpoint; an actual
-    checkpoint carries its non-negative CAS revision. The scope count is the
+    checkpoint carries its non-negative CAS revision. The scope revision is the
     packet-correlation evidence version: the ceiling sweep can restore a
     legacy packet scope without changing the observation count, so terminal
     writes must fence it too. ``None`` means evidence was unreadable and
@@ -145,7 +145,7 @@ class UncertainHandoffResolution:
     unsent_parts: int | None = None
     observation_count: int | None = None
     checkpoint_revision: int | None = None
-    observation_scope_count: int | None = None
+    observation_scope_revision: int | None = None
 
     def summary(self) -> str:
         """Return a bounded human-readable statement of what was decided."""
@@ -552,7 +552,7 @@ class HandoffEvidenceStore(Protocol):
     Backends without these surfaces leave resolution dormant at the runtime
     composition boundary, mirroring the optional deadline-sweep policy. The
     observation snapshot returns the evidence rows together with the
-    retained packet-scope count that terminal-write fences require: a
+    retained packet-scope revision that terminal-write fences require: a
     backend that cannot supply that version in one atomic read cannot arm
     resolution at all, because an unfenced scope version could silently
     weaken the terminal evidence guarantee.
@@ -648,5 +648,5 @@ class EvidenceBackedHandoffResolver:
             resolution,
             observation_count=len(observations),
             checkpoint_revision=checkpoint.revision if checkpoint is not None else -1,
-            observation_scope_count=scope_count,
+            observation_scope_revision=scope_count,
         )

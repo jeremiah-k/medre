@@ -289,7 +289,7 @@ STORAGE_COLUMN_CLASSES: dict[str, dict[str, ColumnClass]] = {
         "locked_at": ColumnClass.OPERATIONAL_AUTHORITY,
         "lease_until": ColumnClass.OPERATIONAL_AUTHORITY,
         "worker_id": ColumnClass.OPERATIONAL_AUTHORITY,
-        "payload_hash": ColumnClass.OPERATIONAL_AUTHORITY,
+        "payload_hash": ColumnClass.INDEPENDENTLY_OWNED_CONTENT,
         "receipt_id": ColumnClass.OPERATIONAL_AUTHORITY,
         "parent_receipt_id": ColumnClass.IMMUTABLE_IDENTITY,
         "dispatch_source": ColumnClass.OPERATIONAL_AUTHORITY,
@@ -346,6 +346,11 @@ STORAGE_COLUMN_CLASSES: dict[str, dict[str, ColumnClass]] = {
     "delivery_observation_scopes": {
         "observation_id": ColumnClass.IMMUTABLE_IDENTITY,
         "scope_json": ColumnClass.IMMUTABLE_IDENTITY,
+    },
+    "delivery_observation_scope_versions": {
+        "outbox_id": ColumnClass.IMMUTABLE_IDENTITY,
+        "attempt_number": ColumnClass.IMMUTABLE_IDENTITY,
+        "revision": ColumnClass.OPERATIONAL_AUTHORITY,
     },
     "radio_accepted_part_facts": {
         "outbox_id": ColumnClass.IMMUTABLE_IDENTITY,

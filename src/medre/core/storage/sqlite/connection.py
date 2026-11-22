@@ -127,11 +127,17 @@ def _existing_attachment_fact(
     )
 
 
+def _install_ceiling_read_clock(db: sqlite3.Connection) -> None:
+    """Evaluate expiry at SQL execution, not only before a SQLite lock wait."""
+    db.create_function("medre_ceiling_now", 1, lambda _bound: ceiling_read_time())
+
+
 def sync_open(db_path: str) -> sqlite3.Connection:
     """Open a writable SQLite connection with WAL mode and full schema."""
     db = sqlite3.connect(db_path, check_same_thread=False)
     try:
         db.row_factory = sqlite3.Row
+        _install_ceiling_read_clock(db)
         # The busy timeout precedes schema initialization so a second
         # opener waits out a live writer like any later write would.
         # BEGIN IMMEDIATE pins the write lock for the whole script: the
@@ -178,6 +184,7 @@ def sync_open_readonly(db_path: str) -> sqlite3.Connection:
     )
     try:
         db.row_factory = sqlite3.Row
+        _install_ceiling_read_clock(db)
         db.execute("PRAGMA busy_timeout=5000")
     except BaseException:
         db.close()

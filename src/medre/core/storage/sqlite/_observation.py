@@ -451,7 +451,7 @@ class _ObservationMixin(_EvidenceDiagnosticsReadMixin):
     async def read_handoff_observation_snapshot(
         self, outbox_id: str, attempt_number: int
     ) -> tuple[list[DeliveryObservation], int]:
-        """Read observations and their packet-scope count in one snapshot.
+        """Read observations and their packet-scope revision in one snapshot.
 
         The resolver needs both the evidence and the version that a sweep can
         change. A single statement prevents a scope repair from landing
@@ -459,11 +459,9 @@ class _ObservationMixin(_EvidenceDiagnosticsReadMixin):
         """
         rows = await self._read_all(
             "SELECT *, ("  # nosec B608 - closed module-owned fragments and bound identities
-            "SELECT COUNT(*) FROM delivery_observation_scopes s "
-            "JOIN delivery_observations scope_owner "
-            "ON scope_owner.observation_id=s.observation_id "
-            "WHERE scope_owner.outbox_id=? AND scope_owner.attempt_number=?"
-            ") AS observation_scope_count "
+            "SELECT revision FROM delivery_observation_scope_versions "
+            "WHERE outbox_id=? AND attempt_number=?"
+            ") AS observation_scope_revision "
             + _OBSERVATION_CONTENT_SAFE_FROM
             + "WHERE outbox_id = ? AND attempt_number = ? ORDER BY sequence ASC",
             (
@@ -476,5 +474,5 @@ class _ObservationMixin(_EvidenceDiagnosticsReadMixin):
         )
         if not rows:
             return [], 0
-        scope_count = int(rows[0]["observation_scope_count"])
-        return [_row_to_delivery_observation(row) for row in rows], scope_count
+        scope_revision = int(rows[0]["observation_scope_revision"] or 0)
+        return [_row_to_delivery_observation(row) for row in rows], scope_revision

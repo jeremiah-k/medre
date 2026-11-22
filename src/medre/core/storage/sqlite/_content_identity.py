@@ -17,10 +17,16 @@ if TYPE_CHECKING:
 
 
 def event_content_denied_sql(event_id: str) -> str:
-    """Match an elapsed ceiling or a completed purge for a trusted event expression."""
+    """Deny at SQL execution, including reads stalled inside SQLite itself.
+
+    The bound clock keeps existing SQL parameter ordering, but the registered
+    non-deterministic function samples UTC while the statement evaluates the
+    policy row. A query that waits on a database lock cannot reuse the earlier
+    bound time to expose content after the ceiling.
+    """
     return (
         f"(EXISTS (SELECT 1 FROM event_content_access_policies p "  # nosec B608
-        f"WHERE p.event_id={event_id} AND p.hard_ceiling<=?) OR "
+        f"WHERE p.event_id={event_id} AND p.hard_ceiling<=medre_ceiling_now(?)) OR "
         f"EXISTS (SELECT 1 FROM event_content_ceiling_log l "
         f"WHERE l.event_id={event_id}))"
     )

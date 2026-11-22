@@ -52,6 +52,10 @@ _CEILING_ADDITIONS = (
     ("table", "delivery_handoff_uncertainty"),
     ("table", "radio_accepted_part_facts"),
     ("table", "delivery_observation_scopes"),
+    ("table", "delivery_observation_scope_versions"),
+    ("trigger", "trg_scope_version_insert"),
+    ("trigger", "trg_scope_version_update"),
+    ("trigger", "trg_scope_version_delete"),
     ("table", "radio_attempt_evidence_summaries"),
     ("index", "idx_ceiling_enforcement_order"),
     ("index", "idx_attachment_associations_content_ref"),
@@ -332,9 +336,10 @@ def test_released_catalog_assessment_reports_upgrade_then_current(
             "missing objects: index idx_attachment_associations_content_ref, "
             "index idx_ceiling_enforcement_order, "
             "table delivery_handoff_settlements, table delivery_handoff_uncertainty, "
-            "table delivery_observation_scopes, "
+            "table delivery_observation_scope_versions, table delivery_observation_scopes, "
             "table event_content_ceiling_log, table radio_accepted_part_facts, "
-            "table radio_attempt_evidence_summaries"
+            "table radio_attempt_evidence_summaries, trigger trg_scope_version_delete, "
+            "trigger trg_scope_version_insert, trigger trg_scope_version_update"
         )
     with closing(sqlite3.connect(path)) as db:
         assert _state(db) == before

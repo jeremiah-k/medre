@@ -122,13 +122,13 @@ async def test_abandonment_rejects_a_restored_packet_scope(
         stored.outbox_id,
         attempt_number=1,
         expected_observation_count=1,
-        expected_observation_scope_count=0,
+        expected_observation_scope_revision=0,
     )
     assert await temp_storage.mark_outbox_abandoned(
         stored.outbox_id,
         attempt_number=1,
         expected_observation_count=1,
-        expected_observation_scope_count=1,
+        expected_observation_scope_revision=1,
     )
 
 
@@ -149,7 +149,7 @@ async def test_resolver_reports_the_packet_scope_evidence_version(
     )
     resolution = await EvidenceBackedHandoffResolver(temp_storage).resolve(stored, 1)
     assert resolution.observation_count == 1
-    assert resolution.observation_scope_count == 1
+    assert resolution.observation_scope_revision == 1
 
 
 async def test_claiming_an_uncertain_retry_preserves_it_through_the_sweep(
@@ -383,7 +383,7 @@ async def test_reservation_rejects_a_restored_packet_scope(
             stored.outbox_id,
             _WORKER,
             1,
-            expected_observation_scope_count=0,
+            expected_observation_scope_revision=0,
         )
         is None
     )
@@ -392,7 +392,7 @@ async def test_reservation_rejects_a_restored_packet_scope(
             stored.outbox_id,
             _WORKER,
             1,
-            expected_observation_scope_count=1,
+            expected_observation_scope_revision=1,
         )
         == 2
     )

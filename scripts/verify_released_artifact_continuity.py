@@ -428,6 +428,7 @@ def _d0_added_tables() -> tuple[tuple[str, str], ...]:
         ("radio_accepted_part_facts", _HANDOFF_FACTS),
         ("radio_attempt_evidence_summaries", _HANDOFF_FACTS),
         ("delivery_observation_scopes", _HANDOFF_FACTS),
+        ("delivery_observation_scope_versions", _HANDOFF_FACTS),
     )
 
 
@@ -449,6 +450,22 @@ def _expected_d0_reopen_state(released: dict[str, Any]) -> dict[str, Any]:
             ).fetchone()
         _require(entry is not None, f"the {table} table definition is missing")
         entries.append(entry)
+    # Trigger definitions are independently pinned to the published current
+    # schema fragment. Reopening the released fixture must add the same
+    # exact-attempt scope mutation fences as fresh storage.
+    with closing(sqlite3.connect(":memory:")) as reference:
+        reference.executescript(
+            (
+                _REPO_ROOT
+                / "docs/schemas/current/content-free-handoff-facts.schema.sql"
+            ).read_text(encoding="utf-8")
+        )
+        entries.extend(
+            reference.execute(
+                "SELECT type,name,sql FROM sqlite_master "
+                "WHERE type='trigger' AND name LIKE 'trg_scope_version_%'"
+            ).fetchall()
+        )
     # Pin the catalog text for both additive indexes independently of the runtime.
     entries.extend(
         (

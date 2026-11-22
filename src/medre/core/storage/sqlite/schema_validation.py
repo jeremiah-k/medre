@@ -38,6 +38,7 @@ from medre.core.storage.sqlite.schema import (
     _RETENTION_EPOCHS_DDL,
     _ROUTING_FACTS_DDL,
     _SCHEMA,
+    _SCOPE_VERSIONS_DDL,
     _SNAPSHOT_OWNER_INDEX_DDL,
     _SNAPSHOTS_DDL,
 )
@@ -100,6 +101,10 @@ _ADDITIVE_OBJECTS: frozenset[tuple[str, str]] = frozenset(
         ("table", "delivery_handoff_uncertainty"),
         ("table", "radio_accepted_part_facts"),
         ("table", "delivery_observation_scopes"),
+        ("table", "delivery_observation_scope_versions"),
+        ("trigger", "trg_scope_version_insert"),
+        ("trigger", "trg_scope_version_update"),
+        ("trigger", "trg_scope_version_delete"),
         ("table", "radio_attempt_evidence_summaries"),
         ("table", "inbound_pressure_outage_gaps"),
         ("index", "idx_outbox_deadline_cleanup_order"),
@@ -203,6 +208,16 @@ def apply_safe_additions(db: sqlite3.Connection) -> None:
         or ("table", "radio_attempt_evidence_summaries") not in current
     ):
         execute_ddl(db, _HANDOFF_FACTS_DDL)
+    if any(
+        key not in current
+        for key in (
+            ("table", "delivery_observation_scope_versions"),
+            ("trigger", "trg_scope_version_insert"),
+            ("trigger", "trg_scope_version_update"),
+            ("trigger", "trg_scope_version_delete"),
+        )
+    ):
+        execute_ddl(db, _SCOPE_VERSIONS_DDL)
     if ("table", "inbound_pressure_outage_gaps") not in current:
         execute_ddl(db, _PRESSURE_OUTAGE_GAPS_DDL)
     if ("index", "idx_outbox_deadline_cleanup_order") not in current:

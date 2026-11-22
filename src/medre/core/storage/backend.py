@@ -1881,7 +1881,7 @@ class StorageBackend(Protocol):
         expected_observation_count: int | None = None,
         expected_receipt_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
-        expected_observation_scope_count: int | None = None,
+        expected_observation_scope_revision: int | None = None,
     ) -> bool:
         """Mark an outbox item as ``sent`` (terminal).
 
@@ -1898,9 +1898,9 @@ class StorageBackend(Protocol):
         ``attempt_number``. The exact outbox/attempt observation count MUST
         match in the same guarded write; mismatch returns ``False`` without
         committing any part of the transition.
-        ``expected_observation_scope_count`` (including zero) requires an
+        ``expected_observation_scope_revision`` (including zero) requires an
         explicit ``attempt_number``. The exact outbox/attempt observation
-        scope count MUST match in the same guarded write; mismatch returns
+        scope revision MUST match in the same guarded write; mismatch returns
         ``False`` without committing any part of the transition.
         """
         ...
@@ -1935,7 +1935,7 @@ class StorageBackend(Protocol):
         expected_observation_count: int | None = None,
         expected_receipt_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
-        expected_observation_scope_count: int | None = None,
+        expected_observation_scope_revision: int | None = None,
     ) -> bool:
         """Mark an outbox item as ``retry_wait`` (transient failure).
 
@@ -1948,9 +1948,9 @@ class StorageBackend(Protocol):
         ``attempt_number``. The exact outbox/attempt observation count MUST
         match in the same guarded write; mismatch returns ``False`` without
         committing any part of the transition.
-        ``expected_observation_scope_count`` (including zero) requires an
+        ``expected_observation_scope_revision`` (including zero) requires an
         explicit ``attempt_number``. The exact outbox/attempt observation
-        scope count MUST match in the same guarded write; mismatch returns
+        scope revision MUST match in the same guarded write; mismatch returns
         ``False`` without committing any part of the transition.
         """
         ...
@@ -1968,7 +1968,7 @@ class StorageBackend(Protocol):
         expected_observation_count: int | None = None,
         expected_receipt_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
-        expected_observation_scope_count: int | None = None,
+        expected_observation_scope_revision: int | None = None,
     ) -> bool:
         """Mark an outbox item as ``dead_lettered`` (terminal failure).
 
@@ -1984,9 +1984,9 @@ class StorageBackend(Protocol):
         ``attempt_number``. The exact outbox/attempt observation count MUST
         match in the same guarded write; mismatch returns ``False`` without
         committing any part of the transition.
-        ``expected_observation_scope_count`` (including zero) requires an
+        ``expected_observation_scope_revision`` (including zero) requires an
         explicit ``attempt_number``. The exact outbox/attempt observation
-        scope count MUST match in the same guarded write; mismatch returns
+        scope revision MUST match in the same guarded write; mismatch returns
         ``False`` without committing any part of the transition.
         """
         ...
@@ -2022,7 +2022,7 @@ class StorageBackend(Protocol):
         expected_observation_count: int | None = None,
         expected_receipt_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
-        expected_observation_scope_count: int | None = None,
+        expected_observation_scope_revision: int | None = None,
     ) -> bool:
         """Mark an outbox item as ``abandoned`` (terminal).
 
@@ -2031,9 +2031,9 @@ class StorageBackend(Protocol):
         Used for in-flight items lost at drain timeout.  No-op if already
         terminal.  Return ``True`` only when this call committed the
         transition.
-        ``expected_observation_scope_count`` (including zero) requires an
+        ``expected_observation_scope_revision`` (including zero) requires an
         explicit ``attempt_number``. The exact outbox/attempt observation
-        scope count MUST match in the same guarded write; mismatch returns
+        scope revision MUST match in the same guarded write; mismatch returns
         ``False`` without committing any part of the transition.
         """
         ...
@@ -2064,7 +2064,7 @@ class StorageBackend(Protocol):
         expected_observation_count: int | None = None,
         expected_receipt_count: int | None = None,
         expected_checkpoint_revision: int | None = None,
-        expected_observation_scope_count: int | None = None,
+        expected_observation_scope_revision: int | None = None,
     ) -> int | None:
         """Durably reserve the next delivery attempt on a claimed row.
 
