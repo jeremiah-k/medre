@@ -20,7 +20,7 @@ The configuration system lives under `medre.config`:
 | `routes.py`      | Route configuration models (`RouteConfig`, `RouteConfigSet`, `RouteDirectionality`, `BridgePolicy`)  |
 
 Per-transport config dataclasses are owned by adapter distributions. First-party
-adapters use `medre.config.adapters.*`; community providers may use any package. The
+adapters use `medre.config.adapters.*`; community adapters may use any package. The
 installed transport vocabulary and lazy config-class references come
 from `medre.adapter_registry`; the config package does not maintain a second
 transport list.
@@ -264,7 +264,7 @@ Each transport has its own sub-table under
 - `adapters.lxmf.<name>` → `LxmfConfig`
 
 Each instance goes through a runtime wrapper. `GenericAdapterRuntimeConfig` is
-the fallback for installed providers that do not declare a specialized wrapper.
+the fallback for installed adapters that do not declare a specialized wrapper.
 Specialized wrappers, including the first-party transport wrappers, are owned
 by their adapter distributions and imported directly from those packages. Core
 validates the structural `AdapterRuntimeConfig` interface (`adapter_id`,
@@ -554,12 +554,12 @@ config shapes. Several adapters intentionally share fields such as `adapter_id`
 and `relay_prefix`, so an exclusive `oneOf` would reject legitimate shapes.
 The enclosing `adapters.<transport>.<instance>` runtime configuration selects
 the installed transport and its config dataclass, which validates that precise
-provider contract; the standalone schema cannot infer it from shared fields.
+adapter contract; the standalone schema cannot infer it from shared fields.
 Do not add a redundant discriminator, accept old config-key aliases, or rely
 on the union alone for transport-specific validation.
 
 The full-config schema MUST accept structurally valid community transport
-names. Installed-provider availability and native destination rules MUST be
+names. Installed-adapter availability and native destination rules MUST be
 validated by `medre config check`, using adapter-owned models and validators.
 Static schemas describe structure rather than snapshotting installed packages.
 
@@ -744,8 +744,8 @@ medre version                       # Print MEDRE version
 `medre config bridge` MUST validate authored YAML through the same typed models,
 environment override layer, and route compiler as ordinary configuration. It
 MUST NOT start adapters, contact native services/devices, or install packages.
-Without `--config`, it starts from installed providers' fake samples with no
-routes; with `--config`, it preserves the input's provider fields and existing
+Without `--config`, it starts from installed adapters' fake samples with no
+routes; with `--config`, it preserves the input's adapter fields and existing
 routes. Environment values MUST NOT be serialized into the output.
 
 The workflow requires two distinct enabled adapter instances and at least one
@@ -769,10 +769,10 @@ The offline text plan MUST display each leg's actual source-to-target address
 flow, including reverse-only legs; JSON retains the configured mapping provenance.
 
 Before returning a successful draft, authoring MUST run enabled adapters'
-provider-owned pure `runtime_config_preparer` hooks against the compiled route
+adapter-owned pure `runtime_config_preparer` hooks against the compiled route
 set, matching startup preflight for both fake and real instances. Hook failures
 MUST prevent preview success and saving. Derived native values MUST NOT be
-serialized into the draft; provider restrictions remain provider-owned.
+serialized into the draft; adapter restrictions remain adapter-owned.
 
 `--preview` MUST NOT write configuration. `--json` emits the existing route-plan
 shape; prompts and guidance go to stderr. Noninteractive authoring requires
@@ -788,7 +788,7 @@ Windows copyable commands target PowerShell and MUST quote arguments literally.
 
 Validation establishes configuration and routing consistency, not native SDK,
 authentication, address, or delivery readiness. Known raw/environment secrets
-and provider-declared secret fields MUST be redacted from authoring error details.
+and adapter-declared secret fields MUST be redacted from authoring error details.
 This includes their ordinary string, Python repr, and JSON-escaped forms.
 Secret field heuristics MUST match whole field-name tokens rather than arbitrary
 substrings (so `enabled` is not secret-bearing). Known values shorter than eight

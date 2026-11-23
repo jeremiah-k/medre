@@ -39,10 +39,10 @@ TRANSPORT adapters typically ingest raw protocol data and produce canonical even
 ## 3. Adapter Protocol
 
 `medre.adapter_spec.ADAPTER_API_VERSION` identifies the major version of core's
-SDK-free adapter interface, initially `1`. Every provider MUST declare a literal
+SDK-free adapter interface, initially `1`. Every adapter MUST declare a literal
 integer `AdapterSpec.api_version` equal to the supported major version. Missing,
 boolean, non-integer, or incompatible declarations MUST be quarantined during
-SDK-free discovery before native modules are loaded. Healthy unrelated providers
+SDK-free discovery before native modules are loaded. Healthy unrelated adapters
 MUST remain discoverable. Package versions and SQLite schema versions are
 independent identities; an API match is not native feature qualification.
 
@@ -117,7 +117,7 @@ shutdown. Unexpected orchestration failure MUST retain its grouped causes.
 Caller cancellation MUST take precedence when it coincides with a child failure.
 Internal task-group cancellation MUST NOT alter the caller's cancellation depth.
 Structured task ownership cannot preempt synchronous code or forcibly terminate
-native SDK threads; providers MUST cooperate with cancellation.
+native SDK threads; adapters MUST cooperate with cancellation.
 
 ### 3.3 `stop(timeout)`
 
@@ -306,7 +306,7 @@ size-limit fields are direct planning facts. `CapabilityDecisionResolver` and
 adapters and renderers consume that plan and **MUST NOT** re-decide capability
 policy during delivery.
 
-Capabilities that are merely properties of a provider SDK but are not exercised
+Capabilities that are merely properties of a transport SDK but are not exercised
 by MEDRE remain undeclared/false. Conversely, later transport observations do
 not require a capability flag: an adapter may emit `PostHandoffObservation`
 whenever the transport actually supplies that fact for an outbox-backed attempt.
@@ -853,7 +853,7 @@ stopping owners, and marshal native-thread reports onto the runtime event loop.
 Reports update current health without rewriting the historical startup result.
 A report that repeats the already-retained observation refreshes only its own
 entry and publishes nothing; only genuine transitions emit a current-health
-change. Each provider's entry keeps its own observation time: a later report
+change. Each adapter's entry keeps its own observation time: a later report
 refreshes only its own entry and never rewrites a peer's retained observation.
 A native health failure MUST NOT be confused with a failed startup or release of
 native ownership. A healthy report cannot resurrect an owner that core stopped
@@ -862,9 +862,9 @@ provisional until the owned start succeeds; failed-start cleanup MUST discard
 them. A notification observed after a startup or manual health sample began
 MUST supersede that sample, including if the sample fails or times out. The
 startup barrier MUST retain transitions received while waiting for other
-providers. Notifications MUST NOT initiate background polling.
+adapters. Notifications MUST NOT initiate background polling.
 
-Valid provider health transitions:
+Valid adapter health transitions:
 
 ```text
 unknown -> healthy
@@ -978,24 +978,24 @@ Every row in the following table is a hard boundary. Violations indicate a desig
 MEDRE discovers installed Python distributions through the `medre.adapters`
 entry-point group and stores their declarative `AdapterSpec` values in the
 process-static `ADAPTER_REGISTRY`. Each entry point **MUST** resolve to a
-zero-argument factory returning an `AdapterSpec`. A broken provider **MUST**
+zero-argument factory returning an `AdapterSpec`. A broken adapter **MUST**
 be retained as a discovery failure rather than silently skipped. Conflicting
 transport or native-kind owners **MUST** all be quarantined; discovery **MUST
-NOT** choose a winner by installation order. Unrelated healthy providers remain
+NOT** choose a winner by installation order. Unrelated healthy adapters remain
 usable. Basic CLI help **MUST** remain available, and `medre adapters check`
-**MUST** report broken providers distinctly from missing distributions and exit
-with a configuration error. Configuring a broken provider **MUST** fail with an
+**MUST** report broken adapters distinctly from missing distributions and exit
+with a configuration error. Configuring a broken adapter **MUST** fail with an
 actionable configuration error.
 
 Distribution names, import packages, repository hosts, and transport names are
-independent. Providers **MAY** be installed from a package index, Git, a wheel,
+independent. Adapters **MAY** be installed from a package index, Git, a wheel,
 or a local path using ordinary Python tooling. Runtime discovery **MUST NOT**
-install, download, or update packages. Changing installed providers requires
+install, download, or update packages. Changing installed adapters requires
 a process restart.
 
 ### 20.1 Registry Model
 
-Providers **MUST** import declaration types from `medre.adapter_spec`. Importing
+Adapters **MUST** import declaration types from `medre.adapter_spec`. Importing
 that module **MUST NOT** start entry-point discovery. This keeps direct factory
 imports independent of registry initialization order.
 
@@ -1016,7 +1016,7 @@ unique. Runtime code **MUST** reject an enabled adapter whose transport is not
 registered.
 
 Core **MUST** own the `medre adapter <transport>` command namespace. Optional
-`cli_register` hooks receive that provider's `argparse.ArgumentParser` and
+`cli_register` hooks receive that transport's `argparse.ArgumentParser` and
 configure only its arguments and descendants. They **MUST NOT** use the core
 dispatch destinations/defaults `command`, `adapter_command`, or
 `_adapter_cli_failures`, including in nested parsers. Both CLI hooks **MUST**
@@ -1028,18 +1028,18 @@ adapter preflight **MUST** diagnose the broken contribution and exit 2. Exceptio
 details **MUST** be sanitized before display. A partially configured failing
 parser **MUST NOT** be exposed.
 
-A provider **MAY** declare `sample_config: SymbolRef`, an SDK-free zero-argument
+An adapter **MAY** declare `sample_config: SymbolRef`, an SDK-free zero-argument
 callback returning `AdapterSample(config, channel=None)`. Native
 values and the opaque conversation address are adapter-owned. `config` **MUST
 NOT** override `adapter_id`, `adapter_kind`, or `enabled`. The sample generator
-**MUST** include only installed providers declaring both a fake and a sample;
+**MUST** include only installed adapters declaring both a fake and a sample;
 it supplies unique instance IDs, fake lifecycle fields, and generic routes. With one contribution it
 creates two distinct instances; with none it emits an empty, loadable config
 and installation guidance. Sample callbacks **MUST NOT** include real secrets,
 perform I/O, or import SDKs.
 
-A provider **MAY** declare `native_setup_fields`, an SDK-free tuple of
-`NativeSetupField` values naming fields of its provider-owned config dataclass.
+An adapter **MAY** declare `native_setup_fields`, an SDK-free tuple of
+`NativeSetupField` values naming fields of its adapter-owned config dataclass.
 Field declarations **MUST** use unique, valid config fields and **MUST NOT**
 include the core lifecycle wrapper fields (`adapter_id`, `adapter_kind`,
 `enabled`). A field listed in `support_secret_fields` **MUST** use
@@ -1048,32 +1048,32 @@ Choices **MUST** be unique non-empty strings and **MUST NOT** be combined with
 secret or numeric input. Conditional fields **MUST** reference a choice of a
 preceding field. Labels **MUST** be non-empty strings and prompt flags **MUST**
 be booleans. The guided native CLI **MUST** validate the completed document with
-the authoritative loader and provider's pure preflight, **MUST NOT** import
+the authoritative loader and adapter's pure preflight, **MUST NOT** import
 native SDKs or contact hardware, and **MUST NOT** overwrite existing output.
 Secret input **MUST NOT** be echoed; any saved secret makes the private YAML
-credential-bearing. This optional metadata does not replace provider-native
+credential-bearing. This optional metadata does not replace adapter-native
 validation, qualification, or SDK setup.
 
-A provider whose provisioning cannot be an offline form **MAY** instead
+An adapter whose provisioning cannot be an offline form **MAY** instead
 declare `native_setup_instructions: NativeSetupInstructions | None`, an
 SDK-free ordered journey of `NativeSetupStep` values, each carrying the
-verbatim provider command, a short purpose, and an evidence note stating
+verbatim adapter command, a short purpose, and an evidence note stating
 what the completed step proves and does NOT prove. The seam is strictly
 informational: it **MUST NOT** become provisioning or send authority, core
-**MUST NOT** execute a declared command (provider setup commands contact
+**MUST NOT** execute a declared command (adapter setup commands contact
 native services), and the offline rendering **MUST NOT** claim that
 provisioning occurred or write any file. Declarations **MUST** be
 deterministic and **MUST NOT** embed secrets, building-machine paths, or
-timestamps; absence of instructions changes nothing. A provider declaring
+timestamps; absence of instructions changes nothing. An adapter declaring
 both keeps the guided form authoritative. The rendering and truthfulness
 boundary is specified in
 [native-setup-instructions.md](native-setup-instructions.md).
 
 External SDK import roots receive a warning-level logging default; the root
-logger and MEDRE namespace remain controlled by core/operator settings. Providers **MAY**
+logger and MEDRE namespace remain controlled by core/operator settings. Adapters **MAY**
 declare `logger_levels`, a tuple of dependency logger name / canonical level
 name pairs. Names **MUST NOT** target the root logger or MEDRE's own logger namespace. Shared
-provider declarations use the most restrictive level; explicit operator
+adapter declarations use the most restrictive level; explicit operator
 logging overrides **MUST** take precedence. Logger policy is metadata-only and
 **MUST NOT** import SDKs.
 
@@ -1151,13 +1151,13 @@ transport-specific branch, a package-name convention, or a registry edit.
 The four first-party distributions extend MEDRE's namespace with
 `pkgutil.extend_path`. Community adapters **MAY** use their own top-level Python
 package. Config schemas accept community transport and addressing names;
-installed-provider checks and adapter-owned validators enforce their fields.
+installed-adapter checks and adapter-owned validators enforce their fields.
 Native destination kinds **MUST** be supported by their configured target,
 including destinations nested in context-map entries. Generic `channel`
 addressing remains core-owned.
 
 Core's compatibility manifest selects a reviewed CI test set. Runtime discovery
-**MUST NOT** consult it, and community providers need no manifest entry.
+**MUST NOT** consult it, and community adapters need no manifest entry.
 `medre.plugins` remains a separate event-plugin protocol; adapter discovery
 uses installed entry points rather than arbitrary class paths in runtime YAML.
 
@@ -1291,7 +1291,7 @@ The common step shape is published in
 
 The programmatic `bad_route_config`, `all_adapters_build_fail`,
 `partial_degraded_startup`, and `all_adapters_start_fail` drills select one
-installed fake provider and configure explicitly named adapter instances.
+installed fake adapter and configure explicitly named adapter instances.
 Instance identifiers **MUST NOT** imply an unrelated transport. Config assembly
 **MUST** preserve the declared instance-to-transport mapping without positional
 cycling or inferred platform names.
@@ -1299,10 +1299,10 @@ cycling or inferred platform names.
 Their reports **MUST** include `adapter_transports` and
 `coverage_scope: synthetic_adapter_instances`, with a limitation stating that
 cross-transport coverage is not proven. Counts such as `adapters_total` describe
-adapter instances, not distinct transport types. Three instances of one provider
+adapter instances, not distinct transport types. Three instances of one adapter
 remain three independently constructed adapters for startup supervision.
 
-With no installed fake provider, these drills **MUST** return a failed report
+With no installed fake adapter, these drills **MUST** return a failed report
 with an empty assignment map and an installation reason. The report shape is
 specified in `docs/schemas/lifecycle-drill-report.schema.json`.
 

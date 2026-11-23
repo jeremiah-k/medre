@@ -180,7 +180,7 @@ See the [transport profiles](transport-profiles/README.md) for capabilities and
 | SimpleX Chat | Hybrid       | Profile-local group:ID or contact:ID | Native local queue; no recipient confirmation is inferred.                         |
 
 Payload budgets, encryption policies and relation support belong to each
-provider's declared capabilities and configuration. Mesh packet budgets are
+adapter's declared capabilities and configuration. Mesh packet budgets are
 byte limits, not universal character counts or recipient guarantees.
 
 ## 7. Runtime Orchestration
@@ -227,8 +227,8 @@ in-memory observations; they do not create or repair durable outbox work.
 6. Adapters, scheduled concurrently in sorted `adapter_id` order. Each start
    MUST receive a cooperative deadline from runtime.adapter_start_timeout_seconds
    (60 seconds by default). Expiry MUST cancel setup and retire partial resources
-   before classifying that adapter as FAILED. A provider's own timeout MUST retain
-   its native diagnosis. Start failures MUST NOT abort sibling adapters. Provider
+   before classifying that adapter as FAILED. An adapter's own timeout MUST retain
+   its native diagnosis. Start failures MUST NOT abort sibling adapters. Adapter
    code MUST cooperate with cancellation; synchronous SDK threads require their
    own bounded embedding or worker-process boundary. A coroutine deadline does
    not terminate native threads or guarantee immediate process exit.
