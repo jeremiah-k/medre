@@ -29,6 +29,15 @@ medre inspect content --storage-path /path/to/state/medre.sqlite
 This is an inventory, not a deletion command. It does not measure native account
 stores, backups, SQLite free pages or all physical disk usage.
 
+## Expired content and the hard ceiling
+
+Content admitted under the `content_ceiling` policy becomes read-denied once
+its immutable ceiling elapses, whether or not any purge has run. Purging that
+content is the default-off enforcement sweep; the read-only audit and verify
+commands, a disposable-copy rehearsal, a failure policy, and an opt-in
+rollout profile are in
+[auditing the hard content privacy ceiling](content-ceiling-audit.md).
+
 ## Opt-in relay-only content retention
 
 The `content_retention` configuration section declares an operator retention

@@ -31,6 +31,24 @@ real database. Both emit JSON only, read storage strictly read-only, and
 never purge, rewrite, or record anything: remediation is always the
 enforcement sweep's job, never the audit's.
 
+## The four ceiling states
+
+Every ceiling-bearing event sits in one of four states, and each state has
+a direct observation on a real database. The fourth is a boundary every
+report states explicitly rather than a third row state.
+
+| State                                 | Meaning                                                                                                                                      | Observation                                                                                                                                                                                                                                                                 |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Not expired                           | The event's immutable ceiling is still in the future; content is readable and in use.                                                        | `audit --event EVENT_ID` reports `"state": "not_elapsed"` with `"receipt": null` and the content rows counted under `residual_stores`.                                                                                                                                      |
+| Expired / read-denied but not purged  | The ceiling has elapsed, authorized reads refuse the content, and no enabled sweep has processed the event yet; the rows are still stored.   | `audit --event` reports `"state": "elapsed_pending"`; the window audit lists the event under `elapsed_pending` with per-store residual counts; `verify --event` exits with code `1` and `"event_state": "no_receipt"`.                                                      |
+| Purged and receipt verified           | Enforcement removed the enumerated content, recorded the immutable content-free receipt, and the residual battery re-checks clean.           | `audit --event` reports `"state": "enforced_clean"` with `"residual_stores_total": 0`; `verify` reports `"verdict": "passed"` with exit code `0` and `"status": "passed"` for each receipt.                                                                                 |
+| Logical purge is not physical erasure | The receipt proves logical removal only; freed SQLite pages, WAL frames, backups, exports, and provider copies still hold recoverable bytes. | Every audit and verify report carries `"physical_erasure_claimed": false` and lists `sqlite_free_pages_and_wal` among the `unmeasured` scopes. Byte-level erasure needs the explicit quiesced procedure in [the ceiling specification](../spec/content-privacy-ceiling.md). |
+
+An enforced event that regained content values through a write authorized
+before its ceiling is an additional documented observation, reported as
+`residual_enforced` (below); the next sweep re-purges those values without
+rewriting the receipt.
+
 ## The two modes
 
 ```bash
@@ -135,6 +153,204 @@ exists but residual content remains: enable the sweep and re-verify after
 it revisits the receipt. If residual stores remain after that page was
 processed, stop and investigate — that is a loud inconsistency, not a
 normal state.
+
+## Rehearse on a disposable copy
+
+Rehearse the whole audit → enforce → verify path on a disposable copy of
+the real database before enabling the sweep on the live installation. Stop
+MEDRE and every adapter and native profile owner first, then copy with the
+stopped-state snapshot procedure: its SQLite backup protocol produces a
+standalone database that retains committed WAL content, which a plain file
+copy of a WAL database does not guarantee.
+
+The commands below are complete for a single-host installation whose state
+root is `/srv/medre-state`. Adjust the root and the inventory paths to the
+installation (see [stopped-state
+snapshots](stopped-state-snapshots.md) for multi-file installations); the
+rehearsal sends nothing and writes nothing outside the working directory
+and the copy.
+
+```bash
+mkdir -p /tmp/ceiling-rehearsal
+cat > /tmp/ceiling-rehearsal/inventory.json <<'JSON'
+{
+  "format": "medre-stopped-inventory",
+  "version": 1,
+  "providers": ["core"],
+  "files": [
+    {
+      "provider": "core",
+      "path": "state/medre.sqlite",
+      "role": "core_sqlite",
+      "format": "sqlite"
+    }
+  ]
+}
+JSON
+python -m medre.maintenance.stopped_cli capture \
+  --inventory /tmp/ceiling-rehearsal/inventory.json \
+  --root /srv/medre-state \
+  --snapshot /tmp/ceiling-rehearsal/snap-001 --stopped
+python -m medre.maintenance.stopped_cli verify \
+  --snapshot /tmp/ceiling-rehearsal/snap-001
+python -m medre.maintenance.stopped_cli restore \
+  --snapshot /tmp/ceiling-rehearsal/snap-001 \
+  --destination /tmp/ceiling-rehearsal/root --stopped
+
+# 1. Audit the copy (read-only). Elapsed, unpurged events appear under
+#    elapsed_pending with per-store residual counts.
+medre storage ceiling audit \
+  --storage-path /tmp/ceiling-rehearsal/root/state/medre.sqlite --limit 25
+
+# 2. Enforce on the copy. There is no storage subcommand for this on
+#    purpose: enforcement is the guarded purge-and-verify transition the
+#    opt-in sweep calls. This one-shot script is the documented
+#    storage-level invocation for trusted operator tooling; it runs the
+#    same BEGIN IMMEDIATE transition the sweep runs and prints
+#    metadata-only summaries per enforced event.
+cat > /tmp/ceiling-rehearsal/enforce_once.py <<'PY'
+"""Run one bounded content-ceiling enforcement pass."""
+
+import asyncio
+import sys
+
+from medre.core.storage.sqlite.storage import SQLiteStorage
+
+
+async def main(path: str) -> None:
+    store = SQLiteStorage(db_path=path)
+    await store.initialize()
+    try:
+        enforced = await store.enforce_content_ceilings(limit=50)
+        for row in enforced:
+            print(row.event_id, "rows", row.rows_removed,
+                  "logical_bytes", row.logical_bytes_removed)
+    finally:
+        await store.close()
+
+
+asyncio.run(main(sys.argv[1]))
+PY
+python /tmp/ceiling-rehearsal/enforce_once.py \
+  /tmp/ceiling-rehearsal/root/state/medre.sqlite
+
+# 3. Verify the copy: elapsed_pending is now empty, each processed event
+#    audits enforced_clean, and every receipt re-checks clean.
+medre storage ceiling audit \
+  --storage-path /tmp/ceiling-rehearsal/root/state/medre.sqlite --limit 25
+medre storage ceiling verify \
+  --storage-path /tmp/ceiling-rehearsal/root/state/medre.sqlite --limit 25
+```
+
+The rehearsal proves the logical path only. It changes nothing on the live
+installation and erases no bytes anywhere: the copy still holds freed pages
+and WAL images, and so does the live store until the explicit erasure
+procedure in [the ceiling specification](../spec/content-privacy-ceiling.md)
+is performed on it. Events whose ceiling has not elapsed stay `not_elapsed`
+and untouched. Pending and residual work is bounded per pass, so repeat the
+audit and the enforcement pass (or enable the sweep) until the audit
+reports no `elapsed_pending` findings. The production path is the opt-in
+sweep below; the rehearsal predicts its behavior because both call the same
+guarded transition.
+
+## Failure and corruption policy
+
+A failed sweep tick changes nothing durable. Each event's enforcement runs
+as one `BEGIN IMMEDIATE` transaction, and a verification failure rolls the
+whole transaction back: no receipt is written, no partial purge commits,
+and the durable cursor stays where it was. The worker logs the failure,
+increments `ceiling_sweep_errors` in the runtime snapshot, and leaves the
+content expired and read-denied; the audit keeps reporting
+`elapsed_pending`, and the next due tick retries. When an external writer
+holds the SQLite write reservation longer than the storage connection's
+5,000 ms busy timeout, the colliding tick fails with one lock-busy error
+and later ticks proceed; the measured pressure campaign under exactly that
+pressure still receipted every target once the holds ended. The sweep
+never blocks native retry processing by design: delivery claims continue
+around the maintenance step.
+
+A failed verification is not a broken receipt. `verdict: "failed"` with
+`event_state: "receipt_failed"` means content-potential values exist now
+for an enforced event — usually the documented late-write case. Keep the
+sweep enabled and re-run verification after it revisits the receipt's
+page; the receipt stays immutable and is never rewritten or deleted. If
+residual stores remain after a full cursor cycle has passed the event,
+stop and investigate before broadening enablement: that is a loud
+inconsistency, not a normal state. `event_state: "no_receipt"` on an
+`elapsed_pending` event is the expected pre-enforcement answer — enable
+the sweep, or rehearse first on a copy. `no_receipt` for an event the
+audit reports as `unknown` cannot be fixed by sweeping; check the event
+identifier and the store path instead.
+
+A corrupt store is a restore, never a repair. If `medre storage status`
+or a reopen reports an integrity failure, stop every writer, keep a
+read-only copy aside for investigation, and restore the last verified
+stopped-state snapshot into a fresh root. Never delete receipt rows,
+hand-edit content tables, or remove database or WAL files by hand to
+"finish" a purge: receipts are the append-only proof that enforcement
+completed, so deleting them fabricates "never enforced", and hand-edited
+deletions skip the residual battery the guarded transition verifies. The
+only sanctioned mutation of ceiling content is the guarded enforcement
+transition.
+
+## Opt-in rollout profile
+
+The sweep stays disabled until an operator declares it. The profile below
+is the bounded starting point; it is opt-in, and the loader default
+remains `enabled: false`:
+
+```yaml
+retry:
+  enabled: false # the ceiling sweep does not require the retry worker
+  ceiling_sweep:
+    enabled: true
+    limit: 50
+    interval_seconds: 60
+```
+
+Run `medre config check` before deployment. The measured consequences of
+the 2026-11-23 pressure campaign
+([measurement record](../dev/ceiling-sweep-pressure-measurement-2026-11-23.md))
+apply at this profile:
+
+- A sweep tick normally takes tens of milliseconds, and delivery claims
+  keep flowing around it (largest measured gap between claims 0.54 s
+  against a 0.5 s poll cadence). When an external writer holds the SQLite
+  write reservation past the 5,000 ms busy timeout, the colliding tick
+  fails once at that timeout — the worst measured tick was 5,005–5,006 ms
+  — and the next tick proceeds. The busy timeout bounds lock waiting, not
+  total tick wall time.
+- Receipt latency scales with backlog depth. An arrival waits up to about
+  one full cursor cycle plus its walk position — roughly
+  ceil(elapsed backlog / limit) ticks. The measured worst stream receipt
+  tail was 18.48–18.53 s at a 0.5 s interval behind roughly 1,000 elapsed
+  policies; at the default 60 s interval, a backlog of a few thousand
+  elapsed policies puts that same shape in the tens of minutes. An arrival
+  behind an already-receipted history pays ceil(history / limit) ticks
+  before its first visit (measured 20.07 s at 2,000 history policies,
+  limit 50, 0.5 s interval).
+- Two budgets remain unverified by measurement: the continuous WAL
+  high-water mark (footprints were sampled at intervals, so the recorded
+  maxima are lower bounds) and interruption inside an open purge
+  transaction (kill and cancellation landed on tick boundaries only).
+  Restart consistency after a boundary kill, bounded lock-busy
+  absorption, and full receipt-battery agreement are measured passes.
+- Rollback is the declaration itself: set `ceiling_sweep.enabled` back to
+  `false` (or remove the section) and restart. Elapsed ceilings stay
+  durable and read-denied, audit and verify remain available read-only,
+  and nothing already receipted is undone.
+
+Keep the fences around the sweep in mind while it runs. Deadline
+maintenance (`retry.deadline_sweep`) is a separate policy with distinct
+authority: it only retires provably unstarted outbox rows past the
+effective delivery deadline; it never purges content, never writes
+ceiling receipts, and never resolves a confirmation-pending row. Neither
+sweep sends anything: native submission authority ends at the hard
+ceiling, the persisted route bounds let recovery settle existing evidence
+but never authorize another native send, and the maintenance worker never
+claims delivery work. A receipt remains a logical, content-free fact —
+never an erasure certificate; the `unmeasured` scopes in every report and
+the explicit erasure procedure own that boundary.
 
 ## Safety and boundaries
 
