@@ -11,7 +11,9 @@ account — its own Matrix account, a fresh server device per test, and its own
 nio crypto store — to decrypt the exact plaintext under the native event id
 bound to the durable outbox generation, the attempt receipt with
 `remote_service` confirmation, and the outbound native reference. The proof
-asserts the full chain and has no xfail, skip, or plaintext fallback path.
+asserts the full chain with no xfail or plaintext fallback path. The
+module has a prerequisite skip marker for local runs without E2EE support;
+required CI rejects a skipped or missing case.
 
 Negative cases in the same module prove the verdict cannot be reached
 dishonestly: a recipient without the room key, an observer in a different
