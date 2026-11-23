@@ -8,9 +8,7 @@ observations below apply only to the dated runs; capture fresh evidence for
 your current core, adapter commits, SDKs, and endpoints.
 
 For a bounded multi-adapter campaign, use the
-[short iteration sequence](short-iterations.md). The
-[2026-10-03 record](campaign-2026-10-03.md) includes current physical-pair,
-cross-transport, relation, and host-link recovery observations.
+[short iteration sequence](short-iterations.md).
 
 ## Slow-Medium Peer Budgets
 

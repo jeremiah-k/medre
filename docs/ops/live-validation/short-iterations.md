@@ -248,6 +248,3 @@ fix with its specification and PR description, rerun the affected stage, and
 open a focused PR. Keep harness corrections and operational documentation in
 their own concerns. Review fixes adversarially before publication. For CI,
 locate the new run once and use `gh run watch --exit-status` to completion.
-
-The [October 2026 campaign record](campaign-2026-10-03.md) records observed
-results and unresolved limits from the first pass through this procedure.
