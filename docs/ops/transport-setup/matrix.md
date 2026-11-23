@@ -13,7 +13,9 @@ below is optional for people hosting their own Matrix service. For custom
 presentation and the separate application-service design, see
 [message presentation](../message-presentation.md).
 
-## Prerequisites
+## Before you begin
+
+### Prerequisites
 
 | Requirement       | Details                                                                                                                                                                                                                    |
 | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -27,9 +29,11 @@ presentation and the separate application-service design, see
 
 You do not need Docker, a domain name, or federation. MEDRE connects to an existing homeserver account; it does not host or administer the homeserver. Running a local Synapse or Conduit server for provider testing is covered in the [developer testing guide](../../dev/testing.md#local-synapse-homeserver-for-matrix-testing).
 
-## Token Generation and E2EE Identity Setup
+## Set up
 
-### MEDRE auth login (recommended for E2EE)
+### Token Generation and E2EE Identity Setup
+
+#### MEDRE auth login (recommended for E2EE)
 
 For an encrypted Matrix adapter, use MEDRE's auth command with the adapter ID
 that appears under `adapters.matrix` in the runtime configuration. The password
@@ -66,7 +70,7 @@ credential sidecar is written: MEDRE master key → self-signing key → current
 MEDRE device. Existing matching identity material is reused. Ordinary startup
 will never replace master/self-signing identity material.
 
-### Explicit cross-signing recovery
+#### Explicit cross-signing recovery
 
 If diagnostics report `cross_signing_reset_required=true`, first back up the
 Matrix state directory. Then run the same authenticated login with the explicit
@@ -87,7 +91,7 @@ local cross-signing sidecar is missing; restore the backed-up E2EE store first
 when possible. MEDRE refuses automatic rotation when the homeserver already has
 an identity that does not match local state.
 
-### Login API (curl)
+#### Login API (curl)
 
 The bot account must already exist on the homeserver; create it as you would
 any other account. On a locally hosted test server, the Synapse registration
@@ -103,15 +107,15 @@ curl -s -X POST \
 
 The response JSON includes an `access_token` field. Copy that value.
 
-### Element UI
+#### Element UI
 
 Open Element, log in as the bot user, go to Settings → Help and About → copy the access token.
 
-### Token handling
+#### Token handling
 
 Do not commit the token. Do not log the token. Set it as an environment variable and leave it there. The `MatrixConfig.__repr__` method redacts the token in log output, but you are responsible for not leaking it yourself.
 
-## Room Setup
+### Room Setup
 
 For a scripted private encrypted test room, prefer the provisioning command
 (requires completed credentials from `medre adapter matrix auth login`):
@@ -143,7 +147,7 @@ Manual alternative (plaintext or hand-managed rooms):
    (the `#name:server` form) will not work in the allowlist.
 6. Confirm the room is unencrypted for plaintext testing. If the room has a lock icon in Element, it is encrypted — see E2EE section below.
 
-## Allowlist Configuration
+### Allowlist Configuration
 
 The adapter accepts an optional `room_allowlist`: a set of room IDs. When set, the inbound callback ignores messages from any room not in the set. When unset (`None`), the adapter accepts messages from all rooms.
 
@@ -156,9 +160,9 @@ Environment overrides use comma-separated room IDs; YAML uses a list:
 export MEDRE_ADAPTER__BRIDGE__ROOM_ALLOWLIST='!abc123:localhost,!def456:localhost'
 ```
 
-## Running
+### Running
 
-### Configure and start the runtime
+#### Configure and start the runtime
 
 Save a private `matrix.yaml` with an explicit instance and room allowlist:
 
@@ -191,6 +195,8 @@ uses `MEDRE_ADAPTER__<TOKEN>__<FIELD>` instead. Set the sync wait with
 `MEDRE_ADAPTER__BRIDGE__INITIAL_SYNC_TIMEOUT_SECONDS` and the request long-poll
 with `MEDRE_ADAPTER__BRIDGE__SYNC_TIMEOUT_MS` when overriding their defaults.
 
+## Verify
+
 ### Expected Startup Output
 
 With the default 45-second wait, acknowledged progress precedes completed
@@ -218,7 +224,7 @@ INFO  medre  PipelineRunner stopped
 INFO  medre  Matrix runtime shut down cleanly
 ```
 
-## Health States
+### Health States
 
 | State      | Meaning                                                                    |
 | ---------- | -------------------------------------------------------------------------- |
@@ -229,7 +235,47 @@ INFO  medre  Matrix runtime shut down cleanly
 
 Immediately after authentication, health remains `degraded` until the first successful sync establishes Matrix progress. During a later transient outage, `degraded` means the adapter is actively attempting to restore the sync connection with capped exponential backoff. Transient sync failures keep retrying until reconnection succeeds or the adapter is stopped. The state becomes `failed` only when MEDRE cannot safely continue (for example, a stale sync owner refuses cancellation or durable sync state cannot be reset safely), or when the client is no longer logged in.
 
-## E2EE text validation
+### First sync during startup
+
+Authentication and room membership precede sync readiness. With the default
+budget, the provider logs `Waiting up to 45s for the first Matrix sync acknowledgement`
+while it waits for accepted native progress. `initial_sync_timeout_seconds`
+controls the displayed budget; zero disables waiting and emits no wait log.
+If it expires, the sync owner stays active, health is `degraded`, and
+`waiting_initial_sync_ack` is recorded as the reason until progress arrives. Real sync failures
+and reconnects remain visible immediately.
+
+The runtime's `adapter_start_timeout_seconds` bounds the entire adapter start,
+including authentication, joins and this wait. Increase it for slow startup
+if necessary. See [running MEDRE](../running-medre.md#current-health-after-startup)
+for startup versus current health observations.
+
+## Options
+
+Keys not needed for the common case, with the adapter's defaults:
+
+| Key                                        | Default      | What it changes                                                                            | When to touch it                                              |
+| ------------------------------------------ | ------------ | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------- |
+| `room_allowlist`                           | unset        | Rooms whose messages are accepted inbound                                                  | Always set it to exactly the rooms you monitor                |
+| `encryption_mode`                          | `plaintext`  | `e2ee_required` / `e2ee_optional` operate in encrypted rooms (needs the matrix[e2e] extra) | When the target rooms are encrypted                           |
+| `verification_policy`                      | `permissive` | Encrypted-send peer-device trust policy                                                    | Only for strict refusal of unverified recipient devices       |
+| `require_encrypted_rooms`                  | `false`      | Drops events from rooms not established as encrypted                                       | When every routed room must be encrypted                      |
+| `auto_join_rooms`                          | empty        | Room IDs joined at startup                                                                 | When startup should join rooms without a client joining first |
+| `initial_sync_timeout_seconds`             | `45.0`       | Startup wait for the first acknowledged sync; `0` disables                                 | Slow homeservers or large accounts                            |
+| `sync_timeout_ms`                          | `30000`      | Long-poll window per sync request                                                          | Rarely; sync latency tuning                                   |
+| `sync_stale_timeout_seconds`               | `300.0`      | Recycles the sync loop without durable progress; `0` disables                              | Only after confirming normal long-poll timing                 |
+| `startup_backlog_suppress_seconds`         | `60.0`       | Suppresses events older than the start baseline; `0` disables                              | Homeservers with heavy federation lag                         |
+| `megolm_key_request_rate_limit_per_minute` | `30`         | Missing-room-key request budget per minute                                                 | Only when key recovery is rate-limited                        |
+| `megolm_key_request_max_inflight`          | `4`          | Concurrent missing-room-key recovery tasks                                                 | Only when key recovery needs more parallelism                 |
+| `metadata_embedding_mode`                  | `safe`       | How MEDRE metadata is embedded in outbound messages                                        | Presentation changes                                          |
+| `origin_label`                             | empty        | Prefix identifying this origin on the other side                                           | Labeling in mixed bridges                                     |
+| `relay_prefix`                             | unset        | Custom rendering template for relayed text                                                 | Custom presentation                                           |
+
+`device_id` and `store_path` are internal: the adapter discovers the device ID
+and derives the store path; see the
+[Matrix internals page](../../dev/transport-internals/matrix.md).
+
+### E2EE text validation
 
 The `medre-adapter-matrix[e2e]` distribution extra installs `mindroom-nio[e2e]` with Olm/Megolm crypto libraries. When `encryption_mode` is set to `e2ee_required` or `e2ee_optional`, the adapter operates in encrypted rooms.
 
@@ -237,7 +283,7 @@ The adapter discovers its device ID via `whoami()` and derives an internal store
 
 In `plaintext` mode the adapter does not initialise the crypto subsystem. No device ID discovery or store path is needed.
 
-### E2EE Limitations
+#### E2EE Limitations
 
 - Encrypted text and media share the peer-device trust gate; native relations and
   retained-media delivery follow their separate capability and attachment rules.
@@ -256,95 +302,26 @@ In `plaintext` mode the adapter does not initialise the crypto subsystem. No dev
 - Access token is a plain string in config/credential sidecar (no automatic token
   rotation).
 
-## Device Identity, Cross-Signing, and Crypto Store
+## Troubleshooting
 
-The adapter manages device identity and crypto store paths internally. Operators do not
-configure `device_id` or `store_path`.
+| Symptom                                      | Likely cause                                                                                                          | Fix                                                                                                                                                                                                                                                                                              |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `M_UNKNOWN_TOKEN` on startup                 | Expired or invalid access token                                                                                       | Generate a new token via login API or Element                                                                                                                                                                                                                                                    |
+| `M_FORBIDDEN Invalid username/password`      | Wrong credentials                                                                                                     | Verify user ID and password encoding                                                                                                                                                                                                                                                             |
+| Adapter enters `failed` state                | Unsafe stale-sync recycle, durable sync-state reset failure, lost login state, or another fail-closed lifecycle error | Check logs, fix the underlying cause, then restart                                                                                                                                                                                                                                               |
+| Repeated `stale_sync_recoveries`             | Homeserver/network sync loop is not making durable progress                                                           | Check homeserver reachability and sync latency; tune `sync_stale_timeout_seconds` only after confirming normal long-poll timing (a positive value must exceed `sync_timeout_ms/1000 + 15`, or 15 seconds flat when the sync timeout is disabled, so healthy long-poll requests are not recycled) |
+| Rising `megolm_recovery_rate_limited`        | Missing-room-key recovery is exceeding the configured network request budget                                          | Investigate crypto/key availability; avoid raising the limit until the undecryptable-event source is understood                                                                                                                                                                                  |
+| No inbound events received                   | Room not in allowlist                                                                                                 | Add the room ID to the instance's `room_allowlist` or its `MEDRE_ADAPTER__<TOKEN>__ROOM_ALLOWLIST` override                                                                                                                                                                                      |
+| Self-messages not suppressed                 | sender mismatch                                                                                                       | Verify the instance's `MEDRE_ADAPTER__<TOKEN>__USER_ID` matches the bot's MXID exactly                                                                                                                                                                                                           |
+| `OlmUnverifiedDeviceError` in encrypted room | Peer-device permissive send policy not applied                                                                        | Update to current MEDRE version; E2EE sends intentionally permit unverified peer devices                                                                                                                                                                                                         |
+| `cross_signing_reset_required=true`          | Local/server own-device identity state disagrees                                                                      | Back up state; restore the matching E2EE store or use the explicit password-authenticated reset workflow                                                                                                                                                                                         |
+| `cross_signing_chain_status=missing`         | No own-device cross-signing identity is established                                                                   | Re-run `medre adapter matrix auth login --adapter-id <id>` with a fresh password                                                                                                                                                                                                                 |
+| `ENCRYPTION_ENABLED=False` in diagnostics    | `medre-adapter-matrix[e2e]` not installed                                                                             | Install matrix[e2e] in the MEDRE environment; see [installation](../install.md)                                                                                                                                                                                                                  |
 
-When the adapter starts with a non-plaintext `encryption_mode`, it calls `whoami()` to
-discover the device ID. The crypto store path is derived automatically from the resolved
-state directory: `{state_dir}/adapters/{adapter_id}/matrix/store`. The store contains
-sensitive Olm/Megolm and cross-signing material and must be backed up and protected like
-a private key store.
+Cross-signing diagnostic fields are defined in the
+[Matrix internals page](../../dev/transport-internals/matrix.md).
 
-At runtime MEDRE performs a non-destructive own-device cross-signing reconciliation. It
-may verify the existing chain or repair a missing current-device self-signature when the
-persisted master/self-signing identity matches the homeserver. Runtime startup has no
-password and will not bootstrap or rotate master/self-signing keys. Missing/mismatched
-identity material is reported through diagnostics and must be handled through the
-authenticated auth workflow above.
-
-### Cross-signing diagnostics
-
-| Key                                        | Meaning                                                                                                                 |
-| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
-| `cross_signing_provider_supported`         | The installed Matrix SDK exposes the required cross-signing lifecycle API.                                              |
-| `cross_signing_local_identity_present`     | The runtime E2EE store contains persisted local cross-signing identity material.                                        |
-| `cross_signing_server_identity_present`    | The homeserver exposes a master cross-signing identity for the bot account.                                             |
-| `cross_signing_current_device_self_signed` | The server-visible current device carries the expected self-signing signature.                                          |
-| `cross_signing_chain_status`               | `unchecked`, `unsupported`, `missing`, `repairable`, `valid`, `mismatch`, `unverifiable`, `reset_required`, or `error`. |
-| `cross_signing_repair_required`            | Safe bootstrap/repair work remains; ordinary runtime will not rotate identity material.                                 |
-| `cross_signing_reset_required`             | Local/server identity disagreement or lost local identity requires operator recovery.                                   |
-| `cross_signing_last_failure_category`      | Secret-free category for the latest reconciliation failure.                                                             |
-
-These fields never include cross-signing keys, signatures, access tokens, room
-keys, sidecar contents, or crypto objects.
-
-## Validation Procedures
-
-### Outbound Validation
-
-1. Start the adapter.
-2. Trigger a `deliver()` call with a rendered text message targeting your test room.
-3. Open the room in Element. Confirm the message appears.
-4. Check the return value from `deliver()`. It should contain an `event_id` starting with `$`.
-
-### Inbound Validation
-
-1. Start the adapter with the allowlist set to your test room.
-2. From a second Matrix account (not the bot), send a plain text message in the test room.
-3. Confirm that `publish_inbound()` is called with a canonical event.
-4. Confirm the event's `source_transport_id` matches the sender's MXID, not the bot's.
-
-### Third-party Inbound Validation
-
-```bash
-export MATRIX_HOMESERVER="http://localhost:8008"
-export MATRIX_USER_ID="@bot:localhost"
-export MATRIX_ACCESS_TOKEN="<matrix-access-token>"
-export MATRIX_ROOM_ID="!test:localhost"
-export MATRIX_INBOUND_SENDER="@alice:localhost"  # second account
-
-pytest ../medre-adapter-matrix/tests/test_matrix_live.py::TestMatrixLiveSmoke::test_inbound_message_received -m live -v
-```
-
-While the test waits (30 s window), send a message from the second account. If no second account is available, the test will xfail — deterministic unit tests in `../medre-adapter-matrix/tests/test_matrix_adapter.py` cover the same logic paths.
-
-### Self-message Suppression Validation
-
-1. Start the adapter.
-2. Send a message through the adapter using `deliver()`.
-3. Wait for the sync loop to echo the message back.
-4. Confirm that `publish_inbound()` is not called for the echoed message.
-
-### Diagnostics Counters
-
-Counter definitions are authoritative in the
-[Matrix transport profile](../../spec/transport-profiles/matrix.md) Diagnostics
-Keys table. The inbound counters (`inbound_published`,
-`inbound_duplicate_admissions`, `inbound_suppressed_self`,
-`inbound_suppressed_envelope`, `inbound_filtered_allowlist`,
-`inbound_filtered_encryption_policy`, `inbound_suppressed_startup`,
-`inbound_suppressed_stale`) all reset
-when the adapter starts.
-
-`inbound_filtered_encryption_policy` grows when `require_encrypted_rooms`
-drops an event because the room is not established as encrypted. Dropped events
-never reach decode or durable admission, but the sync checkpoint still advances,
-so a counter that keeps growing while `inbound_published` stays flat means the
-adapter treats the room as unencrypted (fail-closed).
-
-## Known Limitations
+### Known Limitations
 
 1. **Continuous auto-reconnect for transient sync failures.** The adapter retries
    for the lifetime of the started adapter with exponential backoff capped at 60 s.
@@ -374,63 +351,17 @@ adapter treats the room as unencrypted (fail-closed).
    scrape-compatible text snapshot, but MEDRE does not run a Prometheus HTTP
    endpoint.
 
-## Troubleshooting
+## Reference
 
-| Symptom                                      | Likely cause                                                                                                          | Fix                                                                                                                                                                                                                                                                                              |
-| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `M_UNKNOWN_TOKEN` on startup                 | Expired or invalid access token                                                                                       | Generate a new token via login API or Element                                                                                                                                                                                                                                                    |
-| `M_FORBIDDEN Invalid username/password`      | Wrong credentials                                                                                                     | Verify user ID and password encoding                                                                                                                                                                                                                                                             |
-| Adapter enters `failed` state                | Unsafe stale-sync recycle, durable sync-state reset failure, lost login state, or another fail-closed lifecycle error | Check logs, fix the underlying cause, then restart                                                                                                                                                                                                                                               |
-| Repeated `stale_sync_recoveries`             | Homeserver/network sync loop is not making durable progress                                                           | Check homeserver reachability and sync latency; tune `sync_stale_timeout_seconds` only after confirming normal long-poll timing (a positive value must exceed `sync_timeout_ms/1000 + 15`, or 15 seconds flat when the sync timeout is disabled, so healthy long-poll requests are not recycled) |
-| Rising `megolm_recovery_rate_limited`        | Missing-room-key recovery is exceeding the configured network request budget                                          | Investigate crypto/key availability; avoid raising the limit until the undecryptable-event source is understood                                                                                                                                                                                  |
-| No inbound events received                   | Room not in allowlist                                                                                                 | Add the room ID to the instance's `room_allowlist` or its `MEDRE_ADAPTER__<TOKEN>__ROOM_ALLOWLIST` override                                                                                                                                                                                      |
-| Self-messages not suppressed                 | sender mismatch                                                                                                       | Verify the instance's `MEDRE_ADAPTER__<TOKEN>__USER_ID` matches the bot's MXID exactly                                                                                                                                                                                                           |
-| `OlmUnverifiedDeviceError` in encrypted room | Peer-device permissive send policy not applied                                                                        | Update to current MEDRE version; E2EE sends intentionally permit unverified peer devices                                                                                                                                                                                                         |
-| `cross_signing_reset_required=true`          | Local/server own-device identity state disagrees                                                                      | Back up state; restore the matching E2EE store or use the explicit password-authenticated reset workflow                                                                                                                                                                                         |
-| `cross_signing_chain_status=missing`         | No own-device cross-signing identity is established                                                                   | Re-run `medre adapter matrix auth login --adapter-id <id>` with a fresh password                                                                                                                                                                                                                 |
-| `ENCRYPTION_ENABLED=False` in diagnostics    | `medre-adapter-matrix[e2e]` not installed                                                                             | Install matrix[e2e] in the MEDRE environment; see [installation](../install.md)                                                                                                                                                                                                                  |
+- Device identity and crypto store behavior, validation harnesses, and Classic
+  Sync durability:
+  [Matrix transport internals](../../dev/transport-internals/matrix.md)
+- [guided configuration](../guided-configuration.md) — the route builder used
+  to connect two adapters
 
-## Classic Sync durability and recovery
-
-Runtime-managed Matrix adapters use MEDRE-owned Classic Sync checkpoints. The
-Matrix SDK may reconstruct a limited timeline before MEDRE sees its following live
-event, but the checkpoint does not advance until every relevant timeline event has
-passed durable admission. If admission fails, the SDK retains the event for replay.
-
-`LIVE` and `RECOVERED` events are admitted and routed. `HISTORY` is recorded as a
-durable suppression and is not routed. This replaces the older first-sync timestamp
-heuristic for runtime-managed Matrix adapters. Separately from provenance, each
-adapter lifetime suppresses events whose origin server timestamp predates its start
-baseline by more than `startup_backlog_suppress_seconds` (default 60 seconds;
-`0` disables) before decode, whichever path delivered them, so a restart does not
-replay offline room history over destination transports.
-
-With runtime storage available, the Matrix adapter intentionally does not enable
-nio-owned sync-token persistence or persisted recovery state. MEDRE stores the
-committed cursor in its primary SQLite database so plaintext and E2EE modes use the
-same checkpoint-ownership model. Recovery-abandonment metadata is stored with that
-checkpoint and exposed in adapter diagnostics. Without runtime storage, MEDRE omits
-the durable callbacks and mindroom-nio retains ordinary sync-token persistence; this
-fallback is non-durable and does not claim MEDRE-owned recovery.
-
-## See Also
+### See Also
 
 - [live-validation/matrix.md](../live-validation/matrix.md) — live smoke test procedures
 - [live-validation/matrix-meshtastic.md](../live-validation/matrix-meshtastic.md) — Matrix ↔ Meshtastic cross-transport bring-up
 - [diagnostics-and-evidence.md](../diagnostics-and-evidence.md) — evidence provenance and bundle collection
 - [recovery-and-replay.md](../recovery-and-replay.md) — crash recovery and replay
-
-## First sync during startup
-
-Authentication and room membership precede sync readiness. With the default
-budget, the provider logs `Waiting up to 45s for the first Matrix sync acknowledgement`
-while it waits for accepted native progress. `initial_sync_timeout_seconds`
-controls the displayed budget; zero disables waiting and emits no wait log.
-If it expires, the sync owner stays active, health is `degraded`, and
-`waiting_initial_sync_ack` is recorded as the reason until progress arrives. Real sync failures
-and reconnects remain visible immediately.
-
-The runtime's `adapter_start_timeout_seconds` bounds the entire adapter start,
-including authentication, joins and this wait. Increase it for slow startup
-if necessary. See [running MEDRE](../running-medre.md#current-health-after-startup)
-for startup versus current health observations.
