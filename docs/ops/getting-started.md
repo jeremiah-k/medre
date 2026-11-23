@@ -90,6 +90,11 @@ Then test the reverse direction.
 A one-way route must not forward messages in reverse.
 Press **Ctrl+C** to stop the bridge.
 
+To read the evidence your first messages left behind — installed, configured,
+runtime observed, adapter accepted, recipient observed — follow the
+[first-run walkthrough](first-run-walkthrough.md). It gates each step with the
+one check that must pass before the next.
+
 MEDRE stores messages and delivery records locally. For local retention,
 an opt-in relay-only policy can logically collect eligible, settled message
 text. For dispatch, an explicitly enabled hard content ceiling fences new local
@@ -110,6 +115,9 @@ For updates and state backups, see [operator workflows](operator-workflows.md).
 
 ## Need help?
 
-See [troubleshooting](troubleshooting.md) when a check or test fails. If you
+See [troubleshooting](troubleshooting.md) when a check or test fails. When a
+message does not arrive at its destination, the
+[incident walkthrough](incident-walkthrough.md) gives a read-only decision
+order with exact next commands. If you
 use an agent, [AI-assisted setup](ai-assisted-setup.md) has prompts for
 planning and checking routes.
