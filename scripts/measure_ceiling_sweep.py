@@ -49,6 +49,7 @@ import signal
 import sqlite3
 import subprocess
 import sys
+import threading
 import time
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
@@ -65,7 +66,11 @@ from medre.core.ingress import DurableIngressWorker
 from medre.core.planning import FallbackResolver, RelationResolver
 from medre.core.planning.delivery_plan import RetryPolicy
 from medre.core.routing import Route, Router, RouteSource, RouteTarget
-from medre.core.storage.backend import DeliveryOutboxItem, OutboxDispatchSnapshotWrite
+from medre.core.storage.backend import (
+    DeliveryOutboxItem,
+    OutboxDispatchSnapshotWrite,
+    StorageError,
+)
 from medre.core.storage.sqlite.storage import SQLiteStorage
 from medre.core.supervision.capacity import CapacityController
 from medre.runtime.retry import RetryWorker
@@ -140,6 +145,12 @@ def _timings(samples: list[float]) -> dict[str, float]:
     }
 
 
+async def _cancel_task(task: asyncio.Task[Any]) -> None:
+    if not task.done():
+        task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+
+
 async def _poll_until(condition: Any, *, timeout: float, description: str) -> None:
     """Bounded condition polling; a timeout is a measurement-setup failure."""
     deadline = time.perf_counter() + timeout
@@ -168,6 +179,7 @@ class _CeilingProbe:
         self.tick_ms: list[float] = []
         self.enforced_total = 0
         self.intervals: list[tuple[float, float]] = []
+        self.errors: list[dict[str, Any]] = []
         self.heartbeat_path: Path | None = None
 
     def install(self) -> None:
@@ -179,9 +191,13 @@ class _CeilingProbe:
             probe.intervals.append((started, 0.0))
             try:
                 enforced = await probe._original(*args, **kwargs)
-            except BaseException:
-                probe.intervals[-1] = (started, time.perf_counter())
-                probe.tick_ms.append((time.perf_counter() - started) * 1000)
+            except BaseException as exc:
+                ended = time.perf_counter()
+                probe.intervals[-1] = (started, ended)
+                probe.tick_ms.append((ended - started) * 1000)
+                probe.errors.append(
+                    {"at": ended, "type": type(exc).__name__, "detail": str(exc)[:120]}
+                )
                 probe._heartbeat("tick_error", probe.enforced_total)
                 raise
             ended = time.perf_counter()
@@ -232,21 +248,29 @@ class _ClaimProbe:
         self.claim_empty_ms: list[float] = []
         self.starts: list[float] = []
         self.ends: list[float] = []
+        self.calls: list[dict[str, Any]] = []
 
     def install(self) -> None:
         probe = self
 
         async def timed_claim(*args: Any, **kwargs: Any) -> list[Any]:
-            probe.starts.append(time.perf_counter())
-            batch = await probe._original(*args, **kwargs)
-            probe.ends.append(time.perf_counter())
-            if batch:
-                probe.claim_nonempty_ms.append(
-                    (probe.ends[-1] - probe.starts[-1]) * 1000
+            started = time.perf_counter()
+            outcome = "error"
+            try:
+                batch = await probe._original(*args, **kwargs)
+                outcome = "nonempty" if batch else "empty"
+                return batch
+            finally:
+                ended = time.perf_counter()
+                probe.starts.append(started)
+                probe.ends.append(ended)
+                probe.calls.append(
+                    {"started": started, "ended": ended, "outcome": outcome}
                 )
-            else:
-                probe.claim_empty_ms.append((probe.ends[-1] - probe.starts[-1]) * 1000)
-            return batch
+                if outcome == "nonempty":
+                    probe.claim_nonempty_ms.append((ended - started) * 1000)
+                elif outcome == "empty":
+                    probe.claim_empty_ms.append((ended - started) * 1000)
 
         self._store.claim_due_outbox_items = timed_claim  # type: ignore[method-assign]
 
@@ -258,10 +282,8 @@ class _ClaimProbe:
         if len(self.ends) < 2:
             return 0.0
         return max(
-            later_start - earlier_end
-            for earlier_end, later_start in zip(
-                self.ends, self.starts[1:], strict=False
-            )
+            later_end - earlier_end
+            for earlier_end, later_end in zip(self.ends, self.ends[1:], strict=False)
         )
 
 
@@ -346,6 +368,7 @@ async def _trickle_claimable(
     outstanding: dict[str, float] = {}
     sent_total = 0
     index = 0
+    failed_admissions = 0
     deadline = time.perf_counter() + seconds
     while not stop.is_set() and time.perf_counter() < deadline:
         for event_id, staged_at in list(outstanding.items()):
@@ -356,9 +379,12 @@ async def _trickle_claimable(
                 queue_latency_ms.append((time.perf_counter() - staged_at) * 1000)
                 del outstanding[event_id]
         event_id = f"trickle-{index:05d}"
-        outstanding[event_id] = await _stage_claimable(
-            context.store, context.runner, event_id, admission_ms=admission_ms
-        )
+        try:
+            outstanding[event_id] = await _stage_claimable(
+                context.store, context.runner, event_id, admission_ms=admission_ms
+            )
+        except StorageError:
+            failed_admissions += 1
         index += 1
         try:
             await asyncio.wait_for(stop.wait(), timeout=_TRICKLE_PERIOD_SECONDS)
@@ -376,7 +402,8 @@ async def _trickle_claimable(
     return {
         "trickle_admission_ms": _timings(admission_ms),
         "queue_latency_ms": _timings(queue_latency_ms),
-        "trickle_staged_total": index,
+        "trickle_staged_total": index - failed_admissions,
+        "trickle_admission_failures": failed_admissions,
         "trickle_sent_total": sent_total,
         "trickle_unsent_at_close": len(outstanding),
     }
@@ -694,10 +721,9 @@ async def _run_history_heavy(
             count=_HISTORY_HEAVY_RECEIPTED_POLICIES,
             hard_ceiling=datetime.now(timezone.utc) - timedelta(seconds=5),
         )
-        if sweep_enabled:
-            await _receipt_history_offline(
-                store, expected_receipts=_HISTORY_HEAVY_RECEIPTED_POLICIES
-            )
+        await _receipt_history_offline(
+            store, expected_receipts=_HISTORY_HEAVY_RECEIPTED_POLICIES
+        )
         await _bulk_seed_events(
             store,
             prefix="hh-target",
@@ -710,12 +736,14 @@ async def _run_history_heavy(
         dispatcher = _make_dispatcher(context, sweep_enabled=sweep_enabled)
         resources.push_async_callback(dispatcher.stop)
         await dispatcher.start()
+        reader = asyncio.create_task(
+            _reader_probe(context.db_path, samples=_MID_RUN_READER_SAMPLES)
+        )
+        resources.push_async_callback(_cancel_task, reader)
         trickle = await _trickle_claimable(
             context, seconds=_HISTORY_HEAVY_ACTIVE_SECONDS, stop=asyncio.Event()
         )
-        mid_run_reader = await _reader_probe(
-            context.db_path, samples=_MID_RUN_READER_SAMPLES
-        )
+        mid_run_reader = await reader
         purge_wait_started = time.perf_counter()
         if sweep_enabled:
             await _poll_until(
@@ -831,10 +859,9 @@ async def _run_continuous_stream(
             count=_STREAM_HISTORY_RECEIPTS,
             hard_ceiling=datetime.now(timezone.utc) - timedelta(seconds=5),
         )
-        if sweep_enabled:
-            await _receipt_history_offline(
-                store, expected_receipts=_STREAM_HISTORY_RECEIPTS
-            )
+        await _receipt_history_offline(
+            store, expected_receipts=_STREAM_HISTORY_RECEIPTS
+        )
         context.install_probes()
         dispatcher = _make_dispatcher(context, sweep_enabled=sweep_enabled)
         resources.push_async_callback(dispatcher.stop)
@@ -842,6 +869,11 @@ async def _run_continuous_stream(
         trickle = asyncio.create_task(
             _trickle_claimable(context, seconds=_STREAM_SECONDS, stop=asyncio.Event())
         )
+        resources.push_async_callback(_cancel_task, trickle)
+        reader = asyncio.create_task(
+            _reader_probe(context.db_path, samples=_MID_RUN_READER_SAMPLES)
+        )
+        resources.push_async_callback(_cancel_task, reader)
         stream_admission_ms: list[float] = []
         admissions: list[dict[str, Any]] = []
         stream_started = time.perf_counter()
@@ -856,9 +888,7 @@ async def _run_continuous_stream(
             index += 1
             await asyncio.sleep(0.05)
         trickle_result = await trickle
-        mid_run_reader = await _reader_probe(
-            context.db_path, samples=_MID_RUN_READER_SAMPLES
-        )
+        mid_run_reader = await reader
         purge_wait_started = time.perf_counter()
         if sweep_enabled:
             await _poll_until(
@@ -1121,10 +1151,12 @@ async def _run_fanout_attachments(
         dispatcher = _make_dispatcher(context, sweep_enabled=sweep_enabled)
         resources.push_async_callback(dispatcher.stop)
         await dispatcher.start()
-        trickle = await _trickle_claimable(context, seconds=20.0, stop=asyncio.Event())
-        mid_run_reader = await _reader_probe(
-            context.db_path, samples=_MID_RUN_READER_SAMPLES
+        reader = asyncio.create_task(
+            _reader_probe(context.db_path, samples=_MID_RUN_READER_SAMPLES)
         )
+        resources.push_async_callback(_cancel_task, reader)
+        trickle = await _trickle_claimable(context, seconds=20.0, stop=asyncio.Event())
+        mid_run_reader = await reader
         purge_wait_started = time.perf_counter()
         if sweep_enabled:
             await _poll_until(
@@ -1179,37 +1211,60 @@ async def _run_fanout_attachments(
 
 
 class _BlockedWriter:
-    """External raw connection holding BEGIN IMMEDIATE in repeating windows."""
+    """Run SQLite lock-holder calls in their own thread, never the event loop."""
 
     def __init__(self, db_path: Path) -> None:
         self._db_path = db_path
-        self._connection: sqlite3.Connection | None = None
         self.holds = 0
         self.rejected = 0
+        self.windows: list[dict[str, Any]] = []
+        self.active = threading.Event()
+        self.stop_requested = threading.Event()
 
-    def _connect(self) -> sqlite3.Connection:
+    def _cycles(self, durations: tuple[float, ...], release: float) -> None:
         connection = sqlite3.connect(str(self._db_path), timeout=1.0)
         connection.execute("PRAGMA busy_timeout=1000")
-        return connection
+        try:
+            for duration in durations:
+                if self.stop_requested.wait(release):
+                    break
+                window: dict[str, Any] = {"scheduled_seconds": duration}
+                window["begin_at"] = time.perf_counter()
+                try:
+                    connection.execute("BEGIN IMMEDIATE")
+                except sqlite3.OperationalError as exc:
+                    self.rejected += 1
+                    window.update(acquired=False, error_type=type(exc).__name__)
+                    self.windows.append(window)
+                    continue
+                self.holds += 1
+                window.update(acquired=True, acquired_at=time.perf_counter())
+                self.windows.append(window)
+                self.active.set()
+                try:
+                    self.stop_requested.wait(duration)
+                    connection.execute("COMMIT")
+                finally:
+                    window["released_at"] = time.perf_counter()
+                    self.active.clear()
+                    if connection.in_transaction:
+                        connection.rollback()
+        finally:
+            self.active.clear()
+            connection.close()
 
     async def run_cycles(
         self, *, hold_seconds: tuple[float, ...], release_seconds: float
     ) -> None:
-        for hold in hold_seconds:
-            await asyncio.sleep(release_seconds)
-            if self._connection is None:
-                self._connection = self._connect()
-            try:
-                self._connection.execute("BEGIN IMMEDIATE")
-            except sqlite3.OperationalError:
-                self.rejected += 1
-                continue
-            self.holds += 1
-            await asyncio.sleep(hold)
-            self._connection.execute("COMMIT")
-        if self._connection is not None:
-            self._connection.close()
-            self._connection = None
+        task = asyncio.create_task(
+            asyncio.to_thread(self._cycles, hold_seconds, release_seconds)
+        )
+        try:
+            await asyncio.shield(task)
+        finally:
+            if not task.done():
+                self.stop_requested.set()
+                await asyncio.shield(task)
 
 
 async def _run_blocked_writer(
@@ -1233,9 +1288,16 @@ async def _run_blocked_writer(
         dispatcher = _make_dispatcher(context, sweep_enabled=sweep_enabled)
         resources.push_async_callback(dispatcher.stop)
         await dispatcher.start()
+        stop_trickle = asyncio.Event()
         trickle = asyncio.create_task(
-            _trickle_claimable(context, seconds=20.0, stop=asyncio.Event())
+            _trickle_claimable(context, seconds=40.0, stop=stop_trickle)
         )
+
+        async def _join_trickle() -> None:
+            stop_trickle.set()
+            await _cancel_task(trickle)
+
+        resources.push_async_callback(_join_trickle)
         blocker = _BlockedWriter(context.db_path)
         blocking = asyncio.create_task(
             blocker.run_cycles(
@@ -1243,12 +1305,20 @@ async def _run_blocked_writer(
                 release_seconds=_BLOCKED_RELEASE_SECONDS,
             )
         )
-        await asyncio.sleep(20.0)
-        trickle_result = await trickle
-        await blocking
+
+        async def _join_blocker() -> None:
+            blocker.stop_requested.set()
+            await asyncio.gather(blocking, return_exceptions=True)
+
+        resources.push_async_callback(_join_blocker)
+        acquired = await asyncio.to_thread(blocker.active.wait, 20.0)
+        assert acquired, "no writer hold was acquired"
         mid_run_reader = await _reader_probe(
             context.db_path, samples=_MID_RUN_READER_SAMPLES
         )
+        await blocking
+        stop_trickle.set()
+        trickle_result = await trickle
         purge_wait_started = time.perf_counter()
         if sweep_enabled:
             await _poll_until(
@@ -1277,6 +1347,17 @@ async def _run_blocked_writer(
         "sweep_enabled": sweep_enabled,
         "blocker_holds": blocker.holds,
         "blocker_rejected_begins": blocker.rejected,
+        "blocker_windows": blocker.windows,
+        "sweep_errors": context.ceiling_probe.errors,
+        "sweep_errors_during_hold": sum(
+            any(
+                hold.get("acquired")
+                and hold["acquired_at"] <= error["at"] <= hold["released_at"]
+                for hold in blocker.windows
+                if "released_at" in hold
+            )
+            for error in context.ceiling_probe.errors
+        ),
         "sweep_tick_ms": _timings(context.ceiling_probe.tick_ms),
         "sweep_enforced_total": context.ceiling_probe.enforced_total,
         "purge_completion_wait_s": round(purge_wait_seconds, 3),
@@ -1306,6 +1387,13 @@ def _interrupt_child(child_dest: Path) -> None:
     probe.install()
 
     async def child_main() -> None:
+        with heartbeat_path.open("a") as heartbeat:
+            heartbeat.write(
+                json.dumps(
+                    {"phase": "source", "root": _source_identity()["package_root"]}
+                )
+                + "\n"
+            )
         await store.initialize()
         await _bulk_seed_events(
             store,
@@ -1361,8 +1449,7 @@ def _raw_counts(db_path: Path) -> dict[str, Any]:
             "  SELECT 1 FROM event_content_ceiling_log l WHERE l.event_id=p.event_id"
             ") AND NOT EXISTS ("
             "  SELECT 1 FROM event_body_content b WHERE b.event_id=p.event_id"
-            ") AND EXISTS (SELECT 1 FROM canonical_events c "
-            "WHERE c.event_id=p.event_id AND c.payload<>'{}')"
+            ")"
         ).fetchone()[0]
         cursor_row = connection.execute(
             "SELECT value FROM _medre_schema_meta WHERE key=?",
@@ -1395,6 +1482,7 @@ async def _verify_all_receipts(store: SQLiteStorage) -> dict[str, Any]:
     failed = 0
     after_event: str | None = None
     verdicts: set[str] = set()
+    complete = False
     for _ in range(200):
         report = await store.verify_content_ceiling_receipts(
             limit=500, after_event=after_event
@@ -1403,8 +1491,10 @@ async def _verify_all_receipts(store: SQLiteStorage) -> dict[str, Any]:
         failed += int(report["receipts_failed"])
         verdicts.add(str(report["verdict"]))
         if not report["receipts_has_more"]:
+            complete = True
             break
         after_event = str(report["receipts_next_after_event"])
+    assert complete, "receipt verifier pagination incomplete"
     return {
         "receipts_examined": examined,
         "receipts_failed": failed,
@@ -1440,6 +1530,8 @@ async def _resume_to_completion(
                 f"pending, {len(audit['residual_enforced'])} residual"
             )
         consistency["verification"] = await _verify_all_receipts(reopened)
+        assert consistency["verification"]["receipts_failed"] == 0
+        assert consistency["verification"]["receipts_examined"] == _INTERRUPT_TARGETS
     return consistency, _footprint(child_db)
 
 
@@ -1455,11 +1547,11 @@ async def _run_interrupt_restart(destination: Path) -> dict[str, Any]:
         leftover.unlink()
     script = Path(__file__).resolve()
     environment = dict(os.environ)
-    worktree_src = str(script.parent.parent / "src")
+    package_root = str(_source_identity()["package_root"])
     environment["PYTHONPATH"] = (
-        worktree_src + ":" + environment["PYTHONPATH"]
-        if "PYTHONPATH" in environment
-        else worktree_src
+        package_root + os.pathsep + environment["PYTHONPATH"]
+        if environment.get("PYTHONPATH")
+        else package_root
     )
 
     def _spawn() -> subprocess.Popen[str]:
@@ -1521,6 +1613,13 @@ async def _run_interrupt_restart(destination: Path) -> dict[str, Any]:
             if line.strip()
         ]
         if heartbeats:
+            child_root = next(
+                (row.get("root") for row in heartbeats if row.get("phase") == "source"),
+                None,
+            )
+            assert (
+                child_root == package_root
+            ), "interrupt child imported a different MEDRE revision"
             if heartbeats[-1]["phase"] == "tick_start":
                 kill_phase = "mid_tick"
             else:
@@ -1554,6 +1653,7 @@ async def _cancel_mid_tick(destination: Path) -> dict[str, Any]:
         )
         context.install_probes()
         dispatcher = _make_dispatcher(context, sweep_enabled=True)
+        resources.push_async_callback(dispatcher.stop)
         await dispatcher.start()
         await _poll_until(
             context.ceiling_probe.tick_active,
@@ -1563,6 +1663,9 @@ async def _cancel_mid_tick(destination: Path) -> dict[str, Any]:
         stop_started = time.perf_counter()
         await dispatcher.stop()
         stop_seconds = time.perf_counter() - stop_started
+        cancelled_in_tick = any(
+            row["type"] == "CancelledError" for row in context.ceiling_probe.errors
+        )
         enforced_before_cancel = context.ceiling_probe.enforced_total
         context.restore_probes()
         raw = _raw_counts(context.db_path)
@@ -1570,16 +1673,25 @@ async def _cancel_mid_tick(destination: Path) -> dict[str, Any]:
             raise AssertionError(f"integrity check failed after cancel: {raw}")
         if raw["receipt_with_body_rows"] or raw["cleared_envelope_without_receipt"]:
             raise AssertionError(f"partial purge state after cancel: {raw}")
+        # Reopen a genuinely new SQLiteStorage instance to test persisted
+        # cursor loading, not only replay on the original in-memory store.
+        await store.close()
+        reopened = SQLiteStorage(str(context.db_path))
+        resources.push_async_callback(reopened.close)
+        await reopened.initialize()
         for _ in range(400):
-            enforced = await store.enforce_content_ceilings(limit=500)
+            enforced = await reopened.enforce_content_ceilings(limit=500)
             if not enforced:
                 break
-        audit = await store.audit_content_ceilings(limit=25)
+        audit = await reopened.audit_content_ceilings(limit=25)
         if audit["elapsed_pending"] or audit["residual_enforced"]:
-            raise AssertionError("resumed sweep after cancel left findings")
-        verification = await _verify_all_receipts(store)
+            raise AssertionError("reopened sweep after cancel left findings")
+        verification = await _verify_all_receipts(reopened)
+        assert verification["receipts_failed"] == 0
+        assert verification["receipts_examined"] == _CANCEL_TARGETS
         return {
-            "stop_seconds_mid_tick": round(stop_seconds, 3),
+            "stop_seconds_with_tick_active": round(stop_seconds, 3),
+            "cancelled_in_tick_observed": cancelled_in_tick,
             "ticks_observed_before_cancel": len(context.ceiling_probe.tick_ms),
             "enforced_before_cancel": enforced_before_cancel,
             "raw_after_cancel": raw,
