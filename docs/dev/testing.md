@@ -608,6 +608,71 @@ raising the constant.
 For operator-side live validation procedures, see
 [ops/live-validation](../ops/live-validation/).
 
+### Local Synapse homeserver for Matrix testing
+
+Matrix live tests and manual provider bring-up need a reachable homeserver;
+Docker-marked tests start their own disposable containers. To run a local
+server for testing, install Synapse into a dedicated environment, separate
+from MEDRE's `.venv`. This service installation is independent of the
+checkout lockfile.
+
+```bash
+python3 -m venv /tmp/medre-synapse-venv
+source /tmp/medre-synapse-venv/bin/activate
+python -m pip install matrix-synapse
+
+python -m synapse.app.homeserver \
+  --server-name localhost \
+  --config-path homeserver.yaml \
+  --generate-config \
+  --report-stats=no
+
+python -m synapse.app.homeserver --config-path homeserver.yaml
+```
+
+Synapse starts on port 8008 by default. Run MEDRE and the tests from a
+separate shell with their own environment activated.
+
+Register a test bot user with the Synapse registration tool and fetch its
+token with the login API:
+
+```bash
+register_new_matrix_user \
+  -c homeserver.yaml \
+  -u bot -p secret \
+  http://localhost:8008
+
+curl -s -X POST \
+  -d '{"type":"m.login.password","user":"bot","password":"secret"}' \
+  http://localhost:8008/_matrix/client/v3/login
+```
+
+The response JSON includes an `access_token` field. Do not commit or log the
+token; pass it to the live harness through the environment variables above.
+
+Conduit is a lightweight alternative: download a binary from conduit.rs or
+build from source. Conduit starts on port 6167 by default.
+
+To run Synapse under Docker instead, run it as your own unprivileged user and
+create its data directory first so the container never needs root:
+
+```bash
+mkdir -m 700 -p synapse-data
+# Generate the initial homeserver config into the host-owned directory.
+docker run --rm --user "$(id -u):$(id -g)" \
+  -e SYNAPSE_SERVER_NAME=localhost \
+  -e SYNAPSE_REPORT_STATS=no \
+  -v "$PWD/synapse-data:/data" \
+  matrixdotorg/synapse:latest generate
+
+docker run -d --name synapse -p 127.0.0.1:8008:8008 \
+  --user "$(id -u):$(id -g)" \
+  -e SYNAPSE_SERVER_NAME=localhost \
+  -e SYNAPSE_REPORT_STATS=no \
+  -v "$PWD/synapse-data:/data" \
+  matrixdotorg/synapse:latest
+```
+
 ## Docker Tests
 
 Docker tests exercise real SDK code paths against containerized services
