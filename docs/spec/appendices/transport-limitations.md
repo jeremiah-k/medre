@@ -94,8 +94,22 @@ and SDK pins.
   `tests/test_matrix_device_trust_sdk_contract.py` covers the pinned SDK surface;
   `tests/test_matrix_device_trust_docker.py` qualifies strict refusal, verified
   delivery with peer decryption, trust reset, restart persistence, and default
-  permissive delivery on Docker Synapse. The Docker tier is opt-in, not a required
-  CI gate, and proves no federation, external network, or cross-signing ceremony.
+  permissive delivery on Docker Synapse. The provider-owned Docker tier is
+  opt-in, not a required CI gate, and proves no federation, external network, or
+  cross-signing ceremony. The core-owned required rung is
+  `tests/integration/test_synapse_e2ee_outbound_acceptance.py`: it routes a
+  canonical event through durable admission, the durable outbox and the retry
+  worker to the real Megolm send path and requires an independent peer account
+  to decrypt the exact plaintext under the native event id bound to the durable
+  outbox generation, the attempt receipt and the outbound native reference. The
+  Docker Integration workflow executes it at the pinned image and adapter
+  revision, and its enforcement step fails the job on a skip, an error, a
+  failure, or missing execution. The same module refuses a missing room key, a
+  wrong-room observer, a wrong event id, a stale (foreign-event) attempt, and
+  an unverified strict peer, and separately asserts adapter restart key-store
+  reuse; strict peer-device verification stays opt-in and the default stays
+  quiet permissive. This tier proves no federation, external network,
+  cross-signing ceremony, or recipient-side user action.
 - Missing/mismatched local cross-signing identity is never replaced at runtime.
   Deliberate reset/rotation requires the authenticated
   `medre adapter matrix auth login` command with `--reset-cross-signing`

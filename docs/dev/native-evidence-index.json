@@ -26,7 +26,8 @@
       "historical_substrate": "isolated Synapse room",
       "reported_native_evidence": "independent native peer; readable text and Matrix bridge context",
       "outside_reported_scope": "encrypted-room production deployment",
-      "scope": "historical private evidence; do not infer later source revision qualification"
+      "scope": "historical private evidence; do not infer later source revision qualification",
+      "current_pin_docker_evidence": "core-owned tests/integration/test_synapse_e2ee_outbound_acceptance.py: routed encrypted outbound through durable admission, the durable outbox and the retry worker, decrypted by an independent peer account and bound to the outbox generation, attempt receipt and outbound native reference; execution-enforced in the Docker Integration workflow. Refusals: missing room key, wrong-room observer, wrong event id, stale attempt, unverified strict peer. Restart key-store reuse asserted. No federation, external-live network, cross-signing ceremony, or recipient user action claim"
     },
     {
       "transport": "meshtastic",
