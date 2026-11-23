@@ -142,9 +142,49 @@ jobs:
 
       # --- Run tests ---
 
+      # Required gate: a routed Matrix encrypted outbound must be decrypted
+      # and observed by an independent second client at the pinned image and
+      # adapter revision. The enforce step fails the job when any test was
+      # skipped (e.g. missing e2e extras), errored, failed, or when fewer
+      # tests executed than the module defines, so a missing qualification
+      # can never read as a pass.
+      - name: Qualify Matrix encrypted outbound acceptance
+        run: |
+          mkdir -p .ci-artifacts/matrix-outbound-acceptance
+          uv run --no-sync python -m pytest \
+            tests/integration/test_synapse_e2ee_outbound_acceptance.py \
+            -m docker --timeout=300 -q \
+            --junitxml=.ci-artifacts/matrix-outbound-acceptance/junit.xml
+
+      - name: Enforce Matrix outbound acceptance execution
+        if: always()
+        run: |
+          uv run --no-sync python scripts/ci/enforce_test_execution.py \
+            --junit .ci-artifacts/matrix-outbound-acceptance/junit.xml \
+            --expect-tests 6
+
+      - name: Upload Matrix outbound acceptance result
+        if: success()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: matrix-outbound-acceptance-independent-recipient
+          path: .ci-artifacts/matrix-outbound-acceptance/junit.xml
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload Matrix outbound acceptance failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: matrix-outbound-acceptance-failure-diagnostics
+          path: .ci-artifacts/matrix-outbound-acceptance/
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Run Docker integration tests
         run: |
-          uv run --no-sync timeout --foreground 13m bash scripts/ci/run-docker-integration.sh
+          uv run --no-sync timeout --foreground 13m bash scripts/ci/run-docker-integration.sh \
+            --deselect tests/integration/test_synapse_e2ee_outbound_acceptance.py
 
       - name: Qualify Meshtastic core-authorized replay
         run: |
