@@ -240,12 +240,71 @@ PY
 python "$REH/enforce_once.py" \
   "$REH/root/state/medre.sqlite"
 
-# 3. Verify the copy: elapsed_pending is now empty, each processed event
-#    audits enforced_clean, and every receipt re-checks clean.
-medre storage ceiling audit \
-  --storage-path "$REH/root/state/medre.sqlite" --limit 25
-medre storage ceiling verify \
-  --storage-path "$REH/root/state/medre.sqlite" --limit 25
+# 3. Enforce in bounded passes until one full audit finds nothing left.
+#    One pass enforces at most 50 elapsed events and revisits at most 50
+#    receipted events for late-write residuals, so a single pass leaves
+#    work behind on a larger copy. The pass is done when one audit call
+#    reports "elapsed_pending": [], "residual_enforced": [], and both
+#    elapsed_pending_has_more and residual_enforced_has_more false.
+while :; do
+  medre storage ceiling audit \
+    --storage-path "$REH/root/state/medre.sqlite" --limit 25 \
+    > "$REH/audit.json" || {
+    cat "$REH/audit.json"
+    break
+  }
+  python - "$REH/audit.json" <<'PY' && break
+import json
+import sys
+
+with open(sys.argv[1]) as handle:
+    report = json.load(handle)
+clean = (
+    report["elapsed_pending"] == []
+    and report["residual_enforced"] == []
+    and not report["elapsed_pending_has_more"]
+    and not report["residual_enforced_has_more"]
+)
+if not clean:
+    print("pending:", len(report["elapsed_pending"]),
+          "residual:", len(report["residual_enforced"]))
+raise SystemExit(0 if clean else 1)
+PY
+  python "$REH/enforce_once.py" "$REH/root/state/medre.sqlite"
+done
+
+# 4. Verify the whole receipt history. Each verify call re-checks one
+#    bounded page of receipts and exits 1 when its verdict is failed;
+#    follow receipts_next_after_event with --after-event while
+#    receipts_has_more is true and require "verdict": "passed" on every
+#    page. One clean page never proves the unchecked history clean.
+after=""
+while :; do
+  if [ -n "$after" ]; then
+    medre storage ceiling verify \
+      --storage-path "$REH/root/state/medre.sqlite" \
+      --limit 25 --after-event "$after" > "$REH/verify.json"
+  else
+    medre storage ceiling verify \
+      --storage-path "$REH/root/state/medre.sqlite" \
+      --limit 25 > "$REH/verify.json"
+  fi
+  after=$(python - "$REH/verify.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1]) as handle:
+    report = json.load(handle)
+if report["verdict"] != "passed":
+    sys.exit("verify reported a failed receipt page")
+print(report["receipts_next_after_event"] or "")
+PY
+) || {
+  cat "$REH/verify.json"
+  break
+}
+  [ -z "$after" ] && break
+done
 ```
 
 The rehearsal proves the logical path only. It changes nothing on the live
@@ -253,11 +312,23 @@ installation and erases no bytes anywhere: the copy still holds freed pages
 and WAL images, and so does the live store until the explicit erasure
 procedure in [the ceiling specification](../spec/content-privacy-ceiling.md)
 is performed on it. Events whose ceiling has not elapsed stay `not_elapsed`
-and untouched. Pending and residual work is bounded per pass, so repeat the
-audit and the enforcement pass (or enable the sweep) until the audit
-reports no `elapsed_pending` findings. The production path is the opt-in
-sweep below; the rehearsal predicts its behavior because both call the same
-guarded transition.
+and untouched. Each pass is bounded twice: it enforces at most 50 elapsed
+events without a receipt and revisits at most 50 already-receipted events
+for late-write residuals, each bound advancing a durable cursor that wraps
+at the end of its queue. A copy with more pending or residual work than one
+pass covers therefore needs repeated passes, and an empty `elapsed_pending`
+list alone is not the finish line: a late write landing on a receipt the
+residual cursor has not yet revisited keeps `residual_enforced` populated
+while `elapsed_pending` is already empty and the first verify page passes.
+The rehearsal is complete when one audit call reports
+`"elapsed_pending": []` and `"residual_enforced": []` with both `*_has_more`
+flags false — page the audit lists with `--after-event` and their
+`*_next_after_event` values when a report says otherwise — and every
+`verify` page reports `"verdict": "passed"` from the first receipt through
+`receipts_has_more: false` (exit code 0 on each page). The production path
+is the opt-in sweep below; the rehearsal predicts its behavior because both
+call the same guarded transition, and the enabled sweep repeats its bounded
+passes on its own schedule.
 
 ## Failure and corruption policy
 
