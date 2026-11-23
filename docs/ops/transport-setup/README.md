@@ -5,6 +5,13 @@ Install each provider in the same environment as MEDRE. A persistent tool uses
 selection. All seven adapters use the same configuration and route builder.
 Native accounts, devices, profiles, and delivery evidence remain transport-specific.
 
+Every setup page below follows the same shape: `Before you begin` states what
+must already exist, `Set up` gives the shortest install/config/credential
+path, `Verify` shows how to confirm it works, `Options` lists the remaining
+settings, `Troubleshooting` collects the transport's failure guidance, and
+`Reference` links the deep material — so a reader who has set up one transport
+knows where to look in the next.
+
 | Adapter                        | Prepare                                         | Conversation address                           |
 | ------------------------------ | ----------------------------------------------- | ---------------------------------------------- |
 | [Matrix](matrix.md)            | Dedicated account, joined rooms, optional E2EE  | Canonical room ID, such as `!room:example.org` |
@@ -21,3 +28,5 @@ routing and evidence locally; validate native delivery from an independent
 recipient before relying on a bridge. See the
 [transport profiles](../../spec/transport-profiles/README.md) for capabilities
 and [SDK parity](../../dev/adapter-sdk-parity.md) for qualification boundaries.
+Adapter internals behind these guides are indexed under
+[transport internals](../../dev/transport-internals/README.md).
