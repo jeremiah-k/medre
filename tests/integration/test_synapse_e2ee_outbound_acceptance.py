@@ -238,6 +238,7 @@ async def _init_peer_client(
         )
         initial = await asyncio.wait_for(client.sync(full_state=True), 30)
         assert isinstance(initial, nio.SyncResponse), "peer initial sync failed"
+        _record_peer_sync(client, room_id, initial)
         if client.should_upload_keys:
             await client.keys_upload()
         if client.should_query_keys:
@@ -306,8 +307,7 @@ def evaluate_outbound_acceptance(evidence: OutboundAcceptanceEvidence) -> list[s
     attempt_receipts = [
         receipt
         for receipt in evidence.receipts
-        if receipt.get("status") == "sent"
-        and receipt.get("receipt_kind") in (None, "attempt")
+        if receipt.get("status") == "sent" and receipt.get("receipt_kind") == "attempt"
     ]
     if not attempt_receipts:
         reasons.append("attempt_receipt_missing")
@@ -516,10 +516,17 @@ async def _start_rig(
         max_attempts=30,
         available_target_adapters={_TARGET_ADAPTER},
     )
-    await runner.start()
-    await ingress_worker.start()
-    await adapter.start(_make_ctx(_TARGET_ADAPTER, runner, storage))
-    await retry_worker.start()
+    async with contextlib.AsyncExitStack() as startup:
+        # Ownership transfers to Rig only after every component started.
+        startup.push_async_callback(runner.stop)
+        await runner.start()
+        startup.push_async_callback(ingress_worker.stop, grace_seconds=5.0)
+        await ingress_worker.start()
+        startup.push_async_callback(adapter.stop)
+        await adapter.start(_make_ctx(_TARGET_ADAPTER, runner, storage))
+        startup.push_async_callback(retry_worker.stop)
+        await retry_worker.start()
+        startup.pop_all()
     return Rig(
         adapter=adapter,
         runner=runner,
@@ -531,13 +538,11 @@ async def _start_rig(
     )
 
 
-async def _stop_rig(rig: Rig, *, require_drained: bool = True) -> None:
+async def _stop_rig(rig: Rig) -> None:
     """Tear the rig down via production stop paths.
 
-    By default the retry worker must hold no retained work at stop, so a
-    required proof cannot leave an unaccounted in-flight attempt behind.
-    The strict-refusal negative passes ``require_drained=False`` because a
-    durably retained, never-sent obligation IS the honest refused outcome.
+    A durable unsent obligation is allowed; a live abandoned dispatch task
+    is not. Never close the adapter while the retry worker still owns one.
     """
     # Capture the adapter's nio client before teardown: the production stop
     # path runs nio close(), which never closes the store's SQLite connection
@@ -549,11 +554,9 @@ async def _stop_rig(rig: Rig, *, require_drained: bool = True) -> None:
         else None
     )
     await rig.retry_worker.stop()
-    if require_drained:
-        assert not rig.retry_worker.has_retained_work, (
-            "retry worker stopped with retained delivery work; a required "
-            "proof must never leave an unaccounted in-flight attempt behind"
-        )
+    assert (
+        not rig.retry_worker.has_retained_work
+    ), "retry worker stopped with live dispatch work; adapter teardown unsafe"
     for name, stop_coro in (
         ("adapter", rig.adapter.stop()),
         ("ingress_worker", rig.ingress_worker.stop(grace_seconds=5.0)),
@@ -694,9 +697,74 @@ def _collect_evidence(
     )
 
 
+def _olm_identity_keys(client: Any) -> tuple[str, str]:
+    """Check actual public Olm account keys, not only the supplied device ID."""
+    account = getattr(getattr(client, "olm", None), "account", None)
+    keys = getattr(account, "identity_keys", None)
+    if callable(keys):
+        keys = keys()
+    assert isinstance(keys, dict), "nio has no readable Olm identity keys"
+    result = (keys.get("curve25519"), keys.get("ed25519"))
+    assert all(isinstance(key, str) and key for key in result)
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Independent recipient observation
 # ---------------------------------------------------------------------------
+
+
+def _record_peer_sync(client: Any, room_id: str, response: Any) -> list[ObservedEvent]:
+    """Keep initial and incremental timelines, including pending ciphertexts."""
+    join = getattr(getattr(response, "rooms", None), "join", None) or {}
+    info = join.get(room_id)
+    timeline = getattr(info, "timeline", None) if info is not None else None
+    if getattr(timeline, "limited", False):
+        raise AssertionError("peer timeline limited; observation incomplete")
+    seen = _peer_observation_store(client)
+    pending = getattr(client, "_medre_pending_ciphertexts", None)
+    if pending is None:
+        pending = {}
+        client._medre_pending_ciphertexts = pending
+    observations: list[ObservedEvent] = []
+
+    def record(event: Any) -> None:
+        event_id = getattr(event, "event_id", "")
+        if not event_id:
+            return
+        decrypted = (
+            type(event).__name__ == "RoomMessageText"
+            and getattr(event, "decrypted", False) is True
+        )
+        source = getattr(event, "source", None) or {}
+        content = source.get("content") if isinstance(source, dict) else None
+        body = (
+            content.get("body", "") if decrypted and isinstance(content, dict) else ""
+        )
+        previous = seen.get(event_id)
+        if previous is None or (decrypted and not previous["decrypted"]):
+            seen[event_id] = {
+                "body": body,
+                "decrypted": decrypted,
+                "kind": type(event).__name__,
+            }
+            observations.append(ObservedEvent(event_id, body, room_id, decrypted))
+        if decrypted:
+            pending.pop(event_id, None)
+        elif type(event).__name__ == "MegolmEvent":
+            pending[event_id] = event
+
+    for event in getattr(timeline, "events", None) or []:
+        record(event)
+    # A room key can arrive in a later sync with no repeat timeline event.
+    for encrypted in tuple(pending.values()):
+        try:
+            decrypted = client.decrypt_event(encrypted)
+        except Exception:
+            continue  # A missing key is expected in the negative case.
+        if getattr(decrypted, "decrypted", False) is True:
+            record(decrypted)
+    return observations
 
 
 def _peer_observation_store(client: Any) -> dict[str, dict[str, Any]]:
@@ -721,39 +789,7 @@ async def _sync_peer_once(peer_client: Any, room_id: str) -> list[ObservedEvent]
     response = await asyncio.wait_for(peer_client.sync(timeout=3000), 20)
     if getattr(response, "next_batch", None) is None:
         raise AssertionError("peer sync failed; no observation was made")
-    join = getattr(getattr(response, "rooms", None), "join", None) or {}
-    info = join.get(room_id)
-    timeline = getattr(info, "timeline", None) if info is not None else None
-    if getattr(timeline, "limited", False):
-        raise AssertionError(
-            "peer timeline is limited; the observation would be incomplete"
-        )
-    seen = _peer_observation_store(peer_client)
-    new_observations: list[ObservedEvent] = []
-    for event in getattr(timeline, "events", None) or []:
-        event_id = getattr(event, "event_id", "")
-        if not event_id:
-            continue
-        is_decrypted_text = (
-            type(event).__name__ == "RoomMessageText"
-            and getattr(event, "decrypted", False) is True
-        )
-        body = ""
-        if is_decrypted_text:
-            source = getattr(event, "source", None) or {}
-            content = source.get("content") if isinstance(source, dict) else None
-            body = content.get("body", "") if isinstance(content, dict) else ""
-        if event_id not in seen:
-            seen[event_id] = {"body": body, "decrypted": is_decrypted_text}
-            new_observations.append(
-                ObservedEvent(
-                    event_id=event_id,
-                    body=body,
-                    room_id=room_id,
-                    decrypted=is_decrypted_text,
-                )
-            )
-    return new_observations
+    return _record_peer_sync(peer_client, room_id, response)
 
 
 async def _collect_peer_observations(
@@ -874,10 +910,12 @@ async def test_routed_encrypted_outbound_is_decrypted_by_independent_client(
 
         peer_scan.assert_not_awaited()
     finally:
-        if rig is not None:
-            await _stop_rig(rig)
-        with contextlib.suppress(Exception):
-            await close_nio_client(peer_client)
+        try:
+            if rig is not None:
+                await _stop_rig(rig)
+        finally:
+            with contextlib.suppress(Exception):
+                await close_nio_client(peer_client)
 
 
 # ---------------------------------------------------------------------------
@@ -930,10 +968,23 @@ async def test_recipient_without_room_key_cannot_yield_positive_verdict(
         fresh_client = await _init_peer_client(
             synapse_e2ee_env, peer_user_id, peer_password, fresh_store, room_id
         )
-        fresh_observations = await _collect_peer_observations(
-            fresh_client, room_id, rounds=4
-        )
-        fresh_decrypted = [o for o in fresh_observations if o.decrypted]
+        await _collect_peer_observations(fresh_client, room_id, rounds=4)
+        seen = _peer_observation_store(fresh_client)
+        target_id = native_ref.native_message_id
+        assert target_id in seen, "fresh device never observed target ciphertext"
+        assert (
+            seen[target_id]["kind"] == "MegolmEvent"
+        ), "fresh device did not observe a target MegolmEvent"
+        assert (
+            seen[target_id]["decrypted"] is False
+        ), "fresh device decrypted target despite missing room key"
+        fresh_observations = [
+            ObservedEvent(event_id, row["body"], room_id, row["decrypted"])
+            for event_id, row in seen.items()
+        ]
+        fresh_decrypted = [
+            o for o in fresh_observations if o.event_id == target_id and o.decrypted
+        ]
 
         evidence = _collect_evidence(
             rig,
@@ -954,13 +1005,15 @@ async def test_recipient_without_room_key_cannot_yield_positive_verdict(
             "for; the missing-key negative is not actually negative"
         )
     finally:
-        if rig is not None:
-            await _stop_rig(rig)
-        with contextlib.suppress(Exception):
-            await close_nio_client(primary_client)
-        if fresh_client is not None:
+        try:
+            if rig is not None:
+                await _stop_rig(rig)
+        finally:
             with contextlib.suppress(Exception):
-                await close_nio_client(fresh_client)
+                await close_nio_client(primary_client)
+            if fresh_client is not None:
+                with contextlib.suppress(Exception):
+                    await close_nio_client(fresh_client)
 
 
 # ---------------------------------------------------------------------------
@@ -1055,10 +1108,12 @@ async def test_wrong_room_observer_cannot_yield_positive_verdict(
             f"channel check; got reasons={fabricated_reasons}"
         )
     finally:
-        if rig is not None:
-            await _stop_rig(rig)
-        with contextlib.suppress(Exception):
-            await close_nio_client(peer_client)
+        try:
+            if rig is not None:
+                await _stop_rig(rig)
+        finally:
+            with contextlib.suppress(Exception):
+                await close_nio_client(peer_client)
 
 
 # ---------------------------------------------------------------------------
@@ -1169,10 +1224,12 @@ async def test_wrong_event_id_and_stale_attempt_cannot_yield_positive_verdict(
             f"the body binding; got reasons={stale_reasons}"
         )
     finally:
-        if rig is not None:
-            await _stop_rig(rig)
-        with contextlib.suppress(Exception):
-            await close_nio_client(peer_client)
+        try:
+            if rig is not None:
+                await _stop_rig(rig)
+        finally:
+            with contextlib.suppress(Exception):
+                await close_nio_client(peer_client)
 
 
 # ---------------------------------------------------------------------------
@@ -1207,6 +1264,7 @@ async def test_adapter_restart_on_same_key_store_still_delivers_and_decrypts(
         await _await_bot_knows_peer_device(rig, peer_user_id, peer_client.device_id)
         session_client = getattr(rig.adapter._session, "_client", None)
         pre_restart_device_id = getattr(session_client, "device_id", None)
+        pre_restart_keys = _olm_identity_keys(session_client)
 
         body_a = "medre encrypted outbound pre-restart body"
         event_a = await _admit_message(rig, "encrypted-outbound-evt-restart-a", body_a)
@@ -1225,6 +1283,9 @@ async def test_adapter_restart_on_same_key_store_still_delivers_and_decrypts(
         assert (
             reopened_device_id == pre_restart_device_id
         ), "restart on the same store must preserve the device identity"
+        assert (
+            _olm_identity_keys(reopened_session_client) == pre_restart_keys
+        ), "same device ID masked an Olm account identity replacement"
 
         body_b = "medre encrypted outbound post-restart body"
         event_b = await _admit_message(rig, "encrypted-outbound-evt-restart-b", body_b)
@@ -1253,10 +1314,12 @@ async def test_adapter_restart_on_same_key_store_still_delivers_and_decrypts(
             == event_a.event_id
         )
     finally:
-        if rig is not None:
-            await _stop_rig(rig)
-        with contextlib.suppress(Exception):
-            await close_nio_client(peer_client)
+        try:
+            if rig is not None:
+                await _stop_rig(rig)
+        finally:
+            with contextlib.suppress(Exception):
+                await close_nio_client(peer_client)
 
 
 # ---------------------------------------------------------------------------
@@ -1326,16 +1389,26 @@ async def test_strict_verification_opt_in_refuses_unverified_then_delivers(
             _any_outbox_row, timeout=_DELIVERY_TIMEOUT, interval=0.25
         ), "the refused attempt should still create its durable obligation"
 
-        async def _row_terminal_unsent() -> bool:
+        async def _strict_refusal_observed() -> bool:
             rows = await _outbox_rows(rig, event_a.event_id)
-            return bool(rows) and all(row.status != "sent" for row in rows)
+            refusals = rig.adapter._peer_device_trust_strict_refusals
+            return (
+                bool(rows)
+                and refusals > 0
+                and all(
+                    row.attempt_number >= 1
+                    and row.active_attempt is None
+                    and row.status in ("retry_wait", "dead_lettered")
+                    for row in rows
+                )
+            )
 
         assert await wait_until(
-            _row_terminal_unsent, timeout=_DELIVERY_TIMEOUT, interval=0.5
-        ), (
-            "strict refusal must prevent the outbox row from ever claiming a "
-            "sent handoff"
-        )
+            _strict_refusal_observed, timeout=_DELIVERY_TIMEOUT, interval=0.25
+        ), "strict gate never completed a refused dispatch attempt"
+        assert not await rig.storage.list_native_refs_for_event(
+            event_a.event_id
+        ), "refused event reached native send path"
         refused_rows = await _outbox_rows(rig, event_a.event_id)
         assert all(row.status != "sent" for row in refused_rows)
 
@@ -1370,11 +1443,10 @@ async def test_strict_verification_opt_in_refuses_unverified_then_delivers(
             f"{evaluate_outbound_acceptance(evidence)}"
         )
     finally:
-        if rig is not None:
-            # The refused attempt's durable obligation stays retained (or
-            # dead-letters later under retry exhaustion): either state is an
-            # honest never-sent outcome, so teardown must not demand a
-            # drained worker here.
-            await _stop_rig(rig, require_drained=False)
-        with contextlib.suppress(Exception):
-            await close_nio_client(peer_client)
+        try:
+            if rig is not None:
+                # Unsents remain durable, but no live dispatch may survive.
+                await _stop_rig(rig)
+        finally:
+            with contextlib.suppress(Exception):
+                await close_nio_client(peer_client)
