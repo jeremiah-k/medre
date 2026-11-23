@@ -12,6 +12,7 @@ Two stability properties behind the 2026-11-23 pressure measurement:
 
 from __future__ import annotations
 
+from contextlib import AsyncExitStack
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -116,32 +117,51 @@ async def test_dispatcher_keeps_sending_while_the_purge_backlog_drains(
     temp_storage: SQLiteStorage,
 ) -> None:
     runner, _route, adapters = _pipeline(temp_storage)
-    await runner.start()
-    claim_events = [f"liveness-claim-{index}" for index in range(5)]
-    for event_id in claim_events:
-        await _stage(temp_storage, runner, event_id)
-
-    await _seed_elapsed_targets(temp_storage, 25, "liveness-target")
-    worker = RetryWorker(
-        temp_storage,
-        runner,
-        None,
-        initial_dispatch=True,
-        enabled=True,
-        interval_seconds=0.05,
-        batch_size=10,
-        stop_timeout_seconds=2.0,
-        retry_config=RetryConfig(
+    async with AsyncExitStack() as cleanup:
+        cleanup.push_async_callback(runner.stop)
+        await runner.start()
+        claim_events = [f"liveness-claim-{index}" for index in range(5)]
+        for event_id in claim_events:
+            rows = await _stage(temp_storage, runner, event_id)
+            assert rows and all(
+                row.status != "sent" for row in rows
+            ), "staging completed native handoff before retry worker started"
+        await _seed_elapsed_targets(temp_storage, 25, "liveness-target")
+        worker = RetryWorker(
+            temp_storage,
+            runner,
+            None,
+            initial_dispatch=True,
             enabled=True,
             interval_seconds=0.05,
-            ceiling_sweep=CeilingSweepConfig(
-                enabled=True, limit=5, interval_seconds=0.05
+            batch_size=10,
+            stop_timeout_seconds=2.0,
+            retry_config=RetryConfig(
+                enabled=True,
+                interval_seconds=0.05,
+                ceiling_sweep=CeilingSweepConfig(
+                    enabled=True, limit=2, interval_seconds=0.05
+                ),
             ),
-        ),
-    )
-    worker.set_available_target_adapters(adapters.keys())
-    await worker.start()
-    try:
+        )
+        worker.set_available_target_adapters(adapters.keys())
+        cleanup.push_async_callback(worker.stop)
+        await worker.start()
+
+        async def sent_while_backlog_remains() -> bool:
+            if worker.state.ceiling_enforced >= 25:
+                return False
+            for event_id in claim_events:
+                rows = await temp_storage.list_outbox_items_for_event(
+                    event_id, metadata_only=True
+                )
+                if rows and all(row.status == "sent" for row in rows):
+                    return True
+            return False
+
+        assert await wait_until(
+            sent_while_backlog_remains, timeout=30.0, interval=0.01
+        ), "no retry handoff completed while purge backlog remained"
 
         async def drained() -> bool:
             if worker.state.ceiling_enforced != 25:
@@ -158,10 +178,6 @@ async def test_dispatcher_keeps_sending_while_the_purge_backlog_drains(
             f"liveness drain incomplete: enforced={worker.state.ceiling_enforced} "
             f"succeeded={worker.state.succeeded}"
         )
-    finally:
-        await worker.stop()
-        await runner.stop()
-
     assert worker.state.ceiling_sweep_errors == 0
     for event_id in claim_events:
         rows = await temp_storage.list_outbox_items_for_event(

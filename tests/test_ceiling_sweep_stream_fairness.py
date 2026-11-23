@@ -69,7 +69,12 @@ async def test_newcomer_behind_receipted_history_is_receipted_within_bounded_cal
     newcomer_ceilings = [
         await _read_ceiling(temp_storage, event_id) for event_id in newcomers
     ]
-    now = max(newcomer_ceilings) + timedelta(seconds=1)
+    # Both the already-receipted history and the newcomers must be elapsed.
+    now = max(await _sweep_now(temp_storage), max(newcomer_ceilings)) + timedelta(
+        seconds=1
+    )
+    for event_id in history:
+        assert await _read_ceiling(temp_storage, event_id) <= now
 
     enforced_per_call: list[int] = []
     receipted = False
@@ -92,31 +97,37 @@ async def test_newcomer_behind_receipted_history_is_receipted_within_bounded_cal
 async def test_sustained_admission_stream_is_receipted_within_bounded_calls(
     temp_storage: SQLiteStorage,
 ) -> None:
-    rounds = 10
+    # History must stay eligible and sorted ahead of the newly arriving keys.
+    history = [f"fair-older-{index:03}" for index in range(40)]
+    for event_id in history:
+        await _admit_with_ceiling(temp_storage, event_id)
+    now = await _sweep_now(temp_storage)
+    assert len(await temp_storage.enforce_content_ceilings(now=now, limit=100)) == 40
+    baseline_receipts = await _receipt_count(temp_storage)
+
+    rounds = 24
     newcomers = [f"fair-stream-{index:03}" for index in range(rounds)]
-    now = datetime.now(timezone.utc)
+    progress_while_admitting = False
+    enforced_per_call: list[int] = []
     for index, event_id in enumerate(newcomers):
-        # Admit and backdate one newcomer between sweep calls so every call
-        # observes a stream that grew behind its previous position.
         await _admit_with_ceiling(temp_storage, event_id)
         await _backdate(temp_storage, event_id)
-        ceiling = await _read_ceiling(temp_storage, event_id)
-        now = max(now, ceiling) + timedelta(seconds=1)
-        if index % 3 == 2:
-            await temp_storage.enforce_content_ceilings(now=now, limit=5)
-
-    enforced_per_call: list[int] = []
-    all_receipted = False
-    for _ in range(40):
+        now = max(now, await _read_ceiling(temp_storage, event_id)) + timedelta(
+            seconds=1
+        )
         enforced = await temp_storage.enforce_content_ceilings(now=now, limit=5)
         enforced_per_call.append(len(enforced))
         assert len(enforced) <= 5
-        receipts = [await _receipted(temp_storage, event_id) for event_id in newcomers]
-        if all(receipts):
-            all_receipted = True
-            break
+        if index < rounds - 1 and await _receipted(temp_storage, newcomers[0]):
+            progress_while_admitting = True
     assert (
-        all_receipted
-    ), f"stream not receipted within 40 sweep calls: {enforced_per_call}"
-    assert await _receipt_count(temp_storage) == rounds
+        progress_while_admitting
+    ), f"new arrivals starved until admissions stopped: {enforced_per_call}"
+    for _ in range(40):
+        enforced = await temp_storage.enforce_content_ceilings(now=now, limit=5)
+        assert len(enforced) <= 5
+        if all([await _receipted(temp_storage, eid) for eid in newcomers]):
+            break
+    assert all([await _receipted(temp_storage, eid) for eid in newcomers])
+    assert await _receipt_count(temp_storage) - baseline_receipts == rounds
     assert await temp_storage.enforce_content_ceilings(now=now, limit=25) == []
