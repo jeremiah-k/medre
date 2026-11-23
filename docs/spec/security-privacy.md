@@ -176,7 +176,7 @@ metadata-only representation cannot reconstruct the original quote.
 
 Core does not provide a content-free retention mode or encrypted SQLite
 backend. Removing only canonical payload bodies would not remove retained
-quotes, attachments or provider-owned copies. Protect the complete state and
+quotes, attachments or transport-owned copies. Protect the complete state and
 any backup as private content. These facts describe the storage contract, not
 a requirement to archive disposable test installations.
 

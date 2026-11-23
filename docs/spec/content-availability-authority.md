@@ -13,7 +13,7 @@ hard ceiling in this **preview**; hard ceilings require future dispatch/admissio
 coordination so outstanding work cannot be sent without its required content.
 
 `preview_release_blockers` reports outstanding core delivery, inbound reply
-relations, and unknown provider copies separately. An empty blocker list is
+relations, and unknown transport copies separately. An empty blocker list is
 **not** permission to delete; the inventory is incomplete by construction.
 
 ## New opt-in persisted body-read grants (not whole-runtime authority)
@@ -65,7 +65,7 @@ authorize collection. Generic event/relation reads and ordinary operator
 inspection now use metadata-only projections. Replay and reply content reads
 require a live source dependency; native starts require the exact worker,
 reserved attempt and lease. Retained recovery records, packet wire plans,
-attachments and provider-owned copies remain sensitive. See
+attachments and transport-owned copies remain sensitive. See
 [content runtime authority](content-runtime-authority.md).
 
 ## Required runtime integration gates
@@ -79,7 +79,7 @@ allowlisted migrations in the storage policy are supported. Recovery or reset
 requires an explicit operator decision.
 
 A write-capable collector MUST account for relations, observations, radio
-packet plans, attachment content, provider journals, WAL/backups and external
+packet plans, attachment content, transport journals, WAL/backups and external
 copies, with read/dispatch revalidation and race tests. Plugin consumers MUST
 use the same bounded grant authority after plugin execution permissions are
 independently qualified.

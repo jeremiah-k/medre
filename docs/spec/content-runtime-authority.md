@@ -21,7 +21,7 @@ can still contain message bytes. Content separation is not erasure.
 
 Every full canonical event projection has a source dependency, committed
 **atomically** with admission and durable ingress work. Opaque payload fields,
-reaction keys and provider/custom metadata can contain content even without a
+reaction keys and adapter/custom metadata can contain content even without a
 canonical body or excerpt; no bodyless bypass is permitted. Append-only insertion
 uses an `append` owner. Each new ordinary outbox generation adopts an independent
 `outbox` dependency inside its insert transaction while the source remains live.
@@ -184,7 +184,7 @@ appends never backfill a missing owner or extend retention.
 
 `read_reply_context` returns typed retained, unavailable or denied results.
 It selects canonical body/text and, under live source authority, the sender
-metadata needed for provider-owned projection. A body-only quote grant returns
+metadata needed for adapter-owned projection. A body-only quote grant returns
 text and envelope identity without opaque metadata. Both paths exclude unrelated
 payload and the target's own relation excerpts. A non-string explicit body keeps the canonical
 body absent even if a secondary text field was stored. Relation enrichment
@@ -264,7 +264,7 @@ not establish a bound on writer-lock latency or native submission time.
 
 `SQLiteStorage.assess_event_content_release(event_id)` is a strictly read-only,
 metadata-only event-scoped snapshot: it counts candidate text/excerpt copies,
-active work and grants, and content-bearing opaque native, provider, outbox,
+active work and grants, and content-bearing opaque native, adapter, outbox,
 relation, attachment, radio and evidence surfaces. `core_subset_status=eligible`
 only means no **identified local** blockers for the narrow classified subset.
 `status=unmeasured` reports external/physical copies the snapshot cannot prove
@@ -272,7 +272,7 @@ absent. Any active owner or unclassified core copy yields `status=blocked`.
 Neither status authorizes deleting even one byte: `deletion_authorized=false`
 and `retention_authorized=false` are unconditional. The inspection never
 selects content values, shares no caller-supplied SQL and performs no expiry
-observation or write. Physical WAL, backups, logs, plugin and provider stores
+observation or write. Physical WAL, backups, logs, plugin and transport stores
 remain unmeasured.
 
 ## Remaining content and release boundaries
@@ -280,7 +280,7 @@ remain unmeasured.
 This change is **logical read mediation and dispatch-start fencing**, not
 physical retention enforcement. The core still stores other retained copies
 in rendered evidence, packet continuations, attachments and native reference
-stores, while providers maintain their own independent queues and journals.
+stores, while transports maintain their own independent queues and journals.
 Privileged internal storage/recovery APIs and already-hydrated in-memory
 objects are outside the metadata-only interface. Authorization at the SQLite
 boundary is not atomic with a remote SDK submission; it cannot un-send an
@@ -296,7 +296,7 @@ default, is bounded to the classified canonical core subset with its
 prerequisites below still stand for any broader automatic expiry beyond
 that classified subset: classify unmeasured and opaque copies, define
 shared attachment release, qualify optional/reply windows and
-provider-native retention, and test outbox/retry/packet acceptance
+transport-native retention, and test outbox/retry/packet acceptance
 against the actual collector, WAL and backups.
 No automatic deletion or physical erasure beyond that opt-in boundary is
 enabled.
