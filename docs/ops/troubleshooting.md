@@ -868,5 +868,6 @@ capabilities alone does not make an unknown event kind deliverable.
 
 ## See Also
 
+- [incident-walkthrough.md](incident-walkthrough.md) — a read-only decision order for "a message did not arrive", ending in confirmed one-target actions
 - [diagnostics-and-evidence.md](diagnostics-and-evidence.md) — evidence provenance, bundle collection, report shapes
 - [recovery-and-replay.md](recovery-and-replay.md) — crash recovery, orphan detection, replay modes
