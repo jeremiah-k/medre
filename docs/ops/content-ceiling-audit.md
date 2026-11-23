@@ -163,16 +163,22 @@ stopped-state snapshot procedure: its SQLite backup protocol produces a
 standalone database that retains committed WAL content, which a plain file
 copy of a WAL database does not guarantee.
 
-The commands below are complete for a single-host installation whose state
-root is `/srv/medre-state`. Adjust the root and the inventory paths to the
-installation (see [stopped-state
+The commands below are one complete sequence for a single-host installation
+whose state root is `/srv/medre-state`: paste the whole fenced block into a
+single shell session, because every line uses the working-directory variable
+the first line defines. That first line creates the working directory with
+`mktemp -d` — a fresh directory, mode 0700, owned by your user — and every
+path in the block lives inside it. Never substitute a fixed shared path such
+as `/tmp/ceiling-rehearsal`: another local user could pre-create it and
+replace the enforcement script before it runs. Adjust the root and the
+inventory paths to the installation (see [stopped-state
 snapshots](stopped-state-snapshots.md) for multi-file installations); the
-rehearsal sends nothing and writes nothing outside the working directory
+rehearsal sends nothing and writes nothing outside that private directory
 and the copy.
 
 ```bash
-mkdir -p /tmp/ceiling-rehearsal
-cat > /tmp/ceiling-rehearsal/inventory.json <<'JSON'
+REH=$(mktemp -d) # private 0700 working directory for everything below
+cat > "$REH/inventory.json" <<'JSON'
 {
   "format": "medre-stopped-inventory",
   "version": 1,
@@ -188,19 +194,19 @@ cat > /tmp/ceiling-rehearsal/inventory.json <<'JSON'
 }
 JSON
 python -m medre.maintenance.stopped_cli capture \
-  --inventory /tmp/ceiling-rehearsal/inventory.json \
+  --inventory "$REH/inventory.json" \
   --root /srv/medre-state \
-  --snapshot /tmp/ceiling-rehearsal/snap-001 --stopped
+  --snapshot "$REH/snap-001" --stopped
 python -m medre.maintenance.stopped_cli verify \
-  --snapshot /tmp/ceiling-rehearsal/snap-001
+  --snapshot "$REH/snap-001"
 python -m medre.maintenance.stopped_cli restore \
-  --snapshot /tmp/ceiling-rehearsal/snap-001 \
-  --destination /tmp/ceiling-rehearsal/root --stopped
+  --snapshot "$REH/snap-001" \
+  --destination "$REH/root" --stopped
 
 # 1. Audit the copy (read-only). Elapsed, unpurged events appear under
 #    elapsed_pending with per-store residual counts.
 medre storage ceiling audit \
-  --storage-path /tmp/ceiling-rehearsal/root/state/medre.sqlite --limit 25
+  --storage-path "$REH/root/state/medre.sqlite" --limit 25
 
 # 2. Enforce on the copy. There is no storage subcommand for this on
 #    purpose: enforcement is the guarded purge-and-verify transition the
@@ -208,7 +214,7 @@ medre storage ceiling audit \
 #    storage-level invocation for trusted operator tooling; it runs the
 #    same BEGIN IMMEDIATE transition the sweep runs and prints
 #    metadata-only summaries per enforced event.
-cat > /tmp/ceiling-rehearsal/enforce_once.py <<'PY'
+cat > "$REH/enforce_once.py" <<'PY'
 """Run one bounded content-ceiling enforcement pass."""
 
 import asyncio
@@ -231,15 +237,15 @@ async def main(path: str) -> None:
 
 asyncio.run(main(sys.argv[1]))
 PY
-python /tmp/ceiling-rehearsal/enforce_once.py \
-  /tmp/ceiling-rehearsal/root/state/medre.sqlite
+python "$REH/enforce_once.py" \
+  "$REH/root/state/medre.sqlite"
 
 # 3. Verify the copy: elapsed_pending is now empty, each processed event
 #    audits enforced_clean, and every receipt re-checks clean.
 medre storage ceiling audit \
-  --storage-path /tmp/ceiling-rehearsal/root/state/medre.sqlite --limit 25
+  --storage-path "$REH/root/state/medre.sqlite" --limit 25
 medre storage ceiling verify \
-  --storage-path /tmp/ceiling-rehearsal/root/state/medre.sqlite --limit 25
+  --storage-path "$REH/root/state/medre.sqlite" --limit 25
 ```
 
 The rehearsal proves the logical path only. It changes nothing on the live
