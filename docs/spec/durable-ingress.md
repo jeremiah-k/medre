@@ -240,7 +240,7 @@ This tier does NOT prove native adapter behavior: arrivals are synthetic, the
 admission-work double simulates downstream consumption, and no real SDK reader
 thread, transport, or radio path participates. It does not measure throughput
 or latency, and no pressure outcome in any scenario claims admission, grants a
-receipt, or authorizes retry or resend. Qualification at provider SDK,
+receipt, or authorizes retry or resend. Qualification at transport SDK,
 service, and hardware tiers remains reserved to those tiers.
 
 ## Inbound attachment bytes

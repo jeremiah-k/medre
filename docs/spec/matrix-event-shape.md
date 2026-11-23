@@ -199,7 +199,7 @@ Sender keys, Olm/Megolm session IDs, device private material, access tokens, and
 other cryptographic secrets MUST NOT be persisted in this namespace.
 
 `metadata.transport.transport_encrypted` carries the generic encryption fact.
-Matrix verification remains native because its exact semantics are provider
+Matrix verification remains native because its exact semantics are transport
 specific.
 
 ## 6. Generic relay provenance, not MMRelay-specific metadata

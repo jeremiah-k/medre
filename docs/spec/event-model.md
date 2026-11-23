@@ -151,7 +151,7 @@ MUST preserve readable plain text. Prefixes, reply fallbacks, truncation, and
 final transport budgets remain renderer-owned; stale span offsets MUST NOT be
 applied after those operations change the body.
 
-This contract does not itself enable rich rendering. Providers declare and
+This contract does not itself enable rich rendering. Adapters declare and
 qualify their supported conversion separately; transient typing and presence
 remain outside stored message presentation. Bounded composing activity is defined
 separately in [transient-typing.md](transient-typing.md).

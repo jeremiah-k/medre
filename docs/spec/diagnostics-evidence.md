@@ -63,7 +63,7 @@ the JSON snapshot schema.
 ## 2. Common Diagnostic Keys
 
 Every adapter exposes `health_check()` returning `AdapterInfo` and `diagnostics()` returning a plain dict. The normalized core projection SHALL retain the following eight keys for every
-installed provider. Providers SHALL expose their observed common values through
+installed adapter. Adapters SHALL expose their observed common values through
 `diagnostics()`, directly or in a session sub-dict:
 
 | Key                           | Type           | Semantics                                                                                  |
@@ -100,12 +100,12 @@ precedence. Session mappings, dataclasses, msgspec structs and public-attribute
 objects follow the same shape conversion as adapter-level snapshots. Safe
 session details MUST remain in the transport-specific projection. Core
 SHALL retain `None` when neither level supplies the common field.
-Providers SHALL publish known health and mode rather than hiding them only
+Adapters SHALL publish known health and mode rather than hiding them only
 under transport-specific aliases. Keys SHALL NOT be removed or have their
 types changed without a version bump.
 
 XMPP, Chatmail, and SimpleX expose retained native health under `health` and
-preserve their provider-specific state and counters. Their SDK-free fakes expose
+preserve their adapter-specific state and counters. Their SDK-free fakes expose
 `mode: "fake"`; native instances expose `mode: "live"`. Missing native connection
 observations and uncounted statistics SHALL remain `None`, not inferred success
 or zero failures. A cumulative `reconnects` count SHALL NOT be relabeled as the
@@ -132,7 +132,7 @@ Adapter-specific keys convey transport-unique state beyond the common set. Shape
 | `encrypted_room_seen`               | `bool`          | At least one encrypted room encountered                        |
 | `undecryptable_event_count`         | `int`           | Messages that failed decryption                                |
 | `megolm_recovery_attempts`          | `int`           | Missing-room-key to-device send attempts                       |
-| `megolm_recovery_successes`         | `int`           | Missing-room-key requests accepted by the provider             |
+| `megolm_recovery_successes`         | `int`           | Missing-room-key requests accepted by the transport            |
 | `megolm_recovery_failures`          | `int`           | Terminal missing-room-key request failures                     |
 | `megolm_recovery_rate_limited`      | `int`           | Missing-room-key attempts refused by the rolling network limit |
 | `megolm_recovery_inflight_rejected` | `int`           | Recovery campaigns refused by the concurrent-task cap          |
@@ -583,7 +583,7 @@ The following six guarantees are contractual:
 
 1. **No secret leakage through any diagnostic path.** Frozen dataclasses and explicit sanitization enforce this. Turning up log verbosity MUST NOT leak secrets.
 
-2. **No SDK object leakage.** Required across all installed providers. No protobuf objects, no `LXMessage` instances, no nio client references, no `Event` objects leak through any diagnostic or evidence path.
+2. **No SDK object leakage.** Required across all installed adapters. No protobuf objects, no `LXMessage` instances, no nio client references, no `Event` objects leak through any diagnostic or evidence path.
 
 3. **Deterministic serialization when consumed through `RuntimeSnapshot.to_dict()`.** Recursive key sorting and adapter_id ordering guarantee stable JSON output for identical state and clock inputs.
 
@@ -687,10 +687,10 @@ cannot surface that stale text. Terminal failures may retain their own
 error summary; attempt scoping excludes only diagnostics belonging to a
 different attempt. Appended side-table rows
 are never rewritten, backfilled, or erased, so previously collected evidence
-reads unchanged. Structured provider/adapter metadata (the `metadata`
+reads unchanged. Structured adapter metadata (the `metadata`
 columns) is NOT part of this separation: it stays inline, content-classified,
 and conservative, and operator reporting continues to treat it as unreviewed
-provider-owned data.
+adapter-owned data.
 
 ### 14.5 Replay-Readiness
 
@@ -1006,7 +1006,7 @@ A single evidence bundle for a fully-processed event contains data from all five
 Failure-detail classification **MUST** use one shared, pure implementation for
 runtime reports and offline evidence. Queue details use the transport-neutral
 labels `queue_rejected`, `outbound_suppressed`, and `queue_drain_cancelled`.
-Error text **MUST NOT** assign a provider identity or transport-specific label.
+Error text **MUST NOT** assign an adapter identity or transport-specific label.
 SDK-specific vocabulary alone does not establish generic encryption failure;
 adapters describe such failures using transport-neutral error context.
 
@@ -1138,7 +1138,7 @@ Each ledger entry contains:
 | `replay_run_id`              | Current generation                         | Replay-origin run identifier; it may accompany `source="replay"` or a later `source="retry"`.  |
 | `receipt_ids`                | Full identity receipt history              | Sorted receipt IDs, including historical/non-authoritative evidence.                           |
 | `outbox_id`                  | Current outbox generation                  | Current operational row ID, if present.                                                        |
-| `adapter_message_id`         | Current attempt receipt                    | Provider/native message ID for the current generation, when available.                         |
+| `adapter_message_id`         | Current attempt receipt                    | Transport/native message ID for the current generation, when available.                        |
 | `next_retry_at`              | Current attempt/outbox scheduling metadata | Scheduled retry timestamp, or `null`.                                                          |
 | `error`                      | Current attempt/outbox                     | Current-generation error summary, or `null`.                                                   |
 
@@ -1681,12 +1681,12 @@ This section documents the survivability and visibility characteristics of trans
 
 ### 24.2 Native-Ref Characteristics by Transport
 
-| Transport      | Native ref                                           | When available                                                                                                    | Persistence dependency                                                                                                           |
-| -------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| Matrix         | Homeserver-assigned `event_id` (e.g. `$xxx:server`)  | Returned synchronously in the nio send response                                                                   | Persisted with the immediate `sent` hand-off receipt                                                                             |
-| Meshtastic     | Packet ID assigned by the local radio node           | Returned after deferred queue admission when RF send completes                                                    | Carried by `DeferredHandoffCompleted` and persisted atomically with deferred finalization                                        |
-| MeshCore       | Native message ID from the mesh protocol             | Returned by the synchronous adapter hand-off when the underlying MeshCore send exposes one                        | Persisted with the immediate `sent/local_transport` hand-off receipt                                                             |
-| LXMF/Reticulum | LXMF message hash / Reticulum destination identifier | Available when the message is signed and handed to the local LXMRouter; later provider state remains asynchronous | Message hash is persisted with the immediate `sent/local_queue` hand-off; later states are append-only post-handoff observations |
+| Transport      | Native ref                                           | When available                                                                                                     | Persistence dependency                                                                                                           |
+| -------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| Matrix         | Homeserver-assigned `event_id` (e.g. `$xxx:server`)  | Returned synchronously in the nio send response                                                                    | Persisted with the immediate `sent` hand-off receipt                                                                             |
+| Meshtastic     | Packet ID assigned by the local radio node           | Returned after deferred queue admission when RF send completes                                                     | Carried by `DeferredHandoffCompleted` and persisted atomically with deferred finalization                                        |
+| MeshCore       | Native message ID from the mesh protocol             | Returned by the synchronous adapter hand-off when the underlying MeshCore send exposes one                         | Persisted with the immediate `sent/local_transport` hand-off receipt                                                             |
+| LXMF/Reticulum | LXMF message hash / Reticulum destination identifier | Available when the message is signed and handed to the local LXMRouter; later transport state remains asynchronous | Message hash is persisted with the immediate `sent/local_queue` hand-off; later states are append-only post-handoff observations |
 
 ### 24.3 Scenarios Where Native Refs May Be Unavailable or Lost
 
@@ -1700,7 +1700,7 @@ Native refs are not guaranteed to be present on every delivery receipt. The foll
 
 4. **Adapter or runtime crash before persistence.** If the process crashes between obtaining a native ref and committing its receipt/native-ref evidence, that correlation handle can be lost. MEDRE does not maintain a separate write-ahead log for native refs outside delivery evidence persistence.
 
-5. **Deferred completion or provider observation never arrives.** A deferred transport can disconnect or fail before it reports completion, and a provider such as LXMF may never emit a later state update. MEDRE does not invent a native ref or provider state that was never observed. For deferred delivery the outbox can therefore remain queued until normal recovery/retry policy acts; for an already-completed hand-off, absence of a later provider observation does not reopen the terminal outbox state.
+5. **Deferred completion or transport observation never arrives.** A deferred transport can disconnect or fail before it reports completion, and a transport such as LXMF may never emit a later state update. MEDRE does not invent a native ref or transport state that was never observed. For deferred delivery the outbox can therefore remain queued until normal recovery/retry policy acts; for an already-completed hand-off, absence of a later transport observation does not reopen the terminal outbox state.
 
 ### 24.4 Operator Guidance
 
@@ -1718,12 +1718,12 @@ health observations. `health.live_health` MAY be populated by completed native h
 or an explicit manual refresh. Its `source` MUST distinguish `manual` from
 `adapter_notification`. The `poll_count` remains the number of completed manual
 poll cycles; native notifications MUST NOT increment it. Per-adapter observation
-timestamps MUST retain the freshness of each provider's actual observation.
+timestamps MUST retain the freshness of each adapter's actual observation.
 Refresh event details MUST describe the retained observations after freshness
-comparison; a superseded probe error MUST NOT label a recovered provider failed.
+comparison; a superseded probe error MUST NOT label a recovered adapter failed.
 
 Startup outcomes and `startup.startup_health` remain historical. Live recovery
-MUST clear degraded current health when the provider reports a confirmed usable
+MUST clear degraded current health when the adapter reports a confirmed usable
 connection. Native health reports MUST NOT create receipts, grant native calls
 or modify the authority of uncertain deliveries.
 

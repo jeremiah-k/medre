@@ -38,7 +38,7 @@ conversation. It carries a unique tuple of at most 1,024 native senders and the
 same freshness bound. An empty tuple releases all actors in that conversation.
 Omitted actors MUST be released even when capacity refuses other actors in the
 snapshot. Snapshot processing can admit a subset at capacity; a false admission
-result indicates incomplete admission, not rollback of releases. Providers MUST
+result indicates incomplete admission, not rollback of releases. Adapters MUST
 NOT maintain a second actor cache to compute replacement-list differences.
 
 `TypingTarget` is one concrete adapter and conversation, with the same bounded
