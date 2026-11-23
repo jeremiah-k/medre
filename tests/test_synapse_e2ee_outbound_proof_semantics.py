@@ -12,8 +12,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-import pytest
-
 _SOURCE = Path(__file__).parent / "integration/test_synapse_e2ee_outbound_acceptance.py"
 
 
@@ -42,7 +40,9 @@ def _load_helpers() -> dict[str, Any]:
         type_ignores=[],
     )
     context = {"dataclass": dataclass, "field": field, "Any": Any}
-    exec(compile(ast.fix_missing_locations(module), str(_SOURCE), "exec"), context)
+    exec(
+        compile(ast.fix_missing_locations(module), str(_SOURCE), "exec"), context
+    )  # nosec B102 - executes the acceptance module's own extracted helper definitions
     return context
 
 

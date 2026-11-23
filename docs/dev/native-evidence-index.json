@@ -136,10 +136,7 @@
           "recipient_evidence": false
         },
         "stopped_restore": {
-          "providers": [
-            "core",
-            "simplexchat"
-          ],
+          "providers": ["core", "simplexchat"],
           "selected_files": 7,
           "committed_core_wal_bytes": 247232,
           "accepted_handoff_reused_without_resend": true,
