@@ -62,8 +62,13 @@ async def test_external_writer_runs_off_loop_and_releases_reservation(
     )
     try:
         assert await asyncio.to_thread(blocker.active.wait, 1.0)
-        # An active native SQLite reservation must not freeze this event loop.
-        await asyncio.wait_for(asyncio.sleep(0.02), timeout=0.1)
+        # An active native SQLite reservation must not freeze this event
+        # loop: a callback the loop already considers ready must run within
+        # the timeout while the writer thread holds the reservation.
+        loop = asyncio.get_running_loop()
+        loop_ready = asyncio.Event()
+        loop.call_soon(loop_ready.set)
+        await asyncio.wait_for(loop_ready.wait(), timeout=0.1)
         assert blocker.holds == 1
     finally:
         blocker.stop_requested.set()
