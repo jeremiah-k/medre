@@ -16,6 +16,14 @@ requirement**; this reference campaign starts only the Matrix and XMPP
 providers. Follow the [ecosystem-lab setup](docker-ecosystem.md) to create
 a fresh, owner-only lab directory and populate its private development profile.
 
+The recorded evidence describes the checkouts the profile names, not the
+pins the manifest currently declares. To claim the current pins, point the
+profile at adapter checkouts sitting at the revisions the compatibility
+manifest names, and run `prepare` from a core checkout at the revision the
+claim names. The lab copies the tracked bytes of those checkouts, records
+each commit and dirty flag in `sources.json`, and refuses a positive verdict
+if the recorded snapshots differ from the build context or the running image.
+
 From the core checkout:
 
 ```console
