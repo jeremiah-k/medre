@@ -1,15 +1,15 @@
 # Relay attribution and sender claims
 
-Provider-owned attribution projection MAY distinguish a display name from its
+Adapter-owned attribution projection MAY distinguish a display name from its
 unannotated sender claim and verification description. Prefix formatting MUST
 NOT change sender identity or upgrade the assurance of a name carried in text.
 
-The sender_raw and sender_short_raw template aliases select the provider's
-unannotated names. When a provider does not supply them, formatting MUST fall
+The sender_raw and sender_short_raw template aliases select the adapter's
+unannotated names. When an adapter does not supply them, formatting MUST fall
 back to the existing sender and sender_short names. Explicit empty names MUST
 remain empty. The sender_verification alias MUST report unknown when the
-provider supplies no verification description. Existing sender aliases retain
-the provider's default presentation, including trust annotations.
+adapter supplies no verification description. Existing sender aliases retain
+the adapter's default presentation, including trust annotations.
 
 A bridge MAY expose these strings as provenance in outbound metadata. Receiving
 an embedded display name or verification claim MUST NOT make it authoritative
@@ -17,7 +17,7 @@ for identity reconciliation, native target binding, or mutation permission.
 
 The sender_compact alias MUST select at most the first five Unicode code points
 of sender_raw. It MUST preserve an explicit empty raw name. This abbreviation
-is presentation only; source metadata MUST retain the full provider claim.
+is presentation only; source metadata MUST retain the full adapter claim.
 
 ## Structured relay context
 
@@ -60,7 +60,7 @@ Explicit empty strings MUST suppress lower-precedence labels. Attribution
 snapshots and projected fields MUST NOT override source envelope or
 native-reference identifiers. Balanced unsupported fields (including format
 specifiers and attribute/index access) MUST be rejected during validation;
-unmatched literal braces retain their existing semantics. Provider renderers MUST
+unmatched literal braces retain their existing semantics. Adapter renderers MUST
 use `format_checked_relay_prefix` for configured or resolved templates and
 reject formatting errors, including with unvalidated configuration. The legacy
 `format_relay_prefix` retains its original lexical behavior.
@@ -68,14 +68,14 @@ Sender-label selection MUST NOT change solely because a message is a reaction.
 
 ## Shared rendering policy API
 
-Providers use `compose_relation_text` from `medre.core.rendering.relations`
+Adapters use `compose_relation_text` from `medre.core.rendering.relations`
 for supplied text and `extract_event_text` from
 `medre.core.rendering.text_helpers` for kind-based body selection. The latter
 is also exported by `medre.core.rendering`. The legacy `extract_relation_text`
 entry point retains its existing behavior for pinned MMRelay consumers, including
 its package-level export. New renderers MUST use the shared policy APIs. Removing
 the legacy entry point requires migrating and qualifying all declared downstream
-consumers first; migration of the seven providers alone is insufficient.
+consumers first; migration of the seven adapters alone is insufficient.
 Presence events retain their kind-specific user/status description when
 relation context is added.
 

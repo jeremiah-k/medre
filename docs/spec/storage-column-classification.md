@@ -63,7 +63,7 @@ never authorizes any read, retention action, or collection.
    columns decide lifecycle outcomes; a collector MUST NOT remove them as
    content.
 3. **Independently owned content** — rendered text, opaque envelope JSON,
-   free-form error and provider diagnostic text (including the write-time
+   free-form error and adapter diagnostic text (including the write-time
    separated `delivery_evidence_diagnostics.diagnostic` surface), the frozen
    outbox work snapshot document
    (`delivery_outbox_snapshots.context_json`), retained blobs, radio plan

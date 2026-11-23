@@ -47,7 +47,7 @@ unresolvable routes cause a generic refusal without displaying config values.
 ## Evidence boundary
 
 A preview is **not** proof that a route will match a real event, that planning
-will select the demonstrated strategy, or that a provider will accept a native
+will select the demonstrated strategy, or that a transport will accept a native
 payload. Sender attribution in real events depends on native sender metadata,
 which a synthetic event cannot supply. This command MUST NOT be described as
 fake smoke, adapter delivery, durable admission, native acceptance, or

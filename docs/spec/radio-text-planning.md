@@ -203,7 +203,7 @@ fences MUST remain outside the radio-facing payload and durable canonical data.
 
 Meshtastic planned packets MUST retain the SDK-assigned uint32 packet
 ID. Missing or malformed packet identity MUST remain unconfirmed and MUST stop
-remaining parts. This provider constraint does not change MeshCore channel
+remaining parts. This transport constraint does not change MeshCore channel
 handoffs, whose native protocol explicitly returns no packet ID. The whole-plan
 confirmation ceiling remains local transport; individual packet IDs and ACKs
 MUST NOT imply recipient acceptance of the full message.
