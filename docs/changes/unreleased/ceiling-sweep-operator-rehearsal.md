@@ -7,7 +7,7 @@ gives the operator a tested procedure for that surface without flipping
 the default and without overstating what a receipt proves.
 
 [Auditing the hard content privacy
-ceiling](../ops/content-ceiling-audit.md) now pins the four observable
+ceiling](../../ops/content-ceiling-audit.md) now pins the four observable
 states — `not elapsed`, `expired / read-denied but not purged`,
 `purged and receipt verified`, and `logical purge is not physical
 erasure` — with the exact read-only command and JSON marker for each, a
