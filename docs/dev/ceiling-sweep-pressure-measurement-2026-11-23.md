@@ -119,8 +119,8 @@ interrupt-restart seconds, history-heavy ~4 minutes, continuous-stream
 | B5 claim liveness ≤ 5,000 ms                   | PASS (gap ≤ 0.54 s)                                              | PASS (gap ≤ 0.52 s)                                           | PASS (gap ≤ 0.54 s)                                   | exempt (gap 6.40 s enabled vs 5.41–5.51 s disabled worst, blocker-driven)                                  | n/a                                                              |
 | B6 zero missed admissions                      | PASS (0 errors)                                                  | PASS (0 errors)                                               | PASS (0 errors)                                       | PASS (1 bounded lock-busy error per enabled run inside the 6 s hold, all 300 targets receipted afterwards) | PASS (no partial state)                                          |
 | B7 reader p95 ≤ 200 ms                         | PASS (enabled 1.9–5.2 ms)                                        | PASS (enabled 2.3–3.5 ms)                                     | PASS (enabled 85.7–126.6 ms vs disabled 57.6–72.3 ms) | exempt (1.5–2.0 ms)                                                                                        | n/a                                                              |
-| B8 WAL ≤ 256 MB, clean close, DB never shrinks | PASS (sampled WAL 4.60 MB, no sidecars after close)              | PASS (sampled WAL 4.21 MB)                                    | PASS (sampled WAL 4.22 MB)                            | PASS (sampled WAL 4.17 MB)                                                                                 | PASS                                                             |
-| B9 restart/cancel consistency                  | n/a                                                              | n/a                                                           | n/a                                                   | n/a                                                                                                        | PASS (boundary kill and boundary cancel; interior not exercised) |
+| B8 WAL ≤ 256 MB, clean close, DB never shrinks | **UNVERIFIED peak** (sampled WAL 4.60 MB; no sidecars after close) | **UNVERIFIED peak** (sampled WAL 4.21 MB) | **UNVERIFIED peak** (sampled WAL 4.22 MB) | **UNVERIFIED peak** (sampled WAL 4.17 MB) | **UNVERIFIED peak** (footprint only) |
+| B9 restart/cancel consistency                  | n/a                                                              | n/a                                                           | n/a                                                   | n/a                                                                                                        | **UNVERIFIED interior** (boundary kill/cancel passed)             |
 | B10 audit clean, counters agree                | PASS (2,240 receipts = 2,000 offline + 240 targets; 241 actions) | PASS (1,002–1,004 receipts = 800 offline + streamed)          | PASS (300 receipts = 300 enforced)                    | PASS (300 receipts = 300 enforced)                                                                         | PASS (1,200 + 800 receipts verified, 0 failed)                   |
 
 ## Results — per-load detail
@@ -342,12 +342,18 @@ a separate thread with actual hold windows and sweep-error timestamps. It
 also joins spawned load tasks before closing storage, checks for cleared
 content without receipts, requires the full successful receipt-verification
 count, and reopens a fresh SQLiteStorage after cancellation. The corrected
-full-scale run qualified B2 and B4–B8 and B10 on that evidence: each
+full-scale run measured the B2 miss and established B4–B7 and B10 on that evidence: each
 blocked-writer sweep error is attributed to an acquired hold window by
 timestamp, the twin comparisons are like-for-like from equal receipted
 starting states, the claim gaps are completion-to-completion including
 failed calls, and the residual wrap repaired the late write behind the
 residual cursor in 20 ticks.
+
+The result is **six budgets supported as passes (B3–B7, B10), two measured
+misses (B1, B2), and two partly observed but unverified budgets (B8, B9)**.
+This is deliberately stricter than calling endpoint snapshots a passed peak-WAL
+limit or calling boundary recovery an in-transaction interruption. It does
+not modify the ten frozen budgets or reinterpret the recorded samples.
 
 Still unmeasured after that run: the interior interrupt cases — B9's
 observed SIGKILL and cancellation again landed on tick boundaries, so

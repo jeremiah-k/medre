@@ -81,3 +81,19 @@ async def test_external_writer_runs_off_loop_and_releases_reservation(
         connection.execute("ROLLBACK")
     finally:
         connection.close()
+
+
+def test_campaign_does_not_claim_unmeasured_budgets_as_passed():
+    report = (
+        Path(__file__).resolve().parents[1]
+        / "docs/dev/ceiling-sweep-pressure-measurement-2026-11-23.md"
+    ).read_text(encoding="utf-8")
+    rows = {
+        line.split("|")[1].strip().split()[0]: line
+        for line in report.splitlines()
+        if line.startswith("| B") and "|" in line
+    }
+    for key, limitation in (("B8", "UNVERIFIED peak"), ("B9", "UNVERIFIED interior")):
+        assert key in rows and limitation in rows[key]
+    assert "six budgets supported as passes" in report
+    assert "The sweep remains default-off" in report
