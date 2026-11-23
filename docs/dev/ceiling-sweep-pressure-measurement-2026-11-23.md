@@ -31,8 +31,12 @@ writes; they exist to scale the cursors, not to measure admission. The sweep
 surface is wrapped with a timing probe before the worker is constructed, claim
 calls are wrapped the same way, and read-only operator-view queries
 (`query_work_status_summary`) are sampled from an independent readonly
-connection mid-window and at rest. The disabled twin runs the identical
-workload with the sweep policy off, so like-for-like deltas isolate the sweep.
+connection mid-window and at rest.
+
+The original disabled twin retained unreceipted offline history while the
+enabled twin purged it before the probes started. Those historical comparisons
+are confounded. The corrected harness receipts the same history in both
+conditions before timing; the changed procedure requires a fresh run.
 
 Captured per run: sweep tick wall times and per-tick enforcement counts,
 dispatcher claim durations and the largest stall between consecutive claims,
@@ -56,7 +60,7 @@ presented as a spread.
 | Load               | Fixed scale                                                                                                                                                                                                                                                                                  |
 | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | history-heavy      | 3,000 future policies (ineligible), 2,000 elapsed policies receipted offline before the window, 240 elapsed unpurged targets, 30 s claim trickle, one late residual envelope write on a receipted event behind the residual cursor                                                           |
-| continuous-stream  | 800 receipted history policies, 200 future policies, ~3.5 min ceiling-bearing admissions through the real boundary at ~20/s for 12 s (ceiling elapsing 2 s after each admission), claim trickle throughout                                                                                   |
+| continuous-stream  | 800 receipted history policies, 200 future policies, 12 s of ceiling-bearing admissions through the real boundary at up to 20/s (ceiling elapsing 2 s after each admission), claim trickle throughout                                                                                   |
 | fanout-attachments | 300 elapsed targets each with 6 parked outbox generations carrying dispatch snapshots, inline metadata, radio progress, an observation with diagnostics, envelope values, an own excerpt and a shared blob reference (150 blobs, 2 events each), plus 2 quoting neighbors per target         |
 | blocked-writer     | 300 elapsed targets with an external raw connection holding `BEGIN IMMEDIATE` for repeating windows (1.5 s, 6.0 s, 1.5 s, 1.5 s holds with 3.5 s gaps; the 6 s hold exceeds the storage connection's 5 s busy timeout)                                                                       |
 | interrupt-restart  | 1,200 elapsed targets in a child process sweeping at a 0.2 s interval, SIGKILLed once the first tick commits, parent reopens, asserts consistency, resumes to completion and verifies every receipt; a second phase cancels the worker mid-tick on 800 elapsed targets and measures teardown |
@@ -84,9 +88,12 @@ cycle bound is evaluated per run from the recorded counts.
 
 ## Results
 
-All runs completed on the tree recorded inside each JSON document
-(`git rev-parse HEAD`) against the budgets frozen above. Spread is min–max over the repeats; two budgets miss and are reported as
-misses with their mechanism, and no budget was adjusted after measurement.
+The following numbers are the **original historical run**, before the
+measurement-harness corrections in this PR. B1 and B2 are confirmed misses;
+the other entries are not complete proof of their frozen budgets where the
+method or evidence was insufficient. The corrected harness has **not** been
+rerun at full scale, so do not present its changed results as if measured.
+The frozen B1–B10 budgets above have not been relaxed or retuned.
 
 ## Results — budget outcomes
 
@@ -94,14 +101,14 @@ misses with their mechanism, and no budget was adjusted after measurement.
 | ---------------------------------------------- | ------------------------------------------------ | ---------------------------------------------------------- | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
 | B1 tick ≤ 5,000 ms                             | PASS (max 61.1 ms)                               | PASS (max 44.1 ms)                                         | PASS (max 68.5 ms)                                    | **MISS** (max 5,006.7 and 5,009.0 ms)                                                                       | n/a (no worker sweep; resume used direct calls) |
 | B2 stream receipt tail                         | n/a                                              | **MISS** (max tail 18.483–18.522 s vs a 13.5–15.5 s bound) | n/a                                                   | n/a                                                                                                         | n/a                                             |
-| B3 wrap repair ≤ 48 ticks                      | PASS (18–19 ticks, 9.5–9.7 s)                    | n/a                                                        | n/a                                                   | n/a                                                                                                         | n/a                                             |
-| B4 writer impact ≤ 3x / p99 ≤ 1,000 ms         | PASS (ratios 0.91–1.17, enabled p99 103–133 ms)  | PASS (ratios ≤ 1.11, enabled p99 16–25 ms)                 | PASS (ratios 0.96–1.16, enabled p99 81–92 ms)         | exempt (external blocker owns the inflation; both twins inflate alike)                                      | n/a                                             |
-| B5 claim liveness ≤ 5,000 ms                   | PASS (gap ≤ 0.52 s)                              | PASS (gap ≤ 0.52 s)                                        | PASS (gap ≤ 0.51 s)                                   | exempt (gap 5.44 s enabled vs 1.05 s disabled worst, blocker-driven)                                        | n/a                                             |
-| B6 zero missed admissions                      | PASS (0 errors)                                  | PASS (0 errors)                                            | PASS (0 errors)                                       | PASS (1 bounded busy error per enabled run, confined to the 6 s hold, all 300 targets receipted afterwards) | PASS (no partial state)                         |
-| B7 reader p95 ≤ 200 ms                         | PASS (2.1–12.2 ms)                               | PASS (1.8–5.6 ms)                                          | PASS (58.8–68.5 ms, data-volume-driven in both twins) | PASS (1.8–4.1 ms)                                                                                           | n/a                                             |
-| B8 WAL ≤ 256 MB, clean close, DB never shrinks | PASS (peak WAL 4.60 MB, no sidecars after close) | PASS (peak WAL 4.21 MB)                                    | PASS (peak WAL 4.22 MB)                               | PASS (peak WAL 4.13 MB)                                                                                     | PASS                                            |
-| B9 restart/cancel consistency                  | n/a                                              | n/a                                                        | n/a                                                   | n/a                                                                                                         | PASS (see below)                                |
-| B10 audit clean, counters agree                | PASS (2,240 receipts, 0 findings)                | PASS (1,002–1,006 receipts, 0 findings)                    | PASS (300 receipts, 0 findings)                       | PASS (300 receipts, 0 findings)                                                                             | PASS (all 1,200 receipts verified, 0 failed)    |
+| B3 wrap repair ≤ 42 ticks                      | UNVERIFIED CURSOR POSITION (18–19 ticks observed)                    | n/a                                                        | n/a                                                   | n/a                                                                                                         | n/a                                             |
+| B4 writer impact ≤ 3x / p99 ≤ 1,000 ms         | UNVERIFIED TWIN COMPARISON (ratios 0.91–1.17, enabled p99 103–133 ms)  | UNVERIFIED TWIN COMPARISON (ratios ≤ 1.11, enabled p99 16–25 ms)                 | UNVERIFIED TWIN COMPARISON (ratios 0.96–1.16, enabled p99 81–92 ms)         | exempt (external blocker owns the inflation; both twins inflate alike)                                      | n/a                                             |
+| B5 claim liveness ≤ 5,000 ms                   | UNVERIFIED ORIGINAL METRIC (gap ≤ 0.52 s)                              | UNVERIFIED ORIGINAL METRIC (gap ≤ 0.52 s)                                        | UNVERIFIED ORIGINAL METRIC (gap ≤ 0.51 s)                                   | exempt (gap 5.44 s enabled vs 1.05 s disabled worst, blocker-driven)                                        | n/a                                             |
+| B6 zero missed admissions                      | UNVERIFIED TIMING/CAUSE (0 errors)                                  | UNVERIFIED TIMING/CAUSE (0 errors)                                            | UNVERIFIED TIMING/CAUSE (0 errors)                                       | UNVERIFIED TIMING/CAUSE (1 bounded busy error per enabled run, confined to the 6 s hold, all 300 targets receipted afterwards) | UNVERIFIED TIMING/CAUSE (no partial state)                         |
+| B7 reader p95 ≤ 200 ms                         | UNVERIFIED UNDER LOAD (2.1–12.2 ms)                               | UNVERIFIED UNDER LOAD (1.8–5.6 ms)                                          | UNVERIFIED UNDER LOAD (58.8–68.5 ms, data-volume-driven in both twins) | UNVERIFIED UNDER LOAD (1.8–4.1 ms)                                                                                           | n/a                                             |
+| B8 WAL ≤ 256 MB, clean close, DB never shrinks | UNMEASURED PEAK (peak WAL 4.60 MB, no sidecars after close) | UNMEASURED PEAK (peak WAL 4.21 MB)                                    | UNMEASURED PEAK (peak WAL 4.22 MB)                               | UNMEASURED PEAK (peak WAL 4.13 MB)                                                                                     | PASS                                            |
+| B9 restart/cancel consistency                  | n/a                                              | n/a                                                        | n/a                                                   | n/a                                                                                                         | BOUNDARY RESTART ONLY (interior not exercised)                                |
+| B10 audit clean, counters agree                | PARTIAL (2,240 receipts, 0 findings)                | PARTIAL (1,002–1,006 receipts, 0 findings)                    | PARTIAL (300 receipts, 0 findings)                       | PARTIAL (300 receipts, 0 findings)                                                                             | PARTIAL (all 1,200 receipts verified, 0 failed)    |
 
 ## Results — per-load detail
 
@@ -118,7 +125,7 @@ history-heavy (enabled runs; disabled twins had no sweep ticks and left all
 | Claim non-empty ms p99 / max gap (s) | 17.5 / 0.515          | 25.1 / 0.511          | 22.3 / 0.524          |
 | Reader mid-run ms p95                | 2.4                   | 6.7                   | 2.6                   |
 | Sweep errors                         | 0                     | 0                     | 0                     |
-| DB bytes before close (peak WAL)     | 5,185,536 (4,597,952) | 5,185,536 (4,597,952) | 5,185,536 (4,597,952) |
+| DB bytes before close (sampled WAL)     | 5,185,536 (4,597,952) | 5,185,536 (4,597,952) | 5,185,536 (4,597,952) |
 
 The 20.07 s first-target receipt is exactly the arithmetic prediction for
 walking 2,000 already-receipted elapsed policies at 50 per 0.5 s tick
@@ -162,10 +169,10 @@ elapsed rows):
 | Reader mid-run ms p95                  | 59.1               | 60.2               | 66.8               |
 | Sweep errors                           | 0                  | 0                  | 0                  |
 
-Shared-attachment accounting held at scale: each of the 150 blobs (2
-references each) survived until its last referencing event was purged and was
-deleted exactly once, across a 42-tick completion where a blob's two owners
-were frequently purged in different ticks.
+The final check observed zero blobs after all target purges. It does **not**
+prove each shared blob survived the first owner purge while another owner
+retained a reference, nor prove exactly-once physical deletion. Those remain
+separate, unmeasured assertions even when owners were purged in different ticks.
 
 blocked-writer (2 repeats per condition; the 6.0 s hold exceeds the storage
 connection's 5,000 ms busy timeout):
@@ -179,13 +186,13 @@ connection's 5,000 ms busy timeout):
 | Claim non-empty ms max / gap (s) | 946.9 / 5.445            | 954.0 / 5.443            | 1,555.0 / 1.053   |
 | Reader mid-run ms p95            | 1.9                      | 2.5                      | 4.1               |
 
-The B1 miss: the tick that began inside the 6 s hold waits out the 5,000 ms
-busy timeout, fails with a bounded `SQLITE_BUSY` error, and the worker's
-poll-down absorbs it — the next tick completes. The tick wall time is
-therefore hard-capped by the busy timeout (measured 5,006.7/5,009.0 ms
-including overhead) rather than by the sweep's own work; the 7–9 ms excess
-over the frozen 5,000 ms budget is the timeout mechanism itself surfacing,
-recorded as a miss. Inflation on this load is blocker-driven in both twins:
+The B1 miss: the measured longest tick was 5,006.7/5,009.0 ms.
+The 5,000 ms SQLite busy timeout limits the lock wait, **not total tick
+wall time**. The old harness did not record timestamped error types and
+acquired hold windows. Attributing each error to `SQLITE_BUSY` during the
+6-second hold remains unverified until rerun. The observed 7–9 ms excess over
+the frozen 5,000 ms budget is recorded as a miss; SQLite's lock-wait timeout
+is not a hard limit on the wall time of a complete sweep tick. Inflation on this load is blocker-driven in both twins:
 admission maxima of ~1.0–1.3 s and claim maxima of ~0.6–1.6 s appear with the
 sweep off as well, and the enabled-only 5.44 s claim gap is the claim call
 that started just before the failing busy tick.
@@ -201,9 +208,8 @@ with the read-only verification battery passing all 1,200 receipts. The
 separate mid-tick cancellation phase stopped the worker in 11 ms with the
 same consistency guarantees and all 800 receipts verified; the sample caught
 a tick boundary rather than a tick interior (ticks on this backlog take tens
-of milliseconds), so the teardown figure reads as stop-at-boundary, and the
-interior case is covered structurally by the deferred-cancellation design
-plus the strictly harsher SIGKILL scenario above.
+of milliseconds). The teardown figure therefore describes stop-at-boundary.
+Neither interior SIGKILL nor interior cancellation was measured.
 
 ## Findings for the enablement decision
 
@@ -226,13 +232,13 @@ fixed by this record.
   blocked native retry processing unboundedly — the worst enabled claim gap on
   loads without an external blocker was 0.52 s against a 0.5 s poll cadence,
   and reader queries never contended with the writer lock.
-- With the sweep off, expired content persists indefinitely while reads stay
+- With the sweep off during these bounded runs, expired target content remained while reads stay
   denied: every disabled twin closed with its full elapsed backlog unpurged
   (age growing for as long as the window ran), confirming the audit's
   default-off exposure statement with measured ages rather than a single
   synthetic sample.
 - Logical purge does not reclaim space in these runs: the DB file never shrank
-  and the WAL grew with purge volume, peaking at 4.60 MB here and being
+  and the WAL grew at sampled points (largest observed sample 4.60 MB) and being
   removed only by clean close. Nothing in this record measures page-level
   erasure; a receipt remains a logical, content-free fact, not a WAL-erasure
   certificate.
@@ -262,8 +268,36 @@ PYTHONPATH=src python scripts/measure_ceiling_sweep.py /tmp/ceiling-sweep-measur
 PYTHONPATH=src python scripts/measure_ceiling_sweep.py /tmp/ceiling-sweep-measure --loads interrupt-restart
 ```
 
-Each invocation prints one JSON document with per-run results for both
-conditions of its load; destinations must be fresh or empty of the run's
-`*.sqlite*` files. The history-heavy, continuous-stream and fanout-attachments
+Each invocation prints JSON with per-run results for both conditions, except
+`interrupt-restart`, which emits one `enabled_only` result and a cancellation
+phase. The historical figures above predate the fixes. Do not combine them
+with a later corrected run as one baseline. Destinations must be fresh or empty
+of the run's `*.sqlite*` files; The history-heavy, continuous-stream and fanout-attachments
 invocations are the long ones (tens of minutes of sweep-interval pacing); the
 others finish in minutes.
+
+## Review corrections and outstanding measurements
+
+The script now records paired claim completions (including failures), uses
+matching receipted-history starting states, starts readers while foreground
+traffic is active, and runs the competing SQLite writer in a separate thread
+with actual hold windows and sweep-error timestamps. It also joins spawned
+load tasks before closing storage, checks for cleared content without receipts,
+requires the full successful receipt-verification count, and reopens a fresh
+SQLiteStorage after cancellation. These are **method corrections**, not new
+performance results. Collect another full-scale run to qualify B2/B4–B8/B10.
+
+B9's observed SIGKILL and cancellation were at tick boundaries; neither
+established an interrupted open purge transaction. That interior case remains
+an explicit unmeasured gate. Shared-blob last-reference retention, cursor
+position behind the late residual write, and continuous WAL high-water marks
+also remain unproved by the original measurements. The disabled-control
+retention observation should be reported separately from like-for-like latency.
+
+The history-heavy record has 2,000 receipts created during offline seeding,
+240 newly receipted targets and one residual repair (241 enforcement actions).
+The repair does not create a new receipt. B10 needs those counters separated;
+2,240 total receipts must never be compared directly to 241 worker actions.
+The stream admission window was 12 seconds; the history and fanout trickles
+were 30 and 20 seconds, respectively. Longer wall time includes seeding,
+completion waits and repeats, not continuous admission.
