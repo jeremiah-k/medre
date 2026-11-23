@@ -53,7 +53,7 @@ def _get_version() -> str:
     try:
         return importlib.metadata.version("medre")
     except importlib.metadata.PackageNotFoundError:
-        return "0.2.2"
+        return "0.2.3"
 
 
 def _now_utc() -> datetime:
