@@ -88,8 +88,8 @@ cycle bound is evaluated per run from the recorded counts.
 
 ## Results
 
-The following numbers are the **original historical run**, before the
-measurement-harness corrections in this PR. B1 and B2 are confirmed misses;
+The following numbers are the **original historical run**, produced before
+the measurement-harness corrections. B1 and B2 are confirmed misses;
 the other entries are not complete proof of their frozen budgets where the
 method or evidence was insufficient. The corrected harness has **not** been
 rerun at full scale, so do not present its changed results as if measured.
@@ -272,11 +272,11 @@ Each invocation prints JSON with per-run results for both conditions, except
 `interrupt-restart`, which emits one `enabled_only` result and a cancellation
 phase. The historical figures above predate the fixes. Do not combine them
 with a later corrected run as one baseline. Destinations must be fresh or empty
-of the run's `*.sqlite*` files; The history-heavy, continuous-stream and fanout-attachments
-invocations are the long ones (tens of minutes of sweep-interval pacing); the
-others finish in minutes.
+of the run's `*.sqlite*` files; the history-heavy, continuous-stream and
+fanout-attachments invocations are the long ones (tens of minutes of
+sweep-interval pacing); the others finish in minutes.
 
-## Review corrections and outstanding measurements
+## Method corrections and outstanding measurements
 
 The script now records paired claim completions (including failures), uses
 matching receipted-history starting states, starts readers while foreground
