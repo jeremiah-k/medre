@@ -30,6 +30,9 @@ normative in
 including the store-by-store census and the guarded enforcement
 transition. A first sweep-impact profile is recorded in
 [deadline-sweep-measurement-2026-11-18](deadline-sweep-measurement-2026-11-18.md),
+the ceiling sweep's pressure measurement with frozen acceptance budgets and
+its two recorded budget misses is recorded in
+[ceiling-sweep-pressure-measurement-2026-11-23](ceiling-sweep-pressure-measurement-2026-11-23.md),
 and the refusal boundary is qualified through the pinned Meshtastic SDK
 against meshtasticd (`tests/native_qualification/test_meshtasticd_deadline_fence.py`);
 physical-hardware refusal qualification and sustained-pressure retention
