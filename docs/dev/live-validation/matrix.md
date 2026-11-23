@@ -84,17 +84,6 @@ While the test waits (30 s window), send a message from `@alice:localhost` into 
 | `../medre-adapter-matrix/tests/test_matrix_durable_admission_boundary.py` | unit         | nio admission rejection and durable handoff        |
 | `../medre-adapter-matrix/tests/test_matrix_sync_recovery_sdk_contract.py` | `matrix_sdk` | Pinned mindroom-nio recovery API contract          |
 
-## Evidence Tiers Achieved
-
-| Tier           | Sub-class                    | Date       | Result                           |
-| -------------- | ---------------------------- | ---------- | -------------------------------- |
-| H (historical) | External live (matrix.org)   | 2026-05-10 | 13/13 plaintext, 7/7 E2EE        |
-| docker         | Docker SDK-boundary          | 2026-05-22 | 15 passed, 1 xfailed             |
-| docker         | Docker SDK-boundary E2EE     | 2026-05-25 | 3/3 passed                       |
-| docker         | Docker SDK-boundary E2EE     | 2026-08-18 | 4/4 passed (incl. cross-signing) |
-| —              | External live (sk.community) | 2026-05-12 | NOT EXECUTED (token rejected)    |
-| —              | External live (matrix.org)   | 2026-05-12 | NOT EXECUTED (password rejected) |
-
 ## Cross-Signing Validation
 
 Before an encrypted live run, prepare the runtime E2EE store with the same
