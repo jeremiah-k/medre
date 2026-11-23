@@ -118,7 +118,7 @@ adapters:
 ```
 
 BLE requires a pre-scan and may need stale BlueZ device cleanup before
-connecting. See the [MeshCore live validation](meshcore.md) page for BLE setup
+connecting. See the [MeshCore live validation](../../dev/live-validation/meshcore.md) page for BLE setup
 details and known issues.
 
 ## Step 4: Preserve Matrix auth
@@ -358,7 +358,7 @@ If serial is not viable, BLE is the fallback path:
 5. Optionally set `ble_pin` if the device requires pairing.
 
 BLE live validation was completed June 2026 against a MeshCore node
-on Linux BlueZ. See [meshcore.md](meshcore.md) for full BLE validation details
+on Linux BlueZ. See [meshcore.md](../../dev/live-validation/meshcore.md) for full BLE validation details
 and known issues.
 
 ## Troubleshooting
@@ -375,6 +375,6 @@ and known issues.
 ## See Also
 
 - [matrix-meshtastic.md](matrix-meshtastic.md) -- two-transport Matrix + Meshtastic bridge bring-up
-- [meshcore.md](meshcore.md) -- single-adapter MeshCore live validation, BLE results, environment variables
+- [meshcore.md](../../dev/live-validation/meshcore.md) -- single-adapter MeshCore live validation, BLE results, environment variables
 - [transport-setup/meshcore.md](../transport-setup/meshcore.md) -- adapter setup, config, delivery semantics
 - [diagnostics-and-evidence.md](../diagnostics-and-evidence.md) -- evidence provenance and bundle collection

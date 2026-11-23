@@ -90,8 +90,8 @@ matrix expectations. On a different bench, adapt the matrix expectations to
 the actual peer labels before claiming its rendering and provenance results.
 Do not rename device owners merely to satisfy an assertion.
 
-See the transport pages for [Meshtastic](../../ops/live-validation/meshtastic.md),
-[MeshCore](../../ops/live-validation/meshcore.md), [LXMF](../../ops/live-validation/lxmf.md), and [Matrix](../../ops/live-validation/matrix.md) setup.
+See the transport pages for [Meshtastic](meshtastic.md),
+[MeshCore](meshcore.md), [LXMF](lxmf.md), and [Matrix](matrix.md) setup.
 
 ## Keep Evidence for Every Iteration
 

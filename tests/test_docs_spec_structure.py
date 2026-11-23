@@ -330,19 +330,20 @@ class TestOpsSubdirectories:
             ts_dir.is_dir()
         ), f"Required directory missing: {ts_dir.relative_to(_ROOT)}"
 
-    @pytest.mark.parametrize(
-        "filename",
-        LIVE_VALIDATION_FILES,
-        ids=lambda f: f,
-    )
-    def test_live_validation_file_exists(self, filename: str) -> None:
-        """Live validation file must exist at docs/ops/live-validation/<name>."""
-        path = OPS_DIR / "live-validation" / filename
-        _check_exists(path, f"live-validation file '{filename}'")
-
     def test_live_validation_directory_exists(self) -> None:
         """docs/ops/live-validation/ directory must exist."""
         lv_dir = OPS_DIR / "live-validation"
         assert (
             lv_dir.is_dir()
         ), f"Required directory missing: {lv_dir.relative_to(_ROOT)}"
+
+    @pytest.mark.parametrize(
+        "filename",
+        LIVE_VALIDATION_FILES,
+        ids=lambda f: f,
+    )
+    def test_live_validation_file_exists(self, filename: str) -> None:
+        """Per-transport smoke page must exist at
+        docs/dev/live-validation/<name>."""
+        path = DEV_DIR / "live-validation" / filename
+        _check_exists(path, f"live-validation file '{filename}'")

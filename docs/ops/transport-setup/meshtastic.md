@@ -250,6 +250,6 @@ side sets, verification, privacy notes, and account migration.
 
 ### See Also
 
-- [live-validation/meshtastic.md](../live-validation/meshtastic.md) — live smoke test procedures
+- [live-validation/meshtastic.md](../../dev/live-validation/meshtastic.md) — live smoke test procedures
 - [diagnostics-and-evidence.md](../diagnostics-and-evidence.md) — evidence provenance and bundle collection
 - [recovery-and-replay.md](../recovery-and-replay.md) — crash recovery and replay

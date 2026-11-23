@@ -281,7 +281,7 @@ medium and destination timing. Slow interfaces can extend those waits and alter
 the attempt limit. A fixed short observation window can expire while the SDK is
 still working; pending at the window's end does not establish delivery failure.
 Use asynchronous delivery observations for outcomes and the
-[LXMF live-validation guide](../live-validation/lxmf.md) for finite test budgets.
+[LXMF live-validation guide](../../dev/live-validation/lxmf.md) for finite test budgets.
 
 ### Selecting the Reticulum configuration
 
@@ -380,6 +380,6 @@ idempotent session operations.
 
 ### See Also
 
-- [live-validation/lxmf.md](../live-validation/lxmf.md) — live smoke test procedures
+- [live-validation/lxmf.md](../../dev/live-validation/lxmf.md) — live smoke test procedures
 - [diagnostics-and-evidence.md](../diagnostics-and-evidence.md) — evidence provenance and bundle collection
 - [recovery-and-replay.md](../recovery-and-replay.md) — crash recovery and replay

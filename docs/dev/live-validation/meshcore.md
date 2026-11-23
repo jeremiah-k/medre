@@ -10,7 +10,7 @@ your current core, adapter commits, SDKs, and endpoints.
 ## Quick Validation
 
 ```bash
-# Install meshcore in the MEDRE environment; see [installation](../install.md)
+# Install meshcore in the MEDRE environment; see [installation](../../ops/install.md)
 source .venv/bin/activate
 
 export MESHCORE_CONNECTION_TYPE="tcp"
@@ -187,7 +187,7 @@ Operational firmware truths proven on this hardware:
 
 For a serial-first bring-up procedure that wires Matrix, Meshtastic, and
 MeshCore together with four additional one-way MeshCore routes, see
-[matrix-meshtastic-meshcore.md](matrix-meshtastic-meshcore.md).
+[matrix-meshtastic-meshcore.md](../../ops/live-validation/matrix-meshtastic-meshcore.md).
 
 ## Deterministic Local Integration
 
@@ -195,7 +195,7 @@ Before hardware validation, run the real pinned MeshCore SDK against MEDRE's
 local companion-protocol endpoint:
 
 ```bash
-# Install meshcore in the MEDRE environment; see [installation](../install.md)
+# Install meshcore in the MEDRE environment; see [installation](../../ops/install.md)
 pytest ../medre-adapter-meshcore/tests/test_meshcore_local_integration.py \
   -m "local_integration and meshcore_sdk and not soak" -v
 ```
@@ -207,6 +207,6 @@ behavior. A manual repeated-cycle variant is available with
 
 ## See Also
 
-- [matrix-meshtastic-meshcore.md](matrix-meshtastic-meshcore.md) -- serial-first 3-way bridge bring-up (Matrix + Meshtastic + MeshCore)
-- [transport-setup/meshcore.md](../transport-setup/meshcore.md) — adapter setup, config, delivery semantics
-- [diagnostics-and-evidence.md](../diagnostics-and-evidence.md) — evidence provenance and bundle collection
+- [matrix-meshtastic-meshcore.md](../../ops/live-validation/matrix-meshtastic-meshcore.md) -- serial-first 3-way bridge bring-up (Matrix + Meshtastic + MeshCore)
+- [transport-setup/meshcore.md](../../ops/transport-setup/meshcore.md) — adapter setup, config, delivery semantics
+- [diagnostics-and-evidence.md](../../ops/diagnostics-and-evidence.md) — evidence provenance and bundle collection

@@ -8,7 +8,7 @@ observations below apply only to the dated runs; capture fresh evidence for
 your current core, adapter commits, SDKs, and endpoints.
 
 For a bounded multi-adapter campaign, use the
-[short iteration sequence](../../dev/live-validation/short-iterations.md).
+[short iteration sequence](short-iterations.md).
 
 ## Slow-Medium Peer Budgets
 
@@ -36,7 +36,7 @@ cancelled messages return promptly along with delivered and failed messages.
 ## Quick Validation
 
 ```bash
-# Install lxmf in the MEDRE environment; see [installation](../install.md)
+# Install lxmf in the MEDRE environment; see [installation](../../ops/install.md)
 source .venv/bin/activate
 
 # Configure a Reticulum transport (AutoInterface for LAN is default)
@@ -261,7 +261,7 @@ Run the real pinned RNS/LXMF stack in a process-isolated local probe before
 external Reticulum testing:
 
 ```bash
-# Install lxmf in the MEDRE environment; see [installation](../install.md)
+# Install lxmf in the MEDRE environment; see [installation](../../ops/install.md)
 pytest ../medre-adapter-lxmf/tests/test_lxmf_local_integration.py \
   -m "local_integration and lxmf_sdk and not soak" -v
 ```
@@ -324,5 +324,5 @@ restarts, healthy 3/3 start before arming sources) is the proven setup.
 
 ## See Also
 
-- [transport-setup/lxmf.md](../transport-setup/lxmf.md) — adapter setup, delivery modes, Reticulum topology
-- [diagnostics-and-evidence.md](../diagnostics-and-evidence.md) — evidence provenance and bundle collection
+- [transport-setup/lxmf.md](../../ops/transport-setup/lxmf.md) — adapter setup, delivery modes, Reticulum topology
+- [diagnostics-and-evidence.md](../../ops/diagnostics-and-evidence.md) — evidence provenance and bundle collection
