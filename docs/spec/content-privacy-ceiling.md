@@ -287,7 +287,11 @@ images require the operator erasure step above.
 Backups, exports, file-level snapshots, and provider copies remain
 independently retained as documented by
 [content-retention.md](content-retention.md) and
-[security-privacy.md](security-privacy.md).
+[security-privacy.md](security-privacy.md). A developer-facing inventory of
+which provider-owned copies exist around one installation, with
+per-transport ownership, preservation, and erase-ability matrices, is in
+[the provider retention inventory](../dev/provider-retention-inventory.md);
+it records discovery only and adds no guarantee to this page.
 
 ## 6. Coherence requirements
 
