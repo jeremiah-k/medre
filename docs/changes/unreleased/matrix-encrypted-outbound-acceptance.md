@@ -34,9 +34,11 @@ execution. Inbound decrypt convergence remains the separate, honest-xfail
 property of `tests/integration/test_synapse_e2ee_smoke.py` and is unchanged.
 
 G05 registers now record the encrypted Matrix outbound observer as a
-current-pin Docker-tier execution: `docs/dev/contract-gap-status.md`,
-`docs/dev/native-evidence-campaign.md`, `docs/dev/native-evidence-index.json`,
-and `docs/spec/appendices/transport-limitations.md`. The tier claims no
+current-pin Docker-tier execution in `docs/dev/contract-gap-status.md`,
+`docs/dev/native-evidence-campaign.md`, and
+`docs/spec/appendices/transport-limitations.md`; the frozen
+`docs/dev/native-evidence-index.json` intentionally keeps only the historical
+substrate and carries no current-pin proof claim. The tier claims no
 federation, external network, cross-signing ceremony, or recipient-side user
 action; strict peer-device verification stays opt-in and the default stays
 quiet permissive.
