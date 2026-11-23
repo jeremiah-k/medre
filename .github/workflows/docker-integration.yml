@@ -134,6 +134,7 @@ jobs:
       # --- Python setup ---
 
       - name: Install MEDRE and adapter-owned integration dependencies
+        id: install-integration
         run: |
           uv sync --locked --extra dev
           uv run --no-sync python scripts/ci/install_checkout_adapter.py --adapter .adapters/medre-adapter-matrix
@@ -149,6 +150,8 @@ jobs:
       # tests executed than the module defines, so a missing qualification
       # can never read as a pass.
       - name: Qualify Matrix encrypted outbound acceptance
+        env:
+          MEDRE_DOCKER_ARTIFACT_RUN_DIR: ${{ github.workspace }}/.ci-artifacts/matrix-outbound-acceptance
         run: |
           mkdir -p .ci-artifacts/matrix-outbound-acceptance
           uv run --no-sync python -m pytest \
@@ -182,6 +185,7 @@ jobs:
           retention-days: 14
 
       - name: Run Docker integration tests
+        if: always() && steps.install-integration.outcome == 'success'
         run: |
           uv run --no-sync timeout --foreground 13m bash scripts/ci/run-docker-integration.sh \
             --deselect tests/integration/test_synapse_e2ee_outbound_acceptance.py

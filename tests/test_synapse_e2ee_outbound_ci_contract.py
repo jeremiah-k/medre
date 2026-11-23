@@ -51,8 +51,7 @@ def test_outbound_acceptance_is_enforced_in_docker_job():
 def test_outbound_acceptance_runs_once_per_job():
     """The directory lane deselects the module the dedicated gate executes."""
     lane = _step("Run Docker integration tests")["run"]
-    assert "--deselect" in lane
-    assert _TEST in lane
+    assert f"--deselect {_TEST}" in lane
 
 
 def test_enforced_test_count_matches_the_module():
@@ -73,12 +72,43 @@ def test_outbound_acceptance_never_xfails_or_skips_inside_a_test():
         and node.func.attr in {"xfail", "skip", "importorskip"}
     ]
     assert calls == [], [calls[0].lineno]
-    marks = [
-        keyword
-        for node in ast.walk(module)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "mark"
-        for keyword in node.keywords
+    forbidden = []
+    for node in ast.walk(module):
+        target = node.func if isinstance(node, ast.Call) else node
+        if not isinstance(target, ast.Attribute) or target.attr not in {
+            "xfail",
+            "skip",
+        }:
+            continue
+        base = target.value
+        if (
+            isinstance(base, ast.Attribute)
+            and base.attr == "mark"
+            and isinstance(base.value, ast.Name)
+            and base.value.id == "pytest"
+        ):
+            forbidden.append(node.lineno)
+    assert not forbidden, forbidden
+
+
+def test_matrix_failure_still_runs_docker_directory_suite() -> None:
+    """A Matrix assertion must not suppress unrelated integration qualification."""
+    lane = _step("Run Docker integration tests")
+    assert "always()" in lane["if"]
+    assert "steps.install-integration.outcome == 'success'" in lane["if"]
+    assert (
+        _step("Qualify Matrix encrypted outbound acceptance").get("continue-on-error")
+        is None
+    )
+
+
+def test_failure_artifacts_include_redacted_synapse_diagnostics() -> None:
+    """Keep failure evidence without uploading raw Synapse data directories."""
+    env = _step("Qualify Matrix encrypted outbound acceptance")["env"]
+    assert env["MEDRE_DOCKER_ARTIFACT_RUN_DIR"].endswith(
+        "/.ci-artifacts/matrix-outbound-acceptance"
+    )
+    path = _step("Upload Matrix outbound acceptance failure diagnostics")["with"][
+        "path"
     ]
-    assert all(keyword.arg not in {"xfail", "skip"} for keyword in marks)
+    assert path == ".ci-artifacts/matrix-outbound-acceptance/"
