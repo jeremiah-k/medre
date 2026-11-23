@@ -13,6 +13,11 @@ observe and run:
 - A failed enforcement tick leaves the store observably expired-not-purged
   (audit ``elapsed_pending``, verify exit 1, body rows intact, no partial
   purge) and the next pass completes it.
+- One bounded pass cannot finish a backlog larger than its page: the
+  documented completion condition (one audit window with no
+  ``elapsed_pending`` and no ``residual_enforced`` findings, plus every
+  verify page passing) is what detects the work a single pass leaves
+  behind.
 - The enforcement transition purges without dispatching: outbox statuses,
   receipts, and settlements are never fabricated by a purge (the
   worker-level fence — the maintenance worker never claims delivery work —
@@ -38,6 +43,8 @@ from tests.helpers.ceiling_audit import (
     _admit_with_ceiling,
     _count,
     _install_elapsed_policy,
+    _seed_every_copy,
+    _seed_late_write,
 )
 from tests.helpers.cli import _run_cli_raw
 from tests.helpers.storage_outbox import make_outbox_item
@@ -317,6 +324,176 @@ def test_failed_enforcement_leaves_expired_not_purged_observably(
     )
     assert code == 0
     assert passed["verdict"] == "passed"
+
+
+# ---------------------------------------------------------------------------
+# The rehearsal completion condition across enforcement pages
+# ---------------------------------------------------------------------------
+
+
+async def _seed_paged_backlog(db_path: str, *, count: int = 51) -> dict[str, str]:
+    """Seed more elapsed targets than one limit=50 pass can enforce.
+
+    Each target carries the full synthetic residual profile so the seeded
+    store matches the documented rehearsal's shaped copy. Returns the
+    seeded outbox identities for late-write seeding.
+    """
+    store = SQLiteStorage(db_path=db_path)
+    await store.initialize()
+    outbox_ids: dict[str, str] = {}
+    try:
+        elapsed = (datetime.now(timezone.utc) - timedelta(seconds=5)).isoformat(
+            timespec="microseconds"
+        )
+        for i in range(count):
+            event_id = f"walk-page-{i:02d}"
+            await _admit_with_ceiling(store, event_id, seconds=3600)
+            outbox_ids[event_id] = await _seed_every_copy(store, event_id)
+            await store._write(
+                "UPDATE event_content_access_policies "
+                "SET hard_ceiling=? WHERE event_id=?",
+                (elapsed, event_id),
+            )
+    finally:
+        await store.close()
+    return outbox_ids
+
+
+async def _enforce_pass(db_path: str) -> list[str]:
+    """Run one limit=50 enforcement pass and return its summaries."""
+    store = SQLiteStorage(db_path=db_path)
+    await store.initialize()
+    try:
+        enforced = await store.enforce_content_ceilings(limit=50)
+        return [row.event_id for row in enforced]
+    finally:
+        await store.close()
+
+
+async def _audit_window(db_path: str) -> dict:
+    """Run the read-only audit with the rehearsal's 25-event window."""
+    store = SQLiteStorage(db_path=db_path)
+    await store.initialize()
+    try:
+        return await store.audit_content_ceilings(limit=25)
+    finally:
+        await store.close()
+
+
+async def _seed_late_writes(db_path: str, targets: dict[str, str]) -> None:
+    """Land pre-ceiling-authorized late writes on receipted events."""
+    store = SQLiteStorage(db_path=db_path)
+    await store.initialize()
+    try:
+        receipts = await _count(
+            store, "SELECT COUNT(*) AS n FROM event_content_ceiling_log"
+        )
+        assert receipts == 51, receipts
+        for event_id, outbox_id in targets.items():
+            await _seed_late_write(store, event_id, outbox_id)
+    finally:
+        await store.close()
+
+
+def test_completion_condition_detects_work_one_pass_leaves_behind(
+    tmp_path: Path,
+) -> None:
+    """A 51-event backlog needs repeated bounded passes and full paging.
+
+    Pins the documented rehearsal completion condition against the real
+    paging semantics: one pass enforces at most 50 elapsed events, and the
+    residual repair walks one bounded receipt page per pass, so a late
+    write on a later receipt survives a pass that empties
+    ``elapsed_pending`` while the first verify page still passes.
+    """
+    db = tmp_path / "paged-rehearsal.sqlite"
+    path = str(db)
+    outbox_ids = asyncio.run(_seed_paged_backlog(path))
+
+    # One pass enforces at most 50 of the 51 elapsed events.
+    assert len(asyncio.run(_enforce_pass(path))) == 50
+
+    # The documented observable reports the leftover work.
+    window = asyncio.run(_audit_window(path))
+    assert [row["event_id"] for row in window["elapsed_pending"]] == ["walk-page-50"]
+    assert window["elapsed_pending_has_more"] is False
+
+    # The next pass completes the new-event backlog to the full observable.
+    assert asyncio.run(_enforce_pass(path)) == ["walk-page-50"]
+    clean = asyncio.run(_audit_window(path))
+    assert clean["elapsed_pending"] == []
+    assert clean["residual_enforced"] == []
+    assert clean["elapsed_pending_has_more"] is False
+    assert clean["residual_enforced_has_more"] is False
+
+    # Late writes land on two receipted events: one inside the receipt
+    # page a pass revisits, one beyond it.
+    asyncio.run(
+        _seed_late_writes(
+            path,
+            {
+                "walk-page-25": outbox_ids["walk-page-25"],
+                "walk-page-50": outbox_ids["walk-page-50"],
+            },
+        )
+    )
+    trapped = asyncio.run(_audit_window(path))
+    assert trapped["elapsed_pending"] == []
+    assert sorted(row["event_id"] for row in trapped["residual_enforced"]) == [
+        "walk-page-25",
+        "walk-page-50",
+    ]
+
+    # The first verify page passes while residual content waits beyond it:
+    # one clean page never proves the unchecked history clean.
+    code, verify = _cli_json(
+        ("storage", "ceiling", "verify", "--storage-path", path, "--limit", "25")
+    )
+    assert code == 0
+    assert verify["verdict"] == "passed"
+    assert verify["receipts_examined"] == 25
+    assert verify["receipts_has_more"] is True
+    assert verify["receipts_next_after_event"] == "walk-page-24"
+
+    # One pass repairs only the receipts its residual page reaches.
+    assert asyncio.run(_enforce_pass(path)) == ["walk-page-25"]
+    after_one = asyncio.run(_audit_window(path))
+    assert after_one["elapsed_pending"] == []
+    assert [row["event_id"] for row in after_one["residual_enforced"]] == [
+        "walk-page-50"
+    ]
+
+    # The next pass reaches the rest; the observable is then fully met.
+    assert asyncio.run(_enforce_pass(path)) == ["walk-page-50"]
+    done = asyncio.run(_audit_window(path))
+    assert done["elapsed_pending"] == []
+    assert done["residual_enforced"] == []
+    assert done["elapsed_pending_has_more"] is False
+    assert done["residual_enforced_has_more"] is False
+
+    # Every verify page passes across the whole receipt history.
+    after = ""
+    pages = 0
+    while True:
+        argv = (
+            "storage",
+            "ceiling",
+            "verify",
+            "--storage-path",
+            path,
+            "--limit",
+            "25",
+        )
+        if after:
+            argv = argv + ("--after-event", after)
+        code, page = _cli_json(argv)
+        assert code == 0
+        assert page["verdict"] == "passed"
+        pages += 1
+        after = page["receipts_next_after_event"] or ""
+        if not page["receipts_has_more"]:
+            break
+    assert pages == 3
 
 
 # ---------------------------------------------------------------------------
