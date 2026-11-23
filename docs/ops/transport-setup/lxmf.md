@@ -181,7 +181,9 @@ stopped-state capture.
 
 ```bash
 export MEDRE_ADAPTER__LXMF_SENDER__TRANSPORT=lxmf
+export MEDRE_ADAPTER__LXMF_SENDER__ADAPTER_KIND=real
 export MEDRE_ADAPTER__LXMF_SENDER__CONNECTION_TYPE=reticulum
+export MEDRE_ADAPTER__LXMF_SENDER__STORAGE_PATH=/private/medre/lxmf/sender
 export MEDRE_ADAPTER__LXMF_SENDER__IDENTITY_PATH=/safe/path/sender.identity
 export MEDRE_ADAPTER__LXMF_SENDER__DISPLAY_NAME=sender
 ```
@@ -191,9 +193,12 @@ export MEDRE_ADAPTER__LXMF_SENDER__DISPLAY_NAME=sender
 
 ## Verify
 
+Check and run the bridge configuration saved by guided configuration:
+
 ```bash
-medre config check --config connections.yaml
-medre run --config connections.yaml
+medre config check --config bridge.yaml
+medre routes plan --config bridge.yaml
+medre run --config bridge.yaml
 ```
 
 A healthy start settles at the adapter's healthy lifecycle state; the local

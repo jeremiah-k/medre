@@ -132,9 +132,12 @@ complete override contract.
 
 ## Verify
 
+Check and run the bridge configuration saved by guided configuration:
+
 ```bash
-medre config check --config connections.yaml
-medre run --config connections.yaml
+medre config check --config bridge.yaml
+medre routes plan --config bridge.yaml
+medre run --config bridge.yaml
 ```
 
 A healthy start logs `MeshtasticAdapter radio-a started (mode=tcp)` and

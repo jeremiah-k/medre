@@ -148,19 +148,19 @@ adapters:
 routes: {}
 ```
 
-For BLE, set `ble_address` to the MAC address you recorded during pairing
-(either in YAML or through the environment override below). Add another
-adapter instance, then build routes with
+For BLE, set `connection_type: ble` and `ble_address` to the MAC address
+you recorded during pairing (either in YAML or through the environment
+override below). Add another adapter instance, then build routes with
 [guided configuration](../guided-configuration.md).
 
 ### Environment Overrides
 
 ```bash
-export MEDRE_ADAPTER__MESHCORE_TBEAM__TRANSPORT=meshcore
-export MEDRE_ADAPTER__MESHCORE_TBEAM__CONNECTION_TYPE=ble
-export MEDRE_ADAPTER__MESHCORE_TBEAM__BLE_ADDRESS=AA:BB:CC:DD:EE:FF
+export MEDRE_ADAPTER__MESHCORE_ALPHA__TRANSPORT=meshcore
+export MEDRE_ADAPTER__MESHCORE_ALPHA__CONNECTION_TYPE=ble
+export MEDRE_ADAPTER__MESHCORE_ALPHA__BLE_ADDRESS=AA:BB:CC:DD:EE:FF
 # Optional: BLE pairing PIN for programmatic pairing
-# export MEDRE_ADAPTER__MESHCORE_TBEAM__BLE_PIN=123456
+# export MEDRE_ADAPTER__MESHCORE_ALPHA__BLE_PIN=123456
 ```
 
 `MEDRE_MESHCORE_*` runtime config variables are unsupported. Use
@@ -170,9 +170,12 @@ complete override contract.
 
 ## Verify
 
+Check and run the bridge configuration saved by guided configuration:
+
 ```bash
-medre config check --config connections.yaml
-medre run --config connections.yaml
+medre config check --config bridge.yaml
+medre routes plan --config bridge.yaml
+medre run --config bridge.yaml
 ```
 
 A healthy start logs `MeshCoreAdapter meshcore-alpha started (mode=tcp)` and
@@ -192,21 +195,21 @@ Intermediate state: reconnecting. The session enters a reconnecting state during
 
 ## Options
 
-| Key                     | Default                    | What it changes                                         | When to touch it                                            |
-| ----------------------- | -------------------------- | ------------------------------------------------------- | ----------------------------------------------------------- |
-| `port`                  | SDK (4000)                 | TCP port of the node interface                          | Non-default node port                                       |
-| `serial_port`           | unset                      | Serial device path (required for `serial`)              | Serial connections                                          |
-| `ble_address`           | unset                      | BLE MAC address (required for `ble`)                    | BLE connections                                             |
-| `ble_pin`               | unset                      | BLE pairing PIN for programmatic pairing; sensitive     | Headless hosts where `bluetoothctl` pairing is not feasible |
-| `identity`              | unset                      | MeshCore node identity string (e.g. a node name)        | When the node distinguishes identities                      |
-| `pubkey`                | unset                      | Expected node public key as a hex string                | Pinning the expected companion node                         |
-| `node_config`           | empty                      | Opaque node-specific settings; secret keys are rejected | Node-specific tuning only                                   |
-| `default_channel`       | `0`                        | Channel used for outbound channel messages              | Routing on a non-zero channel                               |
-| `message_delay_seconds` | `0.5`                      | Minimum spacing between outbound messages               | Congested networks                                          |
-| `max_text_bytes`        | MeshCore group-text budget | UTF-8 byte budget for rendered outbound text            | Longer payloads                                             |
-| `max_text_parts`        | `1`                        | Number of text parts a rendered message may use         | Multi-part delivery                                         |
-| `origin_label`          | empty                      | Prefix identifying this origin on the other side        | Labeling in mixed bridges                                   |
-| `relay_prefix`          | unset                      | Custom rendering template for relayed text              | Custom presentation                                         |
+| Key                     | Default                    | What it changes                                                                | When to touch it                                            |
+| ----------------------- | -------------------------- | ------------------------------------------------------------------------------ | ----------------------------------------------------------- |
+| `port`                  | SDK (4000)                 | TCP port of the node interface                                                 | Non-default node port                                       |
+| `serial_port`           | unset                      | Serial device path (required for `serial`)                                     | Serial connections                                          |
+| `ble_address`           | unset                      | BLE MAC address (required for `ble`)                                           | BLE connections                                             |
+| `ble_pin`               | unset                      | BLE pairing PIN for programmatic pairing; sensitive                            | Headless hosts where `bluetoothctl` pairing is not feasible |
+| `identity`              | unset                      | MeshCore node identity string (e.g. a node name)                               | When the node distinguishes identities                      |
+| `pubkey`                | unset                      | Expected node public key as a hex string; validated, not yet enforced as a pin | Recording the expected companion node key                   |
+| `node_config`           | empty                      | Opaque node-specific settings; secret keys are rejected                        | Node-specific tuning only                                   |
+| `default_channel`       | `0`                        | Channel used for outbound channel messages                                     | Routing on a non-zero channel                               |
+| `message_delay_seconds` | `0.5`                      | Minimum spacing between outbound messages                                      | Congested networks                                          |
+| `max_text_bytes`        | MeshCore group-text budget | UTF-8 byte budget for rendered outbound text                                   | Longer payloads                                             |
+| `max_text_parts`        | `1`                        | Number of text parts a rendered message may use                                | Multi-part delivery                                         |
+| `origin_label`          | empty                      | Prefix identifying this origin on the other side                               | Labeling in mixed bridges                                   |
+| `relay_prefix`          | unset                      | Custom rendering template for relayed text                                     | Custom presentation                                         |
 
 ### Configuration Validation
 
