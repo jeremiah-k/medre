@@ -47,7 +47,7 @@ keys, sidecar contents, or crypto objects.
 1. Start the adapter.
 2. Trigger a `deliver()` call with a rendered text message targeting your test room.
 3. Open the room in Element. Confirm the message appears.
-4. Check the return value from `deliver()`. It should contain an `event_id` starting with `$`.
+4. Check the return value from `deliver()`. Its `native_message_id` should be the Matrix event ID, starting with `$`.
 
 ### Inbound Validation
 

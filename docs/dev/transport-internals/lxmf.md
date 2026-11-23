@@ -10,7 +10,10 @@ ownership. The normative contract lives in the
 
 MEDRE never handles `RNS.Identity` or `RNS.Destination` objects directly. The adapter converts them to strings:
 
-- `source_transport_id`: the sender's identity hash as a 32-char hex string.
+- `source_transport_id`: the sender's LXMF delivery-destination hash as a
+  32-char hex string — not their identity hash. The codec uses the same
+  hash as the peer's delivery-destination channel, which is how inbound
+  events correlate with route destination addresses.
 - `native_message_id`: the LXMF message hash as a 64-char hex string.
 - Core and pipeline code never import from `lxmf` or `RNS`.
 
@@ -45,7 +48,13 @@ process-local until the observation is persisted. A hard crash after LXMRouter
 handoff but before the SDK reports a later delivery state may therefore leave
 only the original `sent/local_queue` receipt. MEDRE does not fabricate a terminal state during restart recovery.
 
-Outbound retry is bounded: 3 retries with short linear backoff. After exhaustion, the send raises `LxmfSendError`, which the adapter normalizes to `AdapterSendError`.
+Outbound retry is bounded: at most 3 total attempts per send with short
+linear backoff. After exhaustion, the send raises `LxmfSendError`, which
+the adapter normalizes to a transient `AdapterSendError`. An exception
+raised by `router.handle_outbound()` is not retried: the router may have
+already accepted the message, so the session raises
+`LxmfHandoffUnknownError` instead — an uncertain native handoff that
+recovery must reconcile rather than resubmit.
 
 ### Reticulum Singleton
 
