@@ -8,7 +8,7 @@ observations below apply only to the dated runs; capture fresh evidence for
 your current core, adapter commits, SDKs, and endpoints.
 
 For a bounded multi-adapter campaign, use the
-[short iteration sequence](short-iterations.md).
+[short iteration sequence](../../dev/live-validation/short-iterations.md).
 
 ## Slow-Medium Peer Budgets
 

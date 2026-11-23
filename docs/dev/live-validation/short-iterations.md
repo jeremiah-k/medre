@@ -11,7 +11,7 @@ separate final check.
 Run from a MEDRE source checkout. Native protocol and pair tests live in their
 owning adapter repositories; cross-adapter and Docker tests remain in core.
 Configure the four editable paths in the
-[local development profile](../../dev/environment.md#work-on-adapters-at-any-location)
+[local development profile](../environment.md#work-on-adapters-at-any-location)
 for any checkout layout. The profile selects aliases matrix, meshtastic,
 meshcore and lxmf. Install native SDKs and Matrix encryption explicitly:
 
@@ -24,7 +24,7 @@ Run adapter tests with `medre dev test ALIAS -- ...` through `uv run --no-sync`;
 these commands use the adapter's own test configuration. A Git-only install can
 run the smoke but requires editable checkouts to run adapter source tests.
 For a deployment without source checkouts, start with
-[Getting Started](../getting-started.md).
+[Getting Started](../../ops/getting-started.md).
 
 Use an owned private channel on each mesh. Assign device A to MEDRE and device
 B to the independent native SDK peer. Set these endpoint variables in a private
@@ -90,8 +90,8 @@ matrix expectations. On a different bench, adapt the matrix expectations to
 the actual peer labels before claiming its rendering and provenance results.
 Do not rename device owners merely to satisfy an assertion.
 
-See the transport pages for [Meshtastic](meshtastic.md),
-[MeshCore](meshcore.md), [LXMF](lxmf.md), and [Matrix](matrix.md) setup.
+See the transport pages for [Meshtastic](../../ops/live-validation/meshtastic.md),
+[MeshCore](../../ops/live-validation/meshcore.md), [LXMF](../../ops/live-validation/lxmf.md), and [Matrix](../../ops/live-validation/matrix.md) setup.
 
 ## Keep Evidence for Every Iteration
 

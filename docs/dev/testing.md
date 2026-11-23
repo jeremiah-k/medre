@@ -1,7 +1,7 @@
 # Testing Guide
 
 For end-to-end bench messages across every installed provider, use the
-[cross-adapter campaign](../ops/live-validation/adapter-campaign.md). It combines
+[cross-adapter campaign](live-validation/adapter-campaign.md). It combines
 native peer commands, durable MEDRE evidence, and independent far-side receipt
 for all six adapters, with an explicit partial-run option for smaller labs.
 
@@ -19,7 +19,7 @@ below. See the [README](../../README.md) for project context and the
 [Operator Workflows](../ops/operator-workflows.md) for bridge-specific test
 commands.
 
-For real devices, follow the [short hardware iteration sequence](../ops/live-validation/short-iterations.md).
+For real devices, follow the [short hardware iteration sequence](live-validation/short-iterations.md).
 It records independent RF observations separately from durable admission and
 SDK acceptance, with focused repeats before endurance runs.
 
@@ -30,7 +30,7 @@ the adapter's pytest configuration without assuming sibling checkouts; see the
 [development environment](environment.md#work-on-adapters-at-any-location).
 Core retains cross-adapter, lifecycle, routing, and Docker integration suites.
 See [adapter installation](../ops/adapter-installation.md) for deployment sources
-and [short hardware iterations](../ops/live-validation/short-iterations.md)
+and [short hardware iterations](live-validation/short-iterations.md)
 for coordinated bench setup.
 
 ## Adapter-free and compatibility ownership
@@ -605,8 +605,8 @@ raising the constant.
   imports belong in the per-transport test module. Import directly from
   `tests.helpers.live_harness` — no package-root facades.
 
-For operator-side live validation procedures, see
-[ops/live-validation](../ops/live-validation/).
+For operator bring-up walkthroughs, see
+[live-validation](../ops/live-validation/).
 
 ### Local Synapse homeserver for Matrix testing
 

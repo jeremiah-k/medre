@@ -12,6 +12,7 @@ Set up your [development environment](environment.md), then use the
 | [environment.md](environment.md)                                                                     | Checkout setup, uv/pip workflows, extras, dependency updates, builds                  |
 | [installation-sources.md](installation-sources.md)                                                   | Published, Git and editable sources; qualification and channel planning               |
 | [testing.md](testing.md)                                                                             | Test suite structure, patterns, tiers, live-test harness                              |
+| [live-validation/](live-validation/)                                                                 | Native campaign procedures, per-transport smoke tests, and the Docker ecosystem lab   |
 | [static-typing.md](static-typing.md)                                                                 | Strict-mypy gate scope, SDK import exemptions, and typing status                      |
 | [adapter-authoring.md](adapter-authoring.md)                                                         | How to write a new transport adapter                                                  |
 | [transport-internals/](transport-internals/README.md)                                                | Per-transport adapter internals behind the operator setup guides                      |
