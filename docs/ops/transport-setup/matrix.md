@@ -25,58 +25,7 @@ presentation and the separate application-service design, see
 | A test room       | Unencrypted, bot has joined it                                                                                                                                                                                             |
 | Network access    | Your machine can reach the homeserver's HTTP(S) port                                                                                                                                                                       |
 
-You do not need Docker, a domain name, or federation. A local homeserver on localhost is sufficient.
-
-## Homeserver Setup
-
-### Synapse via pip (recommended)
-
-Use a dedicated Synapse environment, separate from MEDRE's `.venv`. This service
-installation is independent of the MEDRE checkout lockfile.
-
-```bash
-python3 -m venv /tmp/medre-synapse-venv
-source /tmp/medre-synapse-venv/bin/activate
-python -m pip install matrix-synapse
-
-python -m synapse.app.homeserver \
-  --server-name localhost \
-  --config-path homeserver.yaml \
-  --generate-config \
-  --report-stats=no
-
-python -m synapse.app.homeserver --config-path homeserver.yaml
-```
-
-Synapse starts on port 8008 by default.
-
-Run MEDRE from a separate shell with its own environment activated.
-
-### Conduit (lightweight alternative)
-
-Download a binary from conduit.rs or build from source. Conduit starts on port 6167 by default.
-
-### Docker (optional)
-
-Run Synapse as your own unprivileged user; create its data directory first so
-the container never needs root:
-
-```bash
-mkdir -m 700 -p synapse-data
-# Generate the initial homeserver config into the host-owned directory.
-docker run --rm --user "$(id -u):$(id -g)" \
-  -e SYNAPSE_SERVER_NAME=localhost \
-  -e SYNAPSE_REPORT_STATS=no \
-  -v "$PWD/synapse-data:/data" \
-  matrixdotorg/synapse:latest generate
-
-docker run -d --name synapse -p 127.0.0.1:8008:8008 \
-  --user "$(id -u):$(id -g)" \
-  -e SYNAPSE_SERVER_NAME=localhost \
-  -e SYNAPSE_REPORT_STATS=no \
-  -v "$PWD/synapse-data:/data" \
-  matrixdotorg/synapse:latest
-```
+You do not need Docker, a domain name, or federation. MEDRE connects to an existing homeserver account; it does not host or administer the homeserver. Running a local Synapse or Conduit server for provider testing is covered in the [developer testing guide](../../dev/testing.md#local-synapse-homeserver-for-matrix-testing).
 
 ## Token Generation and E2EE Identity Setup
 
@@ -140,13 +89,12 @@ an identity that does not match local state.
 
 ### Login API (curl)
 
-```bash
-# Register a bot user first (Synapse only)
-register_new_matrix_user \
-  -c homeserver.yaml \
-  -u bot -p secret \
-  http://localhost:8008
+The bot account must already exist on the homeserver; create it as you would
+any other account. On a locally hosted test server, the Synapse registration
+tool creates users; see the
+[developer testing guide](../../dev/testing.md#local-synapse-homeserver-for-matrix-testing).
 
+```bash
 # Get a token
 curl -s -X POST \
   -d '{"type":"m.login.password","user":"bot","password":"secret"}' \
