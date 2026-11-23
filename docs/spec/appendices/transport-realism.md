@@ -64,7 +64,7 @@ limitation instead of relabeling synthetic evidence as integration/live proof.
 - Local integration: Docker `meshtasticd` exercises the core-authorized exact
   replay selector through the pinned SDK, including deferred and planned
   handoffs and refusal boundaries. The execution gate must run on CI; a local
-  SDK return value is not independent provider acceptance. Simulation mode
+  SDK return value is not independent transport acceptance. Simulation mode
   does not prove inbound pubsub relay or radio/recipient delivery.
 - Hardware: opt-in MEDRE live harness is marked `hardware`; historical radio
   observations do not automatically become current-commit evidence.

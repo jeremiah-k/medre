@@ -6,7 +6,7 @@ Transport-specific claims are verified against the **seven transport pins
 recorded in `.github/adapter-compatibility.json`** (the pin authority — the
 inspected commits listed in
 [`known-limitations.md`](known-limitations.md) are exactly those manifest
-refs) and the provider repositories at those commits; "the inspected pin" in
+refs) and the adapter repositories at those commits; "the inspected pin" in
 a section refers to that commit. See
 [`known-limitations.md`](known-limitations.md) for the full provenance table
 and SDK pins.
@@ -71,7 +71,7 @@ and SDK pins.
 ### 2.1 Matrix
 
 - Multi-room concurrent inbound has not been tested against a real homeserver
-  (the provider's live harnesses pin a single-room allowlist;
+  (the adapter's live harnesses pin a single-room allowlist;
   `medre-adapter-matrix/tests/test_matrix_live.py` at the inspected pin).
 - Decrypted Matrix ingress normalizes reactions, edits, redactions, and media.
   Outbound relations are native: replies, threads, reactions, edits, and deletes
@@ -83,18 +83,18 @@ and SDK pins.
   workflow — `auth restore-signing` imports account-signing keys only, never
   historical encrypted-room message keys (`medre-adapter-matrix` README at the
   inspected pin).
-- Own-device cross-signing is implemented against the provider-pinned
+- Own-device cross-signing is implemented against the adapter-pinned
   `mindroom-nio[e2e]` surface. Peer-device trust defaults to
   `verification_policy: permissive` without an additional MEDRE peer-trust scan
   or trust-gap warnings; opt-in `strict` refuses encrypted text and
   media until the complete recipient view is affirmatively verified in MEDRE's
   own nio store, including sibling devices. Strict retains the SDK send-time
   device fence; it never auto-verifies peers or falls back to plaintext. No
-  operator peer-verification workflow is provided. The provider's
+  operator peer-verification workflow is provided. The adapter's
   `tests/test_matrix_device_trust_sdk_contract.py` covers the pinned SDK surface;
   `tests/test_matrix_device_trust_docker.py` qualifies strict refusal, verified
   delivery with peer decryption, trust reset, restart persistence, and default
-  permissive delivery on Docker Synapse. The provider-owned Docker tier is
+  permissive delivery on Docker Synapse. The adapter-owned Docker tier is
   opt-in, not a required CI gate, and proves no federation, external network, or
   cross-signing ceremony. The core-owned required rung is
   `tests/integration/test_synapse_e2ee_outbound_acceptance.py`: it routes a
@@ -133,7 +133,7 @@ and SDK pins.
   portnum types are not decodable as text events; the codec rejects any
   non-text packet category (`medre-adapter-meshtastic/src/medre/adapters/meshtastic/codec.py`
   at the inspected pin).
-- The `mtjk` SDK is exact-pinned in the provider's own package
+- The `mtjk` SDK is exact-pinned in the adapter's own package
   metadata; a dedicated installed-SDK contract tier
   (`medre-adapter-meshtastic/tests/test_meshtastic_sdk_contract.py`) freezes
   the private send/protobuf/pubsub surfaces MEDRE uses without duplicating the
@@ -151,7 +151,7 @@ and SDK pins.
 - Node identity in MEDRE is the `!`-prefixed hex node number derived from the
   pinned SDK's `myInfo.myNodeNum` (`session.py` at the inspected pin).
   Whether a node number survives leave/rejoin is Meshtastic protocol
-  behavior that cannot be verified from the pinned provider repositories;
+  behavior that cannot be verified from the pinned adapter repositories;
   this index makes no stability claim for it.
 - The declared `max_text_bytes` budget (227 bytes by default in
   `medre-adapter-meshtastic/src/medre/config/adapters/meshtastic.py`) is the
@@ -163,8 +163,8 @@ and SDK pins.
 
 ### 2.3 MeshCore
 
-- The `meshcore` SDK is exact-pinned in the provider's own package metadata;
-  MEDRE's compatibility manifest pins the provider commit. BLE session-layer
+- The `meshcore` SDK is exact-pinned in the adapter's own package metadata;
+  MEDRE's compatibility manifest pins the adapter commit. BLE session-layer
   behavior was live-validated June 2026 against a MeshCore node on Linux
   BlueZ (dated observation evidence; no newer hardware run is recorded at
   the inspected pin). TCP session-layer behavior is exercised by a
@@ -207,7 +207,7 @@ and SDK pins.
 
 ### 2.4 LXMF
 
-- Multi-hop mesh delivery is not tested. The provider's tiers are
+- Multi-hop mesh delivery is not tested. The adapter's tiers are
   SDK-contract, deterministic loopback/local-integration, and an RNode
   lifecycle profile that explicitly establishes no delivery or
   reachability (`medre-adapter-lxmf` tests at the inspected pin).
@@ -230,7 +230,7 @@ and SDK pins.
   handoff journal (`medre-adapter-lxmf/docs/spec/native-worker.md`).
 - Propagated messages have no delivery time guarantee and require an explicit
   `outbound_propagation_node` destination hash (validated as a 32-character
-  hex hash by the provider's configuration model).
+  hex hash by the adapter's configuration model).
 - Production Reticulum adapters run the SDK in an adapter-owned worker
   process: the Reticulum singleton, its native threads, and SDK exit hooks
   stay inside that process, keeping them away from the core event loop and
@@ -248,8 +248,8 @@ and SDK pins.
   still queue undeliverable work; asynchronous SDK observations report
   delivery outcomes (`adapter.py::health_check` at the inspected pin).
 - RNode physical-interface retry internals belong to the pinned RNS SDK and
-  cannot be verified from the pinned provider repositories; this index makes
-  no claim about detach/reconnect races inside the SDK. The provider's
+  cannot be verified from the pinned adapter repositories; this index makes
+  no claim about detach/reconnect races inside the SDK. The adapter's
   hardware profile (`medre-adapter-lxmf/tests/test_native_worker_hardware.py`)
   opens two consecutive workers against a private RNode profile and requires
   acknowledged clean exits; it explicitly establishes no message delivery,
@@ -267,7 +267,7 @@ and SDK pins.
   two-process regression harness
   (`medre-adapter-lxmf/tests/test_lxmf_local_integration.py::test_relation_preserved_across_two_local_instances`,
   loopback Reticulum `UDPInterface` pair only). The harness belongs to the
-  provider's local-integration tier, which core's required local-integration
+  adapter's local-integration tier, which core's required local-integration
   job runs against the pinned adapter revision; the latest recorded pass is
   dated 2026-09-18 gate evidence. It does not constitute external
   multi-hop, live-hardware, or third-party interoperability evidence.
@@ -278,11 +278,11 @@ and SDK pins.
   A failed close or cancellation-resistant worker leaves an `ABANDONED` session
   with failed health and retained ownership. Reconnect, reuse, and fresh ingress
   remain fenced until a cleanup retry succeeds; asyncio cannot forcibly retire
-  a callback that suppresses cancellation. The provider's session retirement
+  a callback that suppresses cancellation. The adapter's session retirement
   regressions and two-account Docker Prosody test cover those local boundaries,
   not recipient reading or external-network reliability.
 
-- The provider bridges live text only. XHTML, attachments, presence, read
+- The adapter bridges live text only. XHTML, attachments, presence, read
   receipts, native mutations (edits/retracts/reactions), OMEMO, and
   puppeting are not implemented or advertised; unsupported
   edit/retract/reaction compatibility bodies are excluded from ingress
@@ -292,7 +292,7 @@ and SDK pins.
   MAM/archive retrieval exists.
 - The connection requires verified TLS and offers no plaintext or
   certificate-check bypass; transport encryption is not end-to-end
-  encryption (the `slixmpp` SDK pinned in the provider's package
+  encryption (the `slixmpp` SDK pinned in the adapter's package
   metadata). Authentication rejection requires operator action.
 - Outbound success is reported for local TLS transport writes, separately
   from recipient delivery/read state; the adapter claims no delivery or
@@ -311,7 +311,7 @@ and SDK pins.
   edits/deletes/reactions, forwarded read receipts, typing notifications,
   and puppeting are not advertised (`medre-adapter-chatmail` README at
   the inspected pin).
-- Outbound success means admission to the provider's local queue; SMTP
+- Outbound success means admission to the adapter's local queue; SMTP
   acceptance is reported only after the native core reports its sent
   state, and neither claims recipient delivery or reading.
 - First use baselines existing history without relaying it; later starts
@@ -335,7 +335,7 @@ and SDK pins.
 
 ### 2.7 SimpleX Chat
 
-- The provider pins the official `simplex-chat` SDK (native library
+- The adapter pins the official `simplex-chat` SDK (native library
   downloaded on first initialization). The SDK supports Linux, macOS, and
   Windows on its published architectures; CI qualifies Linux x86-64 only.
   The official SDK and native library are AGPL-3.0-licensed; this
@@ -384,7 +384,7 @@ received by any remote party.
 | LXMF         | Message was handed to the LXMRouter in the worker process.                   |
 | Matrix       | Homeserver persisted the event and returned event_id.                        |
 | XMPP         | Stanza was written to the verified TLS stream.                               |
-| Chatmail     | Item was admitted to the provider's local queue.                             |
+| Chatmail     | Item was admitted to the adapter's local queue.                              |
 | SimpleX Chat | Native local queue accepted the submission.                                  |
 
 This is an honest model. MEDRE reports what it knows (local handoff succeeded)
@@ -454,7 +454,7 @@ mechanisms:
 5. **Delivery evidence strength differs by transport.** Matrix synchronous hand-off
    normally proves homeserver acceptance. LXMF initial hand-off proves local
    LXMRouter acceptance inside the worker process, while later
-   callback-emitted terminal provider states are persisted separately as
+   callback-emitted terminal transport states are persisted separately as
    post-handoff delivery observations. Neither mechanism implies
    end-to-end recipient acknowledgement; evidence levels are normative in
    [routing-delivery.md](../routing-delivery.md) §13.

@@ -294,7 +294,7 @@ authority for retryable server/network failures.
    Sync cursor, and starts the supervised sync task.
 3. **Syncing** — mindroom-nio owns Classic Sync iteration, request execution,
    key sequencing, decryption, limited-timeline recovery, event provenance, and
-   homeserver-directed 429 handling. Provider timeout retries are disabled so a
+   homeserver-directed 429 handling. Transport timeout retries are disabled so a
    timeout reaches MEDRE's owning boundary promptly; sync timeouts are handled by
    the outer session supervisor.
 4. **Durable admission** — `LIVE` and `RECOVERED` timeline events are atomically
@@ -322,11 +322,11 @@ authority for retryable server/network failures.
    ignore cancellation past that budget are detached with terminal-result ownership
    so shutdown remains bounded without producing unobserved-task warnings. The
    session is then nulled. Idempotent. MEDRE MUST close the nio crypto-store
-   database after provider close settles, including partial-start cleanup and
-   optional-encryption fallback. Cancellation-resistant provider close retains
+   database after transport close settles, including partial-start cleanup and
+   optional-encryption fallback. Cancellation-resistant transport close retains
    the store until its drain settles; cleanup remains attached to the bounded
    close task. A cancelled shutdown caller MUST relinquish the client to that
-   close task so a subsequent stop cannot cancel or restart its provider drain.
+   close task so a subsequent stop cannot cancel or restart its transport drain.
    Closing the store MUST NOT delete persisted crypto state.
 
 ### Classic Sync ownership and recovery
@@ -408,7 +408,7 @@ local nio trust are complete and verified; nio's send-time fence remains
 `ignore_unverified_devices=False`. Own-account sibling devices are recipients;
 the current device is excluded. Plaintext sends and typing bypass this gate.
 MEDRE provides no operator peer-verification workflow, and verification in another
-client does not establish local nio trust. When the pinned provider exposes
+client does not establish local nio trust. When the pinned SDK exposes
 `replace_rotated_device_keys`,
 MEDRE enables it for encrypted sessions so a peer device-key rotation does not wedge
 the bot's permissive delivery policy. Neither setting verifies peer devices. Runtime
@@ -421,7 +421,7 @@ access token under the wrong account identity.
 
 A live undecryptable `MegolmEvent` is recorded but never forwarded into the canonical
 event pipeline. If crypto, user ID, and device ID are available, MEDRE builds the
-provider's missing-room-key request in a tracked background task with at most three
+SDK's missing-room-key request in a tracked background task with at most three
 attempts and a ten-second per-attempt timeout. The nio sync callback MUST return without
 waiting for this recovery task. Retryable transport or explicit to-device failures use
 2 s then 4 s backoff; cancellation propagates, and permanent Matrix errcodes terminate
@@ -455,7 +455,7 @@ request limiter. Raw Megolm session IDs MUST NOT appear in logs or diagnostics.
 | `encrypted_room_seen`                      | `bool`          | At least one encrypted room detected                   |
 | `undecryptable_event_count`                | `int`           | MegolmEvents that could not be decrypted               |
 | `megolm_recovery_attempts`                 | `int`           | Missing-room-key to-device send attempts               |
-| `megolm_recovery_successes`                | `int`           | Missing-room-key requests accepted by the provider     |
+| `megolm_recovery_successes`                | `int`           | Missing-room-key requests accepted by the transport    |
 | `megolm_recovery_failures`                 | `int`           | Terminal missing-room-key request failures             |
 | `megolm_recovery_rate_limited`             | `int`           | Outbound key-request attempts refused by rolling limit |
 | `megolm_recovery_inflight_rejected`        | `int`           | Recovery campaigns refused by max-in-flight cap        |

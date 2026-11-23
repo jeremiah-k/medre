@@ -71,7 +71,7 @@ when the same delivery attempt is retried after restart.
 
 The installed-SDK tier proves profile creation, group history, local queue
 acceptance, duplicate suppression and worker cleanup; those tests alone do not
-prove independent peer delivery. The retained seven-provider native baseline
+prove independent peer delivery. The retained seven-adapter native baseline
 reports separate SimpleX SDK profiles in an accepted group and native peer
 observations for its directed pairs. This group-specific campaign evidence is
 **not** a qualification of direct-contact delivery or worker-death recipient
