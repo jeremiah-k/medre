@@ -135,6 +135,7 @@ export MEDRE_ADAPTER__MESHCORE_BLE__BLE_ADDRESS=AA:BB:CC:DD:EE:FF
 ```python
 import asyncio
 import logging
+from datetime import datetime, timezone
 
 from medre.adapters.meshcore.adapter import MeshCoreAdapter
 from medre.config.adapters.meshcore import MeshCoreConfig
@@ -153,7 +154,13 @@ config = MeshCoreConfig(
 
 adapter = MeshCoreAdapter(config)
 event_bus = EventBus()
-ctx = AdapterContext(event_bus=event_bus, logger=logger)
+ctx = AdapterContext(
+    adapter_id="meshcore-alpha",
+    publish_inbound=event_bus.publish,
+    logger=logger,
+    clock=lambda: datetime.now(timezone.utc),
+    shutdown_event=asyncio.Event(),
+)
 
 async def main():
     await adapter.start(ctx)

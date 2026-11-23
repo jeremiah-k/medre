@@ -79,6 +79,7 @@ There is no dedicated Meshtastic runner. Wire the adapter manually:
 ```python
 import asyncio
 import logging
+from datetime import datetime, timezone
 
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre.config.adapters.meshtastic import MeshtasticConfig
@@ -97,7 +98,13 @@ config = MeshtasticConfig(
 
 adapter = MeshtasticAdapter(config)
 event_bus = EventBus()
-ctx = AdapterContext(event_bus=event_bus, logger=logger)
+ctx = AdapterContext(
+    adapter_id="mesh-alpha",
+    publish_inbound=event_bus.publish,
+    logger=logger,
+    clock=lambda: datetime.now(timezone.utc),
+    shutdown_event=asyncio.Event(),
+)
 
 async def main():
     await adapter.start(ctx)
