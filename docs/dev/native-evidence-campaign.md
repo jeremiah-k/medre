@@ -182,7 +182,7 @@ Pinned provider: `medre-adapter-xmpp`; SDK package `slixmpp`.
 | -------------------------------------------------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Exact-target native acceptance (G01/G02)                 | `docker`                   | `tests/native_qualification/test_prosody_exact_target_replay.py` runs the core replay authority through the pinned Slixmpp provider against a disposable containerized Prosody service, where each MUC target carries an independent raw-SDK recipient account that joined before any send; the recipient must observe exactly one nonce-correlated stanza bound to the room, the originating account, the recorded origin id and the provider-returned stanza id, and the excluded sibling must receive nothing in its own window. The Docker Integration workflow runs the two cases at the pinned Prosody image and fails when the cases are not collected or skipped, or when their per-run verdict records are missing. The observation ceiling is local groupchat reception over TLS-protected loopback transport; no E2EE, federation, external-network or hardware claim follows. | CI-automatable now (Docker integration workflow)                                                                                                 |
 | XMPP recipient verification (G05)                        | `live`                     | Provider-owned `tests/test_live.py` at the pinned provider commit, live-marked.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Operator-run (external server and independent peer)                                                                                              |
-| XMPP recipient verification, Docker reference rung (G05) | `docker` (dated run)       | The opt-in ecosystem-lab reference journey executed the ten-case bidirectional Matrix↔XMPP fidelity campaign at the manifest pins then declared, with core `main` at `72b3fc08af8869261601f4ff2688c35e25b7c508`: independent Matrix and XMPP peers observed the relayed conversation on the disposable plaintext Synapse/Prosody environment, and the offline analyzer reconciled source acknowledgments, recipient records, canonical SQLite events, committed native references, restart order, duplicate counts, and cleanup before writing the content-free verdict. Those pins have since moved, so this run is dated provenance rather than current-pin evidence. Plaintext disposable fixtures only; no encrypted, federated, production, or hardware claim.                                                                                                                       | Operator-run opt-in journey (`docs/ops/live-validation/reference-bridge.md`); not part of the grouped `native` or `all` suites and not run by CI |
+| XMPP recipient verification, Docker reference rung (G05) | `docker`                   | The opt-in ecosystem-lab reference journey executed the ten-case bidirectional Matrix↔XMPP fidelity campaign at the manifest pins currently declared, with core `main` at `0ddb16345940b7d9ebaed6ce7e267217799e734e`: independent Matrix and XMPP peers observed the relayed conversation on the disposable plaintext Synapse/Prosody environment, and the offline analyzer reconciled source acknowledgments, recipient records, canonical SQLite events, committed native references, restart order, duplicate counts, and cleanup before writing the content-free verdict. Plaintext disposable fixtures only; no encrypted, federated, production, or hardware claim.                                                                                                                                                                                                                 | Operator-run opt-in journey (`docs/ops/live-validation/reference-bridge.md`); not part of the grouped `native` or `all` suites and not run by CI |
 
 The ecosystem lab supplies containerized Prosody and a real independent MUC
 recipient. A core-authorized exact-target replay over that service is now
@@ -258,15 +258,16 @@ Landed on this campaign so far:
   claim follows.
 - XMPP recipient verification at the `docker` tier through the opt-in
   reference bridge journey: the ten-case bidirectional Matrix↔XMPP
-  fidelity campaign executed at the manifest pins then declared with core
-  `main` at `72b3fc08af8869261601f4ff2688c35e25b7c508`, independent Matrix
-  and XMPP peers, read-only SQLite reconciliation, two ordered runtime
-  generations, and a content-free positive-only verdict
-  (`docs/ops/live-validation/reference-bridge.md`). Those pins have since
-  moved, so this run is dated provenance rather than current-pin evidence.
-  This is plaintext disposable-fixture evidence; the external-service rung
-  stays open and no encrypted, federated, production, or hardware claim
-  follows.
+  fidelity campaign executed at the manifest pins currently declared, with
+  core `main` at `0ddb16345940b7d9ebaed6ce7e267217799e734e`, independent
+  Matrix and XMPP peers, read-only SQLite reconciliation, two ordered
+  runtime generations, and a content-free positive-only verdict
+  (`docs/ops/live-validation/reference-bridge.md`). This is plaintext
+  disposable-fixture evidence; the external-service rung stays open and no
+  encrypted, federated, production, or hardware claim follows.
+  An earlier execution at the pins then declared, with core `main` at
+  `72b3fc08af8869261601f4ff2688c35e25b7c508`, remains recorded as dated
+  provenance in the 0.1.0 release archive.
 
 The core-authorized LXMF replay has also executed at the manifest pins
 currently declared through its opt-in workflow, producing an
@@ -292,7 +293,7 @@ Outstanding legs, grouped by what each needs:
   (Meshtastic, MeshCore BLE/serial), native MeshCore physical-companion
   acceptance beyond protocol conformance, external LXMF propagation peering
   and physical RNode lifecycle, encrypted Matrix continuity under a live
-  account, XMPP and Chatmail recipient verification beyond the dated
+  account, XMPP and Chatmail recipient verification beyond the current-pin
   XMPP Docker reference rung, and the SimpleX
   reply observation by an independent peer.
 
