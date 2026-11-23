@@ -7,7 +7,13 @@ The provider supplies both its SDK-free fake and its native SDK dependencies.
 
 Setting up and running the MEDRE LXMF adapter against a real Reticulum network.
 
-## Prerequisites
+Fake mode is the default and recommended path for all development and testing. Real Reticulum connectivity is opt-in for live validation.
+
+**LXMF is not connection-oriented.** There is no "connect to a server" step. Reticulum auto-discovers peers on configured interfaces. Path requests and announces handle routing automatically.
+
+## Before you begin
+
+### Prerequisites
 
 | Requirement         | Details                                                                                                               |
 | ------------------- | --------------------------------------------------------------------------------------------------------------------- |
@@ -18,15 +24,109 @@ Setting up and running the MEDRE LXMF adapter against a real Reticulum network.
 | Package install     | Install lxmf in the MEDRE environment; see [installation](../install.md) (exact LXMF/RNS pins from project metadata). |
 | Network access      | At least one Reticulum transport interface configured                                                                 |
 
-Fake mode is the default and recommended path for all development and testing. Real Reticulum connectivity is opt-in for live validation.
+### Minimum Viable Reticulum Topology
 
-**LXMF is not connection-oriented.** There is no "connect to a server" step. Reticulum auto-discovers peers on configured interfaces. Path requests and announces handle routing automatically.
+#### What Is a Reticulum Network?
 
-## Identity Setup
+A Reticulum network is one or more Reticulum instances that can reach each other via at least one shared interface. There is no central server, no broker, and no enrollment authority. A single instance with no peers is a valid Reticulum instance — it just cannot send or receive messages.
+
+#### Default Configuration
+
+On first run, Reticulum creates a default config at `~/.reticulum/config` with `AutoInterface` (IPv6 link-local multicast over UDP). This discovers other Reticulum nodes on the same LAN segment automatically. No IP infrastructure required.
+
+#### Discovered Network Interfaces
+
+Reticulum's optional network-interface discovery and autoconnection are separate
+from AutoInterface LAN neighbor discovery and LXMF delivery-destination announces.
+With discovered-interface autoconnection enabled, the pinned SDK's default policy
+requires advertised `transport=True`, a recognized `RNS` implementation, and an
+advertised version at least `1.5.2`. Missing or false transport metadata prevents
+automatic attachment, as does missing, unrecognized, or older version metadata.
+Other eligibility checks still apply; passing these checks does not establish a
+connection.
+
+Upgrade the advertising node or configure a compatible static interface when a
+discovered endpoint does not qualify. This filter does not affect an explicitly
+configured RNodeInterface or static TCP interface. Reticulum's
+`autoconnect_unverified_implementations` option overrides the implementation and
+version filter, but does not bypass the advertised transport requirement; MEDRE
+does not enable it.
+
+When a non-transport Reticulum instance configures an interface with
+`discoverable = Yes`, the SDK automatically enables a static transport identity.
+This makes the advertising identity persist across process restarts without
+enabling transport routing. Reticulum owns this identity; it is separate from
+MEDRE's LXMF delivery identity. A discoverable non-transport instance still does
+not qualify for automatic attachment by other nodes under the transport filter.
+
+#### Two-Node Minimum for Delivery Validation
+
+| Setup                       | How                                                           | Complexity |
+| --------------------------- | ------------------------------------------------------------- | ---------- |
+| Two processes, same machine | Custom config dirs with TCPClientInterface/TCPServerInterface | Medium     |
+| Two machines, same LAN      | Both use default AutoInterface                                | Low        |
+| Two machines, TCP           | One runs TCPServerInterface, other TCPClientInterface         | Low        |
+| Radio link                  | Both have RNode or compatible radio hardware                  | High       |
+
+**Simplest viable topology:** two machines on the same LAN with default AutoInterface configs.
+
+#### Path Discovery Timeline
+
+- **Same LAN (AutoInterface):** 1–5 seconds.
+- **TCP link, online peer:** Seconds.
+- **Multi-hop mesh:** Accumulates per-hop.
+- **Offline peer:** PROPAGATED delivery via a configured propagation node can
+  reach a previously natively discovered destination; discovery is still
+  required before handoff.
+
+### rnsd Usage
+
+`rnsd` is the Reticulum Network Stack daemon. It can provide an existing,
+shared transport service while MEDRE owns a separate LXMF identity and router.
+It does not itself handle LXMF messages or provide LXMF delivery services.
+
+| Scenario                         | Use `rnsd`?   | Reason                                                    |
+| -------------------------------- | ------------- | --------------------------------------------------------- |
+| MEDRE runs continuously          | Optional      | Attach to shared transport or initialize a local instance |
+| Multiple local programs need RNS | Often yes     | Avoid competing transport owners                          |
+| Isolated native tests            | Test-specific | Use a private test instance, not production state         |
+
+For the isolated native harness, do not reuse a production `rnsd` profile:
+its private test service uses its own `configdir` and instance name. Ordinary
+MEDRE operation **can** share a running `rnsd` when configured for the same
+Reticulum environment. A core host-file snapshot does not capture or stop that
+external service; restore it independently if necessary.
+
+## Set up
+
+Install the adapter:
+
+```bash
+medre adapters install lxmf
+```
+
+Save a private `connections.yaml` with one real instance. The common case
+needs the private storage path; Reticulum uses its default configuration
+locations when `reticulum_config_dir` is omitted (see [Options](#options)):
+
+```yaml
+adapters:
+  lxmf:
+    relay:
+      adapter_kind: real
+      connection_type: reticulum
+      storage_path: /private/medre/lxmf/relay
+routes: {}
+```
+
+Add another adapter instance, then build routes with
+[guided configuration](../guided-configuration.md).
+
+### Identity Setup
 
 Reticulum identities are dual-keypair (X25519 for encryption, Ed25519 for signing) derived from a single 64-byte private key.
 
-### Identity File
+#### Identity File
 
 The identity file is a raw 64-byte private key — not encrypted, not wrapped, no metadata. Anyone with this file can impersonate the node and decrypt all messages. Treat it as a secret.
 
@@ -44,7 +144,7 @@ if identity is None:
     raise RuntimeError("Failed to load identity")
 ```
 
-### MEDRE Config (Connection)
+#### MEDRE Config (Connection)
 
 ```python
 from medre.config.adapters.lxmf import LxmfConfig
@@ -68,7 +168,7 @@ path stable, and back up its identity together with the handoff journal.
 The direct `LxmfSession` is a native implementation detail: MEDRE operates it
 inside a worker process, not in the core process.
 
-### First-Run Consideration
+#### First-Run Consideration
 
 Do not delete, rotate, or overwrite the generated `.medre-identity` between
 runs: doing so changes the destination address and may invalidate reply
@@ -77,15 +177,49 @@ displayed as 32 hexadecimal characters. Preserve the profile journal and
 native router state as well; copying the identity alone is not a complete
 stopped-state capture.
 
-### What MEDRE Sees
+### Env-First Adapter Creation
 
-MEDRE never handles `RNS.Identity` or `RNS.Destination` objects directly. The adapter converts them to strings:
+```bash
+export MEDRE_ADAPTER__LXMF_SENDER__TRANSPORT=lxmf
+export MEDRE_ADAPTER__LXMF_SENDER__CONNECTION_TYPE=reticulum
+export MEDRE_ADAPTER__LXMF_SENDER__IDENTITY_PATH=/safe/path/sender.identity
+export MEDRE_ADAPTER__LXMF_SENDER__DISPLAY_NAME=sender
+```
 
-- `source_transport_id`: the sender's identity hash as a 32-char hex string.
-- `native_message_id`: the LXMF message hash as a 64-char hex string.
-- Core and pipeline code never import from `lxmf` or `RNS`.
+`MEDRE_LXMF_*` runtime config variables are unsupported. Use
+`MEDRE_ADAPTER__<TOKEN>__<FIELD>` instead.
 
-## Delivery Mode Semantics
+## Verify
+
+```bash
+medre config check --config connections.yaml
+medre run --config connections.yaml
+```
+
+A healthy start settles at the adapter's healthy lifecycle state; the local
+health flags describe the session/router lifecycle, not interface
+connectivity or peer reachability — see
+[Connection Recovery](#connection-recovery). A first message to a new peer
+can take seconds to minutes while path discovery completes; a short
+observation window does not establish delivery failure. Delivery
+observation semantics are described in the
+[LXMF internals page](../../dev/transport-internals/lxmf.md).
+
+## Options
+
+| Key                         | Default            | What it changes                                                       | When to touch it                                                   |
+| --------------------------- | ------------------ | --------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `storage_path`              | unset              | Private worker/router state directory (required in real mode)         | Always set it; keep it stable across restarts                      |
+| `identity_path`             | private profile    | Explicit 64-byte private identity file (sensitive)                    | When the address must come from an existing identity               |
+| `reticulum_config_dir`      | Reticulum defaults | Reticulum configuration directory the worker attaches through         | A shared `rnsd` uses a non-default location                        |
+| `display_name`              | empty              | LXMF display name announced with the delivery destination             | Naming the bridge endpoint                                         |
+| `default_delivery_method`   | `direct`           | Requested LXMF delivery method                                        | Opportunistic single-packet links or store-and-forward propagation |
+| `outbound_propagation_node` | unset              | Outbound propagation-node destination hash (required when propagated) | Selecting propagated delivery                                      |
+| `message_delay_seconds`     | `0.5`              | Minimum spacing between outbound messages                             | Pacing on slow links                                               |
+| `origin_label`              | empty              | Prefix identifying this origin on the other side                      | Labeling in mixed bridges                                          |
+| `relay_prefix`              | empty              | Custom rendering template for relayed text                            | Custom presentation                                                |
+
+### Delivery Mode Semantics
 
 LXMF supports four delivery methods. The semantics are fundamentally asynchronous and store-and-forward.
 
@@ -96,7 +230,7 @@ LXMF supports four delivery methods. The semantics are fundamentally asynchronou
 | PROPAGATED    | `0x03` | Delivered to propagation node. Node stores for recipient.       | Moderate. Delivery to node is reliable. Recipient syncs later.    | Minutes to hours           |
 | PAPER         | `0x05` | Encoded as QR code or `lxm://` URI. No network.                 | None. Physical delivery only.                                     | N/A                        |
 
-### MEDRE Config — Delivery Method
+#### MEDRE Config — Delivery Method
 
 ```python
 config = LxmfConfig(
@@ -135,7 +269,7 @@ fallback. DIRECT fallback preserves the body, title, and metadata.
 
 **PROPAGATED** is store-and-forward. The recipient must explicitly sync from the propagation node. Latency depends entirely on when the recipient checks in.
 
-### Retry and Observation Windows
+#### Retry and Observation Windows
 
 LXMF derives path-request waits and delivery retry spacing from Reticulum's
 medium and destination timing. Slow interfaces can extend those waits and alter
@@ -143,138 +277,6 @@ the attempt limit. A fixed short observation window can expire while the SDK is
 still working; pending at the window's end does not establish delivery failure.
 Use asynchronous delivery observations for outcomes and the
 [LXMF live-validation guide](../live-validation/lxmf.md) for finite test budgets.
-
-## Async Delivery Caveats
-
-### Threading Model
-
-Reticulum and LXMF use native background threads. MEDRE runs the real
-`LxmfSession` inside an owned subprocess; the worker normalizes SDK callbacks
-and forwards bounded protocol frames to the parent. MEDRE core does not
-construct or own native RNS SDK objects. The fake mode remains SDK-free.
-
-### Outbound Async Behavior
-
-`LxmfSession.send_text()` creates an `LXMessage`, registers delivery state callbacks, and calls `router.handle_outbound(lxm)`. It returns `(native_message_id, initial_state)` immediately — typically `OUTBOUND` or `SENDING`, not `DELIVERED`. Actual delivery happens asynchronously.
-
-MEDRE persists callback-emitted terminal LXMF states as **post-handoff delivery
-observations** tied to the exact durable outbox attempt. The pinned SDK emits
-successful delivery through its delivery callback and some failures through a
-separate failed callback; MEDRE registers both and does not invent terminal
-states the SDK did not report. These observations appear in `medre trace`,
-`medre inspect`, and evidence bundles. They do not rewrite the original
-`sent/local_queue` receipt or reopen terminal outbox state.
-
-Treat the persisted state as the LXMF provider's report, not as a stronger
-MEDRE proof claim. In particular, an LXMF `delivered` observation currently
-keeps `confirmation_level="unknown"`; MEDRE does not promote it to
-`end_to_end` automatically.
-
-The SDK-message correlation needed to create a post-handoff observation is
-process-local until the observation is persisted. A hard crash after LXMRouter
-handoff but before the SDK reports a later delivery state may therefore leave
-only the original `sent/local_queue` receipt. MEDRE does not fabricate a terminal state during restart recovery.
-
-Outbound retry is bounded: 3 retries with short linear backoff. After exhaustion, the send raises `LxmfSendError`, which the adapter normalizes to `AdapterSendError`.
-
-### Reticulum Singleton
-
-`RNS.Reticulum()` is a singleton **inside each native worker process**. It
-can attach to an existing shared Reticulum service; a second constructor in
-the same process is not required. This means:
-
-- The worker reuses a Reticulum instance already constructed in its own process.
-- Each real MEDRE LXMF profile has its own native worker, identity, router,
-  and handoff journal. Separate profiles can attach to the same network service
-  without claiming ownership of the service's state. Do not share a worker
-  profile directory with another application.
-- Test isolation requires custom config directories.
-
-## Minimum Viable Reticulum Topology
-
-### What Is a Reticulum Network?
-
-A Reticulum network is one or more Reticulum instances that can reach each other via at least one shared interface. There is no central server, no broker, and no enrollment authority. A single instance with no peers is a valid Reticulum instance — it just cannot send or receive messages.
-
-### Default Configuration
-
-On first run, Reticulum creates a default config at `~/.reticulum/config` with `AutoInterface` (IPv6 link-local multicast over UDP). This discovers other Reticulum nodes on the same LAN segment automatically. No IP infrastructure required.
-
-### Discovered Network Interfaces
-
-Reticulum's optional network-interface discovery and autoconnection are separate
-from AutoInterface LAN neighbor discovery and LXMF delivery-destination announces.
-With discovered-interface autoconnection enabled, the pinned SDK's default policy
-requires advertised `transport=True`, a recognized `RNS` implementation, and an
-advertised version at least `1.5.2`. Missing or false transport metadata prevents
-automatic attachment, as does missing, unrecognized, or older version metadata.
-Other eligibility checks still apply; passing these checks does not establish a
-connection.
-
-Upgrade the advertising node or configure a compatible static interface when a
-discovered endpoint does not qualify. This filter does not affect an explicitly
-configured RNodeInterface or static TCP interface. Reticulum's
-`autoconnect_unverified_implementations` option overrides the implementation and
-version filter, but does not bypass the advertised transport requirement; MEDRE
-does not enable it.
-
-When a non-transport Reticulum instance configures an interface with
-`discoverable = Yes`, the SDK automatically enables a static transport identity.
-This makes the advertising identity persist across process restarts without
-enabling transport routing. Reticulum owns this identity; it is separate from
-MEDRE's LXMF delivery identity. A discoverable non-transport instance still does
-not qualify for automatic attachment by other nodes under the transport filter.
-
-### Two-Node Minimum for Delivery Validation
-
-| Setup                       | How                                                           | Complexity |
-| --------------------------- | ------------------------------------------------------------- | ---------- |
-| Two processes, same machine | Custom config dirs with TCPClientInterface/TCPServerInterface | Medium     |
-| Two machines, same LAN      | Both use default AutoInterface                                | Low        |
-| Two machines, TCP           | One runs TCPServerInterface, other TCPClientInterface         | Low        |
-| Radio link                  | Both have RNode or compatible radio hardware                  | High       |
-
-**Simplest viable topology:** two machines on the same LAN with default AutoInterface configs.
-
-### Path Discovery Timeline
-
-- **Same LAN (AutoInterface):** 1–5 seconds.
-- **TCP link, online peer:** Seconds.
-- **Multi-hop mesh:** Accumulates per-hop.
-- **Offline peer:** PROPAGATED delivery via a configured propagation node can
-  reach a previously natively discovered destination; discovery is still
-  required before handoff.
-
-## rnsd Usage
-
-`rnsd` is the Reticulum Network Stack daemon. It can provide an existing,
-shared transport service while MEDRE owns a separate LXMF identity and router.
-It does not itself handle LXMF messages or provide LXMF delivery services.
-
-| Scenario                         | Use `rnsd`?   | Reason                                                    |
-| -------------------------------- | ------------- | --------------------------------------------------------- |
-| MEDRE runs continuously          | Optional      | Attach to shared transport or initialize a local instance |
-| Multiple local programs need RNS | Often yes     | Avoid competing transport owners                          |
-| Isolated native tests            | Test-specific | Use a private test instance, not production state         |
-
-For the isolated native harness, do not reuse a production `rnsd` profile:
-its private test service uses its own `configdir` and instance name. Ordinary
-MEDRE operation **can** share a running `rnsd` when configured for the same
-Reticulum environment. A core host-file snapshot does not capture or stop that
-external service; restore it independently if necessary.
-
-### Router Shutdown Ownership
-
-The native worker owns each `LXMRouter` it creates. It restores signal
-handlers installed by native constructors and keeps its profile leases held
-through native exit persistence. The parent also retains process ownership
-until the worker exits, including after its Python-level cleanup. MEDRE does
-**not** shut down an external/shared Reticulum service when stopping a profile.
-
-The pinned LXMF SDK does not expose a join/stop primitive for all of the
-router's background jobs. Process isolation bounds their lifetime: the owner
-must reap the worker rather than interpret a returned session-stop call as
-proof that every native thread has exited.
 
 ### Selecting the Reticulum configuration
 
@@ -299,7 +301,9 @@ service or start its own Reticulum instance. Matching the service's directory
 is necessary to select the intended environment; it does not force a shared
 connection or override `share_instance`/interface settings.
 
-## Connection Recovery
+## Troubleshooting
+
+### Connection Recovery
 
 Reticulum owns reconnecting its physical interfaces, including supported RNode
 serial/BLE and TCP connections. Recovery timing and availability depend on the
@@ -319,7 +323,7 @@ exceptions. It does not reconnect an interface or wait for remote delivery.
 LXMF separately schedules delivery and path requests using medium-aware timing;
 slow links can remain pending beyond a short bench observation window.
 
-### Interface Management on a Shared Instance
+#### Interface Management on a Shared Instance
 
 The pinned RNS SDK supports attaching, detaching, and reloading a configured
 interface by name. For a shared instance, use its configuration directory and
@@ -349,19 +353,7 @@ MEDRE exposes no interface-management CLI of its own; restart that isolated
 runtime to apply interface configuration changes. `start()` and `stop()` remain
 idempotent session operations.
 
-## Env-First Adapter Creation
-
-```bash
-export MEDRE_ADAPTER__LXMF_SENDER__TRANSPORT=lxmf
-export MEDRE_ADAPTER__LXMF_SENDER__CONNECTION_TYPE=reticulum
-export MEDRE_ADAPTER__LXMF_SENDER__IDENTITY_PATH=/safe/path/sender.identity
-export MEDRE_ADAPTER__LXMF_SENDER__DISPLAY_NAME=sender
-```
-
-`MEDRE_LXMF_*` runtime config variables are unsupported. Use
-`MEDRE_ADAPTER__<TOKEN>__<FIELD>` instead.
-
-## Known Limitations
+### Known Limitations
 
 1. **No synchronous delivery confirmation.** Even DIRECT's proof receipt is asynchronous.
 2. **Singleton constraint.** Only one `RNS.Reticulum()` per process.
@@ -373,7 +365,15 @@ export MEDRE_ADAPTER__LXMF_SENDER__DISPLAY_NAME=sender
 6. **Outbound state at return time is typically `OUTBOUND`, not `DELIVERED`.**
 7. **Path discovery time is outside MEDRE's control.** First message to a new peer may take seconds to minutes.
 
-## See Also
+## Reference
+
+- What MEDRE sees from Reticulum objects, delivery threading, and router
+  shutdown ownership:
+  [LXMF transport internals](../../dev/transport-internals/lxmf.md)
+- [guided configuration](../guided-configuration.md) — the route builder used
+  to connect two adapters
+
+### See Also
 
 - [live-validation/lxmf.md](../live-validation/lxmf.md) — live smoke test procedures
 - [diagnostics-and-evidence.md](../diagnostics-and-evidence.md) — evidence provenance and bundle collection
