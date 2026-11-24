@@ -399,7 +399,7 @@ The `route_trace` is bounded to 16 entries — older entries are dropped when th
 
 When it fires: every delivery attempt, before the self-loop guard.
 
-Expected: `DeliveryOutcome`: `status == "skipped"`, `error == "loop_prevented: route already in route_trace"`.
+Expected: `DeliveryOutcome`: `status == "skipped"`, `error == "loop_prevented: route already traversed in prior routing pass"`.
 
 ### Native-reference duplicate suppression (Ingress, Before Routing)
 
