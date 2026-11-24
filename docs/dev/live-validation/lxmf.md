@@ -140,6 +140,12 @@ config = LxmfConfig(
   to a previously natively discovered destination; an unobserved destination
   is refused before handoff until native discovery succeeds.
 
+`RNS.Reticulum.get_path_table()` returns a list of entry dictionaries. A
+readiness probe that tests `isinstance(table, dict)` therefore reports no path
+for every peer, whatever the radio is doing. Decide peer readiness with
+`RNS.Identity.recall`, as the pair harness does, rather than from the path
+table's shape.
+
 ## Singleton Constraint
 
 `RNS.Reticulum()` is a singleton per process. Do not run `rnsd` on the same machine during live harness execution — the harness needs to own its Reticulum instance.
