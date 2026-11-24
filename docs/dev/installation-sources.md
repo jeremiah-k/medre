@@ -34,7 +34,7 @@ are preserved and may explicitly retain Git.
 The legacy `adapters reset` command deliberately selects upstream Git `main`;
 it is not a stable-release selector.
 
-Git is required for the development installation. The Matrix provider in this
+Git is required for the development installation. The Matrix adapter in this
 example requires Python 3.12 or later.
 
 ```bash
@@ -63,7 +63,7 @@ not an update to deployment lockfiles or CI compatibility pins.
 
 `medre sources show` distinguishes configured choices, the supported tool
 receipt's requested requirements, and installed metadata. It works without a
-managed tool receipt, imports no providers and performs no index query. For Git
+managed tool receipt, imports no adapters and performs no index query. For Git
 installs, direct-source metadata exposes the resolved commit. For local
 editables, the directory remains live and its contents can change after
 installation; a source location is not proof of clean or qualified bytes.

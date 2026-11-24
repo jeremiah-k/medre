@@ -15,12 +15,12 @@ instance IDs from that configuration instead of asserting core's spelling.
 
 This allows the same adapter test to run against both core `main` and a proposed
 core revision. Do not make new adapter tests require an unrelated core UI change.
-Keep core-only tests SDK-free; declare provider-dependent integration tests as
+Keep core-only tests SDK-free; declare adapter-dependent integration tests as
 `medre-test-tier: compatibility` and exercise both layers when a contract changes.
 
 For generated commands, verify shell argument round trips rather than imposing
 one platform's quoting style on every platform. Keep behavior tests runnable
-without providers, then use the paired compatibility suite for native contracts.
+without adapters, then use the paired compatibility suite for native contracts.
 Change tests with their owning behavior in the same commit; do not move an
 unrelated assertion into a dependent repository just to make a candidate pass.
 
@@ -68,7 +68,7 @@ snapshot after syncing core, and do not sync an environment while tests run in i
    This uses authenticated `gh api` access and fails closed on lookup errors.
    Both branch/tag refs and SHAs belonging only to unmerged branches are rejected.
    The **Merged adapter compatibility pins** CI job runs this on the committed
-   manifest, alongside the existing core, provider, SDK, and integration jobs.
+   manifest, alongside the existing core, adapter, SDK, and integration jobs.
 
 5. Merge core only after its final revision passes every gate. Re-run adapter
    default-branch workflows against the new core default to verify the resulting

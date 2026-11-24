@@ -20,14 +20,14 @@ whose startup is still pending.
 
 An owned coordinator task contains task-group internal cancellation. The startup
 caller awaits it through completion, failure and cancellation, so internal group
-bookkeeping cannot impersonate an operator shutdown. A provider that cancels its
+bookkeeping cannot impersonate an operator shutdown. An adapter that cancels its
 own start produces a startup error; a simultaneous caller cancellation takes
 precedence after rollback.
 
 Identifier order determines scheduling, public summaries and reverse shutdown
 order. Completion timing does not determine dependencies. Cancellation joins the
 startup tasks before rollback stops both partial and ready adapters and then
-closes core resources. Provider connection budgets and native cancellation
+closes core resources. Adapter connection budgets and native cancellation
 cleanup remain adapter responsibilities; core does not move async adapter methods
 onto worker threads or add a dependency graph. An independent `stop()` call while
 `start()` still owns resources raises immediately; callers cancel and await the
@@ -36,7 +36,7 @@ startup task instead, allowing it to own its rollback.
 Reticulum and LXMF constructors install process-global signal handlers in the
 pinned SDKs. Their synchronous initialization requires the main thread; moving
 it into a worker without explicit SDK embedding support is unsafe. Concurrent
-startup does not preempt that initialization. Provider-level threading changes
+startup does not preempt that initialization. Adapter-level threading changes
 need separate qualification against those SDK constraints.
 
 ### Core Runtime Resources

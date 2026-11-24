@@ -1,16 +1,16 @@
 # Reproducible native qualification
 
 Native qualifications preserve the distinction between a real SDK call, a
-controlled protocol endpoint, a native provider observation, and a recipient
+controlled protocol endpoint, a native transport observation, and a recipient
 observation. They use existing core replay and ledger authority. No test record
 or observation licenses another send.
 
 ## Current proof boundaries
 
-| Scenario             | Observer                                                                                           | Claim                                                                                                                                      | CI policy                                                                           |
-| -------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
-| MeshCore core replay | Provider-owned deterministic TCP companion endpoint, independently reading real SDK command frames | Selected-channel protocol acceptance, exact ledger binding, sibling exclusion; single/multipart uncertainty remains blocked across restart | Required MeshCore local-integration job; 15 executed cases and two positive records |
-| LXMF core replay     | Separate raw-SDK recipient process, also its loopback propagation node                             | One core-authorized replay observed by that local recipient after clean teardown                                                           | Opt-in native-qualification workflow; one executed case and one positive record     |
+| Scenario             | Observer                                                                                          | Claim                                                                                                                                      | CI policy                                                                           |
+| -------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| MeshCore core replay | Adapter-owned deterministic TCP companion endpoint, independently reading real SDK command frames | Selected-channel protocol acceptance, exact ledger binding, sibling exclusion; single/multipart uncertainty remains blocked across restart | Required MeshCore local-integration job; 15 executed cases and two positive records |
+| LXMF core replay     | Separate raw-SDK recipient process, also its loopback propagation node                            | One core-authorized replay observed by that local recipient after clean teardown                                                           | Opt-in native-qualification workflow; one executed case and one positive record     |
 
 MeshCore's `local_integration` marker and typed tier do not promote its modeled
 endpoint to a physical companion: runtime evidence remains conformance. Channel
@@ -29,10 +29,10 @@ mapping. This page describes how to reproduce and retain the test artifacts.
 format in `docs/schemas/native-qualification.schema.json`. Records contain:
 
 - Actual core Git revision and an explicit dirty-source flag.
-- Manifest-authorized provider repository/revision, installed editable checkout,
+- Manifest-authorized adapter repository/revision, installed editable checkout,
   and actual versions of its declared SDK dependencies, including RNS for LXMF.
 - Python/platform and GitHub execution ID/attempt when running in CI.
-- Core and provider harness paths and SHA-256 digests of their actual bytes.
+- Core and adapter harness paths and SHA-256 digests of their actual bytes.
 - Exact delivery identity, outbox/generation/receipt, native ID when one exists,
   claim scope/tier/result, evidence fingerprint, and current/exact ledger binding.
 - Observer kind, witness count and digests; no raw command/message bodies.
@@ -52,9 +52,9 @@ than send permits.
 
 ## Focused local execution
 
-Use a clean checkout of the provider at its compatibility-manifest SHA. Select
+Use a clean checkout of the adapter at its compatibility-manifest SHA. Select
 the native SDK explicitly; default core tests continue to deselect native tiers.
-From the core checkout, for a MeshCore provider at `/path/to/meshcore`:
+From the core checkout, for a MeshCore adapter at `/path/to/meshcore`:
 
 ```bash
 uv sync --locked --extra dev
@@ -72,25 +72,25 @@ uv run --no-sync python scripts/ci/native_qualification.py \
 
 For local uncommitted development, `--allow-dirty` verifies integrity while
 retaining the dirty flag. Such records cannot be promoted to clean CI evidence.
-The provider source remains required to match its clean manifest revision.
+The adapter source remains required to match its clean manifest revision.
 For an explicit coordinated candidate run, the same complete candidate SHA
 mapping must be supplied to both record creation and verification. CI-only
 version 2 records extend the frozen version 1 format with a required
 `candidate_snapshot_sha256`: the SHA-256 of canonical JSON for the complete
 validated selected manifest, sorted by transport. The record digest covers this
 field. Verification rejects a different snapshot even when the observed
-provider is unchanged, and rejects candidate records when no mapping is supplied.
+adapter is unchanged, and rejects candidate records when no mapping is supplied.
 Version 1 remains the committed-pin format and rejects candidate verification.
 Candidate records qualify only the named selection; they do not promote pins
 or satisfy the committed release gate. The CI-only extension is validated by
 `scripts/ci/native_qualification.py`, not added to the frozen runtime schema set.
-The required LXMF propagation suite verifies the selected editable provider and
+The required LXMF propagation suite verifies the selected editable adapter and
 installed SDKs before either scenario when CI supplies the checkout root. It
-does not emit a core-replay record: its claims are limited to provider handoff
+does not emit a core-replay record: its claims are limited to transport handoff
 and independent recipient observation. The opt-in LXMF core replay uses the
 existing workflow and test, with `MEDRE_LXMF_PROVIDER_ROOT` available
-for an explicit local provider checkout. It also needs the Matrix monitor
-distribution; the opt-in workflow installs both manifest-selected providers.
+for an explicit local adapter checkout. It also needs the Matrix monitor
+distribution; the opt-in workflow installs both manifest-selected adapters.
 
 ## Retention and release review
 

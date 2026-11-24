@@ -3,7 +3,7 @@
 MEDRE's delivery foundation has durable fanout, scoped native references,
 generation-bound ownership, restart recovery and conservative confirmation
 semantics. Build visible messenger features and usable recovery on that
-foundation. Keep protocol details in providers and delivery authority in core.
+foundation. Keep protocol details in adapters and delivery authority in core.
 A capability declaration is an implemented and qualified contract, rather than a
 list of upstream protocol possibilities. The
 [contract gap register](contract-gap-status.md) tracks the status of each gap
@@ -53,7 +53,7 @@ uncertain in-flight sends, guarded snapshot retirement, grant revocation
 between page and collect, opaque metadata, shared attachments and radio
 plans, restart after commit-before-bookkeeping, SQLite lock contention,
 mid-scan cancellation, failed candidate reads, replay-scope exclusion with
-live CLI activation, and the no-resend invariant), and the fake-provider
+live CLI activation, and the no-resend invariant), and the fake-adapter
 mixed-workload sweep proving routing facts, delivery evidence, native
 references, and conversation identity survive collection exactly. The
 bounded mixed-workload measurement lives in
@@ -66,7 +66,7 @@ physical space recovery claim.
 Chatmail native replies have passing dedicated two-profile GreenMail
 qualification, including native quote and sender/origin presentation after
 reconnect and restart. SimpleX declares native quote replies with thread and
-plain-text fallbacks (#519). Provider-owned peer and boundary campaigns recorded
+plain-text fallbacks (#519). Adapter-owned peer and boundary campaigns recorded
 independent recipient observations at their tested source pairs;
 repeat qualification against changed pins remains tracked under G05/G08.
 Privacy policy design and
@@ -99,7 +99,7 @@ reset, not silently discarded.
   string combining adapter, channel and plan. Preserve context kinds and native
   IDs; do not interpret transport addressing in core.
 - Reuse core-computed relation target facts for native conversation features.
-  Providers validate their own native profile and conversation immediately before
+  Adapters validate their own native profile and conversation immediately before
   submission. Do not reconstruct trusted bindings from rendered text or metadata.
 - Bind reply targets and fallback bytes to durable attempts. An accepted operation
   stays authoritative across renderer changes; uncertainty never becomes proof
@@ -110,7 +110,7 @@ reset, not silently discarded.
   Do not create a universal messenger or queue framework around hypothetical
   attachments, read markers, puppeting or upstream SDK features.
 - Qualify properties with focused recipient observations. Preserve the existing
-  42-direction baseline instead of repeating it for every provider change.
+  42-direction baseline instead of repeating it for every adapter change.
 
 ## Execution and review
 
@@ -140,22 +140,22 @@ accounting; recovery persists a durable accounting-gap record.
 Process-lifetime qualification covers the producer pressure collector across
 sequential adapter session binding and the shutdown fence. The
 [durable ingress](../spec/durable-ingress.md) specification records these
-boundaries at their evidence tiers. Keep any provider changes separate from
+boundaries at their evidence tiers. Keep any adapter changes separate from
 new recovery authority.
 
 Native reconciliation previews remain read-only. A send-capable resolution of
-uncertain work still depends on scoped provider non-submission proof;
+uncertain work still depends on scoped transport non-submission proof;
 timeout, silence, restart and post-handoff rejection do not supply it. Deadline
-sweep enablement, provider-owned retention and security-specific transport legs
+sweep enablement, transport-owned retention and security-specific transport legs
 retain their separate acceptance boundaries in the gap register.
 
 Each work package needs an independently reviewable branch and atomic commits by
 concern. Runtime changes include tests, specification, schema where applicable,
-and release impact in its PR description. Provider features qualify against an exact core revision;
-core selects exact landed provider revisions after their own CI passes.
+and release impact in its PR description. Adapter features qualify against an exact core revision;
+core selects exact landed adapter revisions after their own CI passes.
 
 Use targeted domain tests and pinned SDK contracts locally. Let CI run full
-provider/core suites and supported-Python matrices. Record real peer observations
+adapter/core suites and supported-Python matrices. Record real peer observations
 separately from mock/SDK-shape contracts. Merge only the work that has met its
 own acceptance boundary; unrelated qualification campaigns do not block progress
 on independent packages.

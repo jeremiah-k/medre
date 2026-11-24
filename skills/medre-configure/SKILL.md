@@ -16,7 +16,7 @@ you need an address format, permission, or connection prerequisite.
 Translate the request into expected legs. For each leg, record the source
 connection name and room, chat, or channel, the destination connection and
 conversation, and any event or sender restrictions. A connection name is the
-adapter instance ID under `adapters.<transport>`. The provider defines what
+adapter instance ID under `adapters.<transport>`. The adapter defines what
 its context means. For example, Matrix uses a room ID beginning with `!`
 and Meshtastic uses a channel index such as `"0"`. Quote IDs and channel
 strings in YAML. Ask about gaps that would change message flow. Use labeled
@@ -40,7 +40,7 @@ the command to run locally and request only the relevant sanitized result.
 - For fan-in, map each source context to the shared destination only in
   `source_to_dest` mode. Check existing wildcard and explicit legs for
   overlap. A reverse leg needs a distinct destination context per map entry.
-  Confirm inbound provider allowlists for every source, including reverse
+  Confirm inbound adapter allowlists for every source, including reverse
   sources when present.
 
 ## Check or explain the result

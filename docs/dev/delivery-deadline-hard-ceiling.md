@@ -3,7 +3,7 @@
 This page is the design for register row
 [G03](contract-gap-status.md#register): a policy-set delivery deadline and a
 hard content privacy ceiling for relay-local work before native submission.
-Accepted or uncertain provider-queued work retains independent native
+Accepted or uncertain transport-queued work retains independent native
 authority. It inventories the deadline machinery already on `main`, then
 specifies where the effective deadline should be enforced, how it
 coexists with accepted and uncertain native attempts, and what the ceiling
@@ -84,7 +84,7 @@ transition is new and requires independent race qualification.
 - The delivery deadline is an operator policy input expressed as a maximum
   attempt window. Planning computes `DeliveryPlan.deadline` from a trusted
   local admission time and the selected policy; remote timestamps or
-  provider TTL hints never create local authority.
+  transport TTL hints never create local authority.
 - At every site, the effective deadline is the earlier of the immutable event
   ceiling and the frozen delivery-plan deadline. A plan may shorten the
   delivery window; it cannot extend content availability. Outbox adoption
@@ -124,7 +124,7 @@ checkpointed handoff facts. A deadline that has elapsed produces the existing
 refusal semantics: `DEADLINE_EXCEEDED` failure evidence with
 `content_authority_denied` where the content leg refused, an
 `_AdapterDeliveryError` on the delivery path, no transport invocation, and no
-delivery observation or receipt that could be read as provider acceptance;
+delivery observation or receipt that could be read as transport acceptance;
 the final dispatch-start fence records the same typed refusal as local
 denial evidence without an attempt receipt, exactly like a refused storage
 authorization.
@@ -167,7 +167,7 @@ An `active_attempt` reservation can represent an uncertain native send even
 when no transport was observably invoked, and a `queued` row represents a
 transport-local acceptance whose external outcome is unresolved. The ceiling
 is a content-retention and dispatch rule; it is not evidence about what the
-provider did.
+transport did.
 
 - A deadline that has elapsed does not imply non-acceptance. Expired work is
   settled as an unsent refusal only when there is no reservation, claim,
@@ -216,10 +216,10 @@ the content may be used at all, including for delivery.
   `read_event_for_replay` and `read_body_for_outbox` fail closed once the
   ceiling elapsed; a content-dependent replay stage reports its named denied
   outcome instead of producing an empty send.
-- The ceiling governs the relay's own retained content. Provider-side copies,
+- The ceiling governs the relay's own retained content. Transport-side copies,
   attachments already transferred and native stores are outside it, and no
-  provider deletion is implied; that boundary is G06 work.
-- The ceiling is not a per-message TTL negotiated with providers. It is
+  transport deletion is implied; that boundary is G06 work.
+- The ceiling is not a per-message TTL negotiated with transports. It is
   local authority derived from a trusted local admission time, and the
   inclusive expiry boundary uses aware UTC instants exactly like the
   existing grant checks.
@@ -250,7 +250,7 @@ content-authority suites already established
 - Per-transport honesty: fake and local tiers drive deterministic clocks
   through the families above; native SDK and hardware tiers prove only that
   the refusal happens before invocation and that accepted prefixes stay
-  intact. No tier claims that a provider deleted or held back queued work,
+  intact. No tier claims that a transport deleted or held back queued work,
   and native handoff is never equated with recipient receipt.
 
 ## Non-goals
@@ -259,7 +259,7 @@ content-authority suites already established
   single-writer SQLite leases and sibling-exclusion guards.
 - No hot reload of ceilings or deadlines; configuration is startup-compiled
   and a changed ceiling applies to later admissions.
-- No physical-erasure claim: WAL, backups, logs and provider stores remain
+- No physical-erasure claim: WAL, backups, logs and transport stores remain
   unmeasured copies.
-- No provider-side deletion or provider-queue introspection in this stack;
-  per-provider copy retention stays a separate gap.
+- No transport-side deletion or transport-queue introspection in this stack;
+  per-transport copy retention stays a separate gap.
