@@ -24,7 +24,7 @@ presentation and the separate application-service design, see
 | Python            | 3.12 or later                                                                                                                                                                                             |
 | Package install   | Install matrix in the MEDRE environment once; see [installation](../install.md). The distribution declares its Olm/Megolm crypto backend as a dependency, so there is no separate crypto extra to select. |
 | Access token      | Obtained via login API or Element UI                                                                                                                                                                      |
-| A test room       | Encrypted, bot has joined it (the setup below defaults to encrypted rooms)                                                                                                                                |
+| A test room       | Encrypted, bot has joined it (the setup below selects encrypted rooms)                                                                                                                                    |
 | Network access    | Your machine can reach the homeserver's HTTP(S) port                                                                                                                                                      |
 
 You do not need Docker, a domain name, or federation. MEDRE connects to an existing homeserver account; it does not host or administer the homeserver. Running a local Synapse or Conduit server for provider testing is covered in the [developer testing guide](../../dev/testing.md#local-synapse-homeserver-for-matrix-testing).
