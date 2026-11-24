@@ -1,6 +1,6 @@
 # Running MEDRE
 
-Starting, stopping, and operating the MEDRE runtime — including lifecycle, exit codes, Docker deployment, and delivery semantics.
+Starting, stopping, and operating the MEDRE runtime — lifecycle, exit codes, health, shutdown, logs, and what to expect while it runs.
 
 ## Starting MEDRE
 
@@ -277,200 +277,17 @@ paths from the support bundle. See [troubleshooting.md](troubleshooting.md)
 § "Support Bundles" for the complete bundle contents, the full
 not-included list, and the redaction scope.
 
-## Per-Transport Delivery Semantics
+## Delivery Semantics
 
-Each transport has fundamentally different delivery guarantees. Understanding these differences is essential for interpreting receipts.
-
-### Matrix
-
-| Property               | Value                                                                |
-| ---------------------- | -------------------------------------------------------------------- |
-| Server acknowledgment  | Yes — Synapse returns `event_id` on successful `room_send`           |
-| Delivery confirmation  | Server-level only (not per-recipient)                                |
-| Duplicate risk         | Low — retries after connection loss may produce duplicates           |
-| Receipt interpretation | `sent` with `adapter_message_id` means homeserver accepted the event |
-
-Matrix is the only transport where `sent` implies server-verified persistence.
-
-### Meshtastic
-
-| Property               | Value                                                                                  |
-| ---------------------- | -------------------------------------------------------------------------------------- |
-| Server acknowledgment  | None beyond local-node acceptance                                                      |
-| Delivery confirmation  | None — whether any remote node received the packet is unknown                          |
-| Duplicate risk         | High — radio environments cause packet loss; duplicates are normal practice            |
-| Receipt interpretation | `sent` means local node accepted for transmission, not that any other node received it |
-
-### MeshCore
-
-Same discipline as Meshtastic — radio best-effort, no confirmation, duplicates are normal.
-
-### LXMF (Reticulum)
-
-| Property               | Value                                                                                                 |
-| ---------------------- | ----------------------------------------------------------------------------------------------------- |
-| Delivery confirmation  | Eventual — propagation delays from seconds to hours                                                   |
-| Duplicate risk         | Low                                                                                                   |
-| Receipt interpretation | `sent` means local router accepted for propagation; delivery to destination may take significant time |
-
-## Delivery Receipt States
-
-Receipts progress through these states:
-
-```text
-queued → sent
-       ↘ failed → dead_lettered
-       ↘ suppressed
-```
-
-| Status          | Meaning                                                                                                                                                                                                                                       |
-| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `queued`        | Delivery plan created, waiting for adapter execution.                                                                                                                                                                                         |
-| `sent`          | Adapter reported successful handoff to transport. See per-transport table for what this means.                                                                                                                                                |
-| `failed`        | Adapter reported delivery failure. Classified by `failure_kind`.                                                                                                                                                                              |
-| `dead_lettered` | Exhausted all retries. Permanently failed.                                                                                                                                                                                                    |
-| `suppressed`    | Terminal for that delivery attempt. Policy/loop denials remain terminal; direct/replay capacity or shutdown rejection is also terminal for that attempt. Storage-backed live ingress instead defers its durable work row for a later attempt. |
-
-Each receipt carries `attempt_number` and `parent_receipt_id` forming a retry lineage. The `source` column identifies the dispatch mechanism (`"live"`, `"replay"`, or `"retry"`); `replay_run_id` separately preserves named replay origin across later retries.
+Delivery guarantees and receipt interpretation are per-transport. The
+per-transport semantics tables and the receipt-state reference live in
+[delivery-semantics.md](delivery-semantics.md).
 
 ## Configuration Examples
 
-### Single Matrix Adapter (Plaintext)
-
-```yaml
-runtime:
-  name: matrix-bridge
-  shutdown_timeout_seconds: 10
-
-logging:
-  level: INFO
-  format: text
-
-storage:
-  backend: sqlite
-
-adapters:
-  matrix:
-    bot:
-      enabled: true
-      adapter_kind: real
-      homeserver: "https://matrix.example.com"
-      user_id: "@bot:example.com"
-      access_token: "<matrix-access-token>"
-      room_allowlist:
-        - "!room:example.com"
-      encryption_mode: plaintext
-```
-
-### Single Matrix Adapter (E2EE)
-
-```yaml
-runtime:
-  name: matrix-e2ee
-  shutdown_timeout_seconds: 10
-
-logging:
-  level: INFO
-  format: text
-
-storage:
-  backend: sqlite
-
-adapters:
-  matrix:
-    securebot:
-      enabled: true
-      adapter_kind: real
-      homeserver: "https://matrix.example.com"
-      user_id: "@securebot:example.com"
-      access_token: "<matrix-access-token>"
-      room_allowlist:
-        - "!secretroom:example.com"
-      encryption_mode: e2ee_required
-```
-
-E2EE mode requires the `mindroom-nio[e2e]` optional dependency. The crypto store is created automatically at `{state}/adapters/securebot/matrix/store/`. Device ID is discovered via the Matrix `whoami()` endpoint on first connect — do not configure it manually.
-
-### Two Meshtastic Radios (LongFast + ShortTurbo)
-
-```yaml
-runtime:
-  name: dual-radio
-  shutdown_timeout_seconds: 15
-
-logging:
-  level: INFO
-  format: json
-
-storage:
-  backend: sqlite
-
-adapters:
-  meshtastic:
-    longfast:
-      enabled: true
-      adapter_kind: real
-      connection_type: serial
-      serial_port: /dev/ttyACM0
-      origin_label: LongFast Net
-      default_channel: 0
-      channel_mapping:
-        "0": general
-        "1": alerts
-
-    shortturbo:
-      enabled: true
-      adapter_kind: real
-      connection_type: tcp
-      host: meshtastic-turbo.local
-      port: 4403
-      origin_label: ShortTurbo Net
-      default_channel: 0
-      channel_mapping:
-        "0": fast
-```
-
-Each radio is a separate adapter with its own connection. Startup order: `meshtastic.longfast`, then `meshtastic.shortturbo` (sorted by adapter_id).
-
-### Mixed Runtime (Matrix + Meshtastic)
-
-```yaml
-runtime:
-  name: mixed-bridge
-  shutdown_timeout_seconds: 15
-
-logging:
-  level: INFO
-  format: json
-
-storage:
-  backend: sqlite
-
-adapters:
-  matrix:
-    bridge:
-      enabled: true
-      adapter_kind: real
-      homeserver: "https://matrix.example.com"
-      user_id: "@bridge:example.com"
-      access_token: "<matrix-access-token>"
-      room_allowlist:
-        - "!bridge-room:example.com"
-      encryption_mode: plaintext
-
-  meshtastic:
-    radio:
-      enabled: true
-      adapter_kind: real
-      connection_type: serial
-      serial_port: /dev/ttyACM0
-      origin_label: LocalMesh
-      default_channel: 0
-      channel_mapping:
-        "0": general
-```
-
-Startup order: `matrix.bridge` first (alphabetical by transport), then `meshtastic.radio`.
+Complete example configurations — a single Matrix adapter (plaintext and E2EE),
+two Meshtastic radios, and a mixed Matrix + Meshtastic runtime — live in
+[configuration.md](configuration.md#configuration-examples).
 
 ## Resource Limits
 
@@ -525,53 +342,33 @@ runtime:
 
 ## Retry
 
-Retry is **opt-in** — disabled by default. Two levels need to be enabled:
-
-1. **Per-route retry** (`routes.<id>.retry`) — controls whether retry receipts are scheduled.
-2. **Global retry** (`retry.enabled: true`) — controls whether the RetryWorker processes them.
-
-Retry uses frozen target semantics — retries target the originally recorded adapter and channel, not the current route config. The retry policy is captured at first failure and does not change with route config updates.
-
-See [configuration.md](configuration.md) for retry configuration fields.
+Retry is **opt-in** — disabled by default. Enabling retry, its frozen target
+semantics, and the retry-versus-replay comparison live in
+[recovery-and-replay.md](recovery-and-replay.md#enabling-retry).
 
 ## Replay
 
-Replay re-processes historical events through pipeline stages. Five modes:
-
-| Mode          | Delivers? | Side effects          | Use case                                       |
-| ------------- | --------- | --------------------- | ---------------------------------------------- |
-| `strict`      | No        | None                  | Validate events against current schema only    |
-| `re_render`   | No        | None                  | Re-run rendering for existing events           |
-| `re_route`    | No        | None                  | Re-evaluate route matching after config change |
-| `dry_run`     | No        | None                  | Preview what replay would do                   |
-| `best_effort` | Yes       | Real adapter delivery | Re-deliver historical events                   |
-
-Always run `dry_run` first. `best_effort` produces real outbound messages without deduplication.
-
-```bash
-# Preview
-medre replay --mode dry_run --config bridge.yaml --json
-
-# Re-deliver
-medre replay --mode best_effort --config bridge.yaml --json
-```
-
-Replay-origin receipts carry `replay_run_id` for audit. Initial attempts use
-`source="replay"`; later retries retain the run ID with `source="retry"`.
+Replay re-processes historical events through pipeline stages. It is manual and
+operator-initiated; the replay modes, command shape, result interpretation, and
+replay receipts live in
+[recovery-and-replay.md](recovery-and-replay.md#replay-modes).
 
 ## Route Loop Prevention
 
 Multiple layers prevent routing loops:
 
-1. **Direct loop detection (startup)** — detects cycles in route configuration. Logged as warnings; startup is not blocked.
-2. **Self-loop guard (per-delivery)** — if `target_adapter == event.source_adapter`, delivery is skipped.
-3. **Native-ref duplicate suppression (per-ingress)** — checks inbound event's `source_native_ref` against stored refs. Duplicates are dropped before routing.
-4. **Route-trace guard (per-delivery)** — if a route ID appears more than once in the event's route trace, delivery is skipped.
+1. **Direct loop detection (startup)** — detects route cycles and warns; it does not block startup.
+2. **Native-ref duplicate suppression (per-ingress)** — checks inbound `source_native_ref` against stored references before routing; this does not establish peer-relay trust.
+3. **Route-trace guard (per-delivery)** — skips routing through a route already present in the event's trace.
+4. **Self-loop guard (per-delivery)** — skips a target that matches the event's source adapter.
 
 What loop prevention does not cover:
 
 - Cross-instance loops (two separate MEDRE instances bridging the same transports).
 - Application-level loops (user commands triggering replies — normal bidirectional operation).
+
+Per-delivery loop drills, replay loop filtering, and the capability-suppression
+matrix live in [troubleshooting](troubleshooting.md#loop-prevention).
 
 ## Persistence and Crash Semantics
 
@@ -579,31 +376,20 @@ Canonical events, delivery receipts, post-handoff delivery observations, native
 refs, and the delivery outbox persist in local SQLite
 (`{state}/medre.sqlite`); Matrix E2EE keys and LXMF
 identities persist under `{state}/adapters/`. In-flight deliveries without an
-outbox row are lost on termination. Non-terminal outbox rows survive restart;
-`pending`/`retry_wait` work is claimable when due and expired `in_progress` work is
-reclaimed under its lease rule; `queued` work is the durable confirmation-pending
-disposition and is never claimed or re-dispatched. Terminal outbox rows persist as
-history and are never reclaimed. Runtime counters, RouteStats,
-gauges, and the runtime event buffer reset on startup (capture the buffer with
-`--snapshot-on-shutdown PATH`).
+outbox row are lost on termination; non-terminal outbox rows survive restart as
+resumable work. Runtime counters, RouteStats, gauges, and the runtime event
+buffer reset on startup (capture the buffer with `--snapshot-on-shutdown PATH`).
 
-The canonical crash-recovery procedure, the survives/lost breakdown, and the
-orphaned-event query live in
-[recovery-and-replay.md](recovery-and-replay.md). MEDRE persists to local
-SQLite and the local filesystem only — no replication, remote backup, or
-distributed coordination; operators own backup, log rotation, and disk
+The authoritative survives/lost breakdown, the crash-recovery procedure, and
+the orphaned-event query live in
+[recovery-and-replay.md](recovery-and-replay.md#what-was-lost). MEDRE persists
+to local SQLite and the local filesystem only — no replication, remote backup,
+or distributed coordination; operators own backup, log rotation, and disk
 monitoring.
 
 ## Docker Deployment
 
-Container deployment has one authoritative guide: [Docker](docker.md). It
-covers the committed image and Compose deployment, source-selected builds,
-published and development image tags, persistent state on the `/data` volume,
-the separately mounted host config file, serial and Bluetooth hardware access,
-and update and backup procedures. The deployment runs as a non-root user with
-a read-only container filesystem; keep secrets in the host config file or a
-local Compose override, never in image build arguments. Podman and Kubernetes
-are not qualified by the committed Docker workflow.
+Container deployment has one authoritative guide: [Docker](docker.md).
 
 ## Explicit Non-Guarantees
 
@@ -667,25 +453,13 @@ MEDRE does not rotate logs internally. Use external log rotation (logrotate, Doc
 
 ## Recovery Procedures
 
-### Adapter Not Connecting
-
-1. Check adapter health: `medre diagnostics`
-2. Look for WARNING/ERROR entries for the adapter in the log file.
-3. Verify transport connectivity (network, serial device, BLE pairing).
-4. Restart the runtime — the adapter reconnects from scratch.
-
-### Config Error
-
-1. Run `medre config check` to identify the issue.
-2. Fix the config file.
-3. Restart the runtime.
-
-### Corrupted State
-
-1. Stop the runtime.
-2. Back up `{state}/medre.sqlite`.
-3. If the database is corrupted, delete it and restart. The runtime creates a fresh database.
-4. Note: this loses all event history. Crypto stores (under `{state}/adapters/`) are separate and unaffected.
+The canonical procedures live in [recovery-and-replay.md](recovery-and-replay.md):
+the [complete incident workflow](recovery-and-replay.md#complete-incident-workflow),
+[adapter failure recovery](recovery-and-replay.md#adapter-failure-recovery), and
+[database corruption recovery](recovery-and-replay.md#database-corruption-recovery).
+For config errors: run `medre config check` to identify the issue, fix the
+config file, and restart the runtime; config failure drills live in
+[troubleshooting](troubleshooting.md#config-failure-drills).
 
 ## Queue Discipline
 
@@ -763,32 +537,9 @@ Sustained growth in `capacity_rejections` indicates the runtime is under more pr
 
 ## Bridged Message Appearance
 
-Messages are rendered by transport-specific renderers when bridging between transports.
-
-### Matrix → Meshtastic
-
-`MeshtasticRenderer` produces a plain-text payload. The `text` field is extracted from the event payload's `body` key. No Matrix formatting, HTML, or metadata is preserved in the Meshtastic output. The source adapter label is not included in the radio text.
-
-### Meshtastic → Matrix
-
-`MatrixRenderer` produces an `m.room.message` content dict. The `body` is the decoded text from the Meshtastic packet. A MEDRE provenance envelope is embedded in the `medre.envelope` subtree recording the source adapter and channel. If the event carries a reply relation, the rendered output includes `m.relates_to` with `m.in_reply_to` referencing the original message ID.
-
-### Reply Threading
-
-| Target renderer | Reply support                                                                        |
-| --------------- | ------------------------------------------------------------------------------------ |
-| Matrix          | Supported — `m.relates_to` with `m.in_reply_to` added; body includes quoted fallback |
-| Meshtastic      | Not supported — reply relations ignored; plain text only                             |
-| MeshCore        | Not supported — same as Meshtastic                                                   |
-| LXMF            | Partial — relations recorded in fields envelope but not used for display             |
-
-### Source Adapter Label
-
-- Included in Matrix renderer output via `medre.envelope.source_adapter`.
-- Included in LXMF renderer output via the fields envelope.
-- Included in Meshtastic and MeshCore renderer output when `origin_label` is
-  set — the label is embedded in the relay prefix template via
-  `{origin_label}`.
+How bridged messages render in each direction — renderer output, reply
+threading support, and source-label placement — lives in
+[message-presentation.md](message-presentation.md#bridged-message-appearance).
 
 ## Soak and Validation
 
@@ -806,6 +557,9 @@ What the soak harness validates: start/stop cycling, replay cycling, delivery un
 
 What the soak harness does not validate: live transport behaviour, multi-hour stability, radio transport pressure, exactly-once delivery.
 
+Soak runs are part of the developer test suite; the test-tier taxonomy lives
+in [testing](../dev/testing.md).
+
 ## Operational Caveats
 
 ### Radio Transport Pressure
@@ -819,18 +573,5 @@ Radio transports (Meshtastic, MeshCore) are inherently constrained:
 
 Under sustained radio pressure, the Meshtastic outbound queue rejects new items when full. This is by design — the runtime prioritizes stability over delivery completeness.
 
-### No Exactly-Once Delivery
-
-No transport in MEDRE provides exactly-once semantics:
-
-- Radio transports (Meshtastic, MeshCore): probabilistic fire-and-forget. Duplicate sends are normal practice.
-- Matrix: at-least-once. Retries after connection loss may produce duplicates.
-- LXMF (Reticulum): at-least-once with eventual delivery. Propagation delays range from seconds to hours.
-
-### No Transactional Fan-Out
-
-When a single inbound event routes to multiple targets, each target gets an independent delivery. No transactional coordination:
-
-- A failure on one target does not affect the other.
-- A success on one target does not guarantee the other.
-- Partial delivery is a normal outcome, not an error.
+Exactly-once delivery and transactional fan-out are absent by design; see
+[Explicit Non-Guarantees](#explicit-non-guarantees).

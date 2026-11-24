@@ -493,6 +493,17 @@ Replay re-evaluates capabilities against the current adapter registry, not the a
 medre replay --mode <mode> [--event <event_id>] --config my-bridge.yaml
 ```
 
+Preview before re-delivering; `best_effort` produces real outbound messages
+without deduplication:
+
+```bash
+# Preview
+medre replay --mode dry_run --config bridge.yaml --json
+
+# Re-deliver
+medre replay --mode best_effort --config bridge.yaml --json
+```
+
 | Flag       | Required | Description                                                             |
 | ---------- | -------- | ----------------------------------------------------------------------- |
 | `--mode`   | Yes      | One of: `strict`, `re_render`, `re_route`, `dry_run`, `best_effort`     |
@@ -761,6 +772,17 @@ ORDER BY e.created_at DESC;
 3. **Scope replay narrowly.** Use `--event <id>` or `--limit` to replay only the events that need it.
 4. **Accept duplicates for radio transports.** Meshtastic and MeshCore treat duplicate sends as normal operational practice.
 5. **Warn for Matrix.** Matrix duplicates are rarer and more visible to users.
+
+## Enabling Retry
+
+Retry is **opt-in** — disabled by default. Two levels need to be enabled:
+
+1. **Per-route retry** (`routes.<id>.retry`) — controls whether retry receipts are scheduled.
+2. **Global retry** (`retry.enabled: true`) — controls whether the RetryWorker processes them.
+
+Retry uses frozen target semantics — retries target the originally recorded adapter and channel, not the current route config. The retry policy is captured at first failure and does not change with route config updates.
+
+See [configuration.md](configuration.md) for retry configuration fields.
 
 ## Retry vs Replay
 
