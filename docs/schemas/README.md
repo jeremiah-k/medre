@@ -18,7 +18,7 @@ checkout.
 
 | Schema                                           | Source Type                                                            | Description                                                                                                                   |
 | ------------------------------------------------ | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `readiness-report.schema.json`                   | `medre readiness --json`                                               | Versioned offline provider/configuration facts and explicit absence of runtime or recipient observations                      |
+| `readiness-report.schema.json`                   | `medre readiness --json`                                               | Versioned offline adapter/configuration facts and explicit absence of runtime or recipient observations                       |
 | `canonical-event.schema.json`                    | `CanonicalEvent` (`src/medre/core/events/canonical.py`)                | Core event record flowing through the pipeline                                                                                |
 | `content-inventory.schema.json`                  | `SQLiteStorage.inspect_content_inventory`                              | Read-only logical bytes and consumers without message values                                                                  |
 | `content-retention-preview.schema.json`          | `SQLiteStorage.preview_content_retention`                              | Bounded aggregate preview with outcome counts and one optional (created_at, event_id) continuation; the CLI omits that cursor |
@@ -131,9 +131,9 @@ and example data.
 
 Runtime and routing schemas describe the shared configuration structure. They
 accept community transport and destination kind names. `medre config check`
-validates installed-provider availability and invokes adapter-owned native
+validates installed-adapter availability and invokes adapter-owned native
 address validators. Static schema validation alone cannot verify which Python
-providers are installed in an operator's environment.
+adapters are installed in an operator's environment.
 
 Native metadata schemas and validated examples belong to their adapter repositories; see the [metadata ownership contract](../spec/metadata.md#3-adapter-owned-native-metadata).
 
@@ -190,7 +190,7 @@ describes the full runtime config, including the optional
 The top-level runtime schema describes the released 0.1.0 config.
 
 [`current/adapter-config.schema.json`](current/adapter-config.schema.json)
-describes the manifest-selected provider configs in the current source tree.
+describes the manifest-selected adapter configs in the current source tree.
 The top-level adapter configuration schema and `v0.1.0.freeze.json` retain the
 released 0.1.0 baseline unchanged. Source-drift checks apply to the current
 schema; baseline hash checks continue to protect every released artifact.
@@ -199,7 +199,7 @@ The current schema adds only the optional Meshtastic
 `startup_packet_drain_seconds` field (default 15 seconds, zero disables). This
 is an additive configuration change, not a canonical event or SQLite version
 change. The new field is rejected by the older closed baseline schema. Select
-the current schema when validating configs for the newer provider; use the
+the current schema when validating configs for the newer adapter; use the
 released snapshot when validating a released 0.1.0 installation. Both
 configuration schemas ship in current and frozen forms. Support bundles
 report the current runtime and adapter schemas when available. Future
