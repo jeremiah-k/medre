@@ -300,7 +300,7 @@ pending evidence, not a fabricated terminal failure.
 meaning the message was handed to the local LXMRouter. This does **not** mean
 confirmed delivery to the recipient. `metadata["lxmf"]["delivery_state"]` is
 the **initial** state observed at local handoff (typically `outbound` or
-`generating`), not the final provider state. Terminal states (`delivered`,
+`generating`), not the final transport state. Terminal states (`delivered`,
 `failed`, `rejected`, `cancelled`) arrive later through SDK callbacks and are
 persisted as post-handoff evidence in `delivery_observations`; operators
 should not search receipt metadata for the final transport state.
@@ -336,15 +336,15 @@ message object do not change the observation.
 **Crash window.** Correlation between an in-flight LXMF message and its exact
 outbox attempt is process-local until the SDK emits a delivery-state update. Once
 an observation is appended it is durable, but a hard process crash after local
-handoff and before that update can lose the later provider fact.
+handoff and before that update can lose the later transport fact.
 MEDRE does not reconstruct or invent a terminal state after restart when LXMF
 does not re-emit one. The original `sent/local_queue` receipt remains truthful.
-During a retry, a provider state update for the new attempt can also be lost if
+During a retry, a transport state update for the new attempt can also be lost if
 it arrives before the outbox row advances its attempt number at finalization.
 
-MEDRE persists LXMF `delivered` as the provider state but keeps the observation
+MEDRE persists LXMF `delivered` as the transport state but keeps the observation
 `confirmation_level="unknown"`. It does not independently upgrade that state
-to `end_to_end`; provider terminology and MEDRE evidence strength are separate
+to `end_to_end`; transport terminology and MEDRE evidence strength are separate
 claims.
 
 **Outbound delivery tracking is bounded** — capped at 1000 entries with FIFO eviction to prevent unbounded growth.

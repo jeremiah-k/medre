@@ -145,7 +145,7 @@ receipt rows remain immutable. See [routing-delivery.md](routing-delivery.md)
 An adapter that accepts work locally but has not yet reached its external
 transport boundary returns `AdapterHandoffResult(disposition="deferred")`.
 Meshtastic's local outbound queue is the first built-in example, but the
-contract is deliberately queue-neutral: a future provider SDK, HTTP job, or
+contract is deliberately queue-neutral: a future transport SDK, HTTP job, or
 other asynchronous platform can use the same disposition. Core records a
 `queued` attempt receipt and keeps the outbox non-terminal.
 
@@ -166,7 +166,7 @@ closed `DeliveryFeedback` union:
   boundary and carries the resulting `AdapterHandoffResult`;
 - `DeferredHandoffFailed` — deferred work terminated before transport hand-off
   with a closed failure outcome;
-- `PostHandoffObservation` — append-only provider evidence observed after a
+- `PostHandoffObservation` — append-only transport evidence observed after a
   successful transport hand-off.
 
 Each feedback variant carries the `DeliveryAttemptProvenance` envelope exactly
@@ -349,7 +349,7 @@ on the ambiguous path unchanged) decides one verdict of a closed vocabulary:
 
 - `delivered_with_evidence` — a retained radio checkpoint shows the whole
   plan handed off (every part accepted under its fenced handoff reference),
-  or adapter-reported delivery observations prove provider-side acceptance
+  or adapter-reported delivery observations prove transport-side acceptance
   of the whole message at `remote_service` or `end_to_end` confirmation for
   the exact reclaimed attempt. The obligation settles `sent` through the
   existing guarded terminal transition. No receipt is fabricated: the
@@ -400,7 +400,7 @@ Honesty boundaries of the pass:
   does not correlate exactly leaves the verdict `unresolved`. Filter by
   outbox and attempt before decoding observations. A radio checkpoint must
   provide a decodable handoff reference for each accepted part. A packet
-  observation must match the accepted original part. Provider acceptance
+  observation must match the accepted original part. Transport acceptance
   contradicting any unsent part leaves the attempt unresolved. Qualifying
   whole-message acceptance can settle a plan with no unsent parts even
   when its final granted part remains locally uncertain; it must not

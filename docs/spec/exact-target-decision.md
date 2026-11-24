@@ -163,7 +163,7 @@ capability: resumption remains owned by the normal claim/attempt fences.
 
 ## Non-goals
 
-No engine or replay change, no provider adapter, no repeat-send authority
+No engine or replay change, no transport adapter, no repeat-send authority
 for terminal or uncertain native work, and no widening from one exact target
 to sibling destinations. The caller boundary records decisions only; it is
 not a replay execution grant and never mutates the observed row.

@@ -139,7 +139,7 @@ The current runtime rejects or ignores these abandoned development shapes:
 
 The supported built-in canonical native shapes are versioned namespaces:
 `native.matrix`, `native.meshtastic`, `native.meshcore`, `native.lxmf`,
-`native.xmpp`, `native.chatmail`, and `native.simplexchat`. Provider-owned
+`native.xmpp`, `native.chatmail`, and `native.simplexchat`. Adapter-owned
 namespace readers validate these shapes; installing a community adapter can add
 another versioned transport namespace.
 Flat MMRelay wire keys are not accepted into canonical native metadata; there

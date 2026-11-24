@@ -12,9 +12,9 @@ The command performs no adapter SDK import, no login, no network or
 hardware I/O, and no write of any kind: no storage write, no file write,
 no configuration change. Its only output is stdout. Distribution presence
 is read through `importlib.metadata` against the compatibility snapshot's
-declared distribution names; provider modules are never probed or imported
-by name, and the report never executes provider code outside the
-provider-owned pure configuration preflight that guided authoring and
+declared distribution names; adapter modules are never probed or imported
+by name, and the report never executes adapter code outside the
+adapter-owned pure configuration preflight that guided authoring and
 startup already share.
 
 The composition reuses existing surfaces rather than duplicating them:
@@ -22,7 +22,7 @@ the compatibility snapshot
 (`.github/adapter-compatibility.json`), the SDK-free adapter registry and
 its quarantining discovery, config loading with environment overrides
 (the same gate as `medre run`), the offline route-plan expansion, and the
-provider-owned pure preflight (`prepare_adapter_config`). Detailed
+adapter-owned pure preflight (`prepare_adapter_config`). Detailed
 diagnostics remain with the dedicated commands; the report names them in
 its guidance instead of restating their output.
 
@@ -33,8 +33,8 @@ medre readiness [--config PATH] [--json]
 ```
 
 The command exits 0 whenever it produces a report. A report that lists
-missing providers, blocked adapters, or an invalid configuration is a
-successful report: zero installed providers is a first-class outcome, not
+missing adapters, blocked adapters, or an invalid configuration is a
+successful report: zero installed adapters is a first-class outcome, not
 an error. Exit codes do not encode readiness; consumers read the report
 fields (or the exit-1 path for an unexpected internal failure).
 
@@ -62,21 +62,21 @@ rules the development-environment authority applies: at least one entry,
 a valid transport token, an owner/repository pair, a full commit SHA, a
 distribution name, a unique transport alias, optional string extras and Python
 requirements, and a Boolean local-integration flag). An unavailable or
-malformed snapshot yields no provider rows; the report never fabricates
-provider claims without the snapshot.
+malformed snapshot yields no adapter rows; the report never fabricates
+adapter claims without the snapshot.
 
 When available, every snapshot entry is reported in manifest order,
-installed or not, so a missing provider stays visible:
+installed or not, so a missing adapter stays visible:
 
-| Field                                                                                              | Meaning                                                                                                                                                                                                                               |
-| -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `transport`, `repository`, `ref`, `extras`, `distribution`, `python_requires`, `local_integration` | The snapshot's own declaration; `ref` and `distribution` make a report reproducible.                                                                                                                                                  |
-| `distribution_status`, `installed_version`                                                         | `installed` or `missing` for the declared provider distribution, read from distribution metadata only.                                                                                                                                |
-| `registration`                                                                                     | `registered` (healthy provider spec discovered), `broken` (quarantined by discovery), or `unregistered`.                                                                                                                              |
-| `registration_error_category`                                                                      | For `broken` only: a valid exception class name from the discovery diagnostic, or `provider_error` when no colon separator or valid exception-name prefix exists. Never the diagnostic text.                                          |
-| `native_setup`                                                                                     | `provider_guided` when the provider declares native setup fields (the pure offline setup form exists), `manual_provisioning` when the operator must follow the provider's own guide, `null` when no spec is available for inspection. |
+| Field                                                                                              | Meaning                                                                                                                                                                                                                             |
+| -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `transport`, `repository`, `ref`, `extras`, `distribution`, `python_requires`, `local_integration` | The snapshot's own declaration; `ref` and `distribution` make a report reproducible.                                                                                                                                                |
+| `distribution_status`, `installed_version`                                                         | `installed` or `missing` for the declared adapter distribution, read from distribution metadata only.                                                                                                                               |
+| `registration`                                                                                     | `registered` (healthy adapter spec discovered), `broken` (quarantined by discovery), or `unregistered`.                                                                                                                             |
+| `registration_error_category`                                                                      | For `broken` only: a valid exception class name from the discovery diagnostic, or `provider_error` when no colon separator or valid exception-name prefix exists. Never the diagnostic text.                                        |
+| `native_setup`                                                                                     | `provider_guided` when the adapter declares native setup fields (the pure offline setup form exists), `manual_provisioning` when the operator must follow the adapter's own guide, `null` when no spec is available for inspection. |
 
-An installed provider with no registered adapter entry point MUST produce
+An installed adapter distribution with no registered adapter entry point MUST produce
 registration-repair guidance even when no adapter instance is configured.
 It MUST NOT produce the complete-readiness guidance.
 
@@ -98,20 +98,20 @@ lookup of the resolved file.
 order, when the configuration is valid. Each row answers only what
 offline checks can know:
 
-| Field                                                                  | Meaning                                                                                                                                                                                               |
-| ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `adapter_id`, `transport`, `enabled`, `adapter_kind`                   | The configured instance identity.                                                                                                                                                                     |
-| `provider_distribution`, `provider_distribution_status`                | The snapshot's provider distribution for this transport and whether it is installed; `unknown` when no snapshot declares the transport.                                                               |
-| `sdk_distribution`, `sdk_distribution_status`, `sdk_installed_version` | The provider-declared SDK distribution for `real` instances: `installed` or `missing`; `not_required` for `fake` instances and providers without a declared SDK; `unknown` when no spec is available. |
-| `config`                                                               | `valid` or `actionable_error`.                                                                                                                                                                        |
-| `preflight`, `blocked_category`                                        | `passed`, or `blocked` with one typed category: `transport_unregistered`, `transport_broken`, `config_invalid`, `sdk_distribution_missing`, or `preparation_failed`.                                  |
-| `native_setup`                                                         | As in the manifest section.                                                                                                                                                                           |
-| `runtime`                                                              | Always `not_observed`.                                                                                                                                                                                |
-| `recipient`                                                            | Always `not_observed`.                                                                                                                                                                                |
+| Field                                                                  | Meaning                                                                                                                                                                                             |
+| ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `adapter_id`, `transport`, `enabled`, `adapter_kind`                   | The configured instance identity.                                                                                                                                                                   |
+| `provider_distribution`, `provider_distribution_status`                | The snapshot's adapter distribution for this transport and whether it is installed; `unknown` when no snapshot declares the transport.                                                              |
+| `sdk_distribution`, `sdk_distribution_status`, `sdk_installed_version` | The adapter-declared SDK distribution for `real` instances: `installed` or `missing`; `not_required` for `fake` instances and adapters without a declared SDK; `unknown` when no spec is available. |
+| `config`                                                               | `valid` or `actionable_error`.                                                                                                                                                                      |
+| `preflight`, `blocked_category`                                        | `passed`, or `blocked` with one typed category: `transport_unregistered`, `transport_broken`, `config_invalid`, `sdk_distribution_missing`, or `preparation_failed`.                                |
+| `native_setup`                                                         | As in the manifest section.                                                                                                                                                                         |
+| `runtime`                                                              | Always `not_observed`.                                                                                                                                                                              |
+| `recipient`                                                            | Always `not_observed`.                                                                                                                                                                              |
 
-The preflight runs the provider-owned pure configuration preparation
+The preflight runs the adapter-owned pure configuration preparation
 shared by authoring and startup, with the runtime route expansion the
-builder uses. A failure is a typed category, never the provider's error
+builder uses. A failure is a typed category, never the adapter's error
 text.
 
 ### Routes section
@@ -139,7 +139,7 @@ did not establish.
 ## Sanitization
 
 The report MUST NOT contain credentials, secret values, raw SDK or
-provider error text, native identifiers, message content, filesystem
+adapter error text, native identifiers, message content, filesystem
 paths, or timestamps. All failures reduce to the typed categories above.
 Human guidance names commands and documentation paths, never operator
 paths or values.
@@ -147,7 +147,7 @@ paths or values.
 ## Human output
 
 Without `--json` the command prints a short, path-free summary: the
-snapshot with per-provider installation and registration states, the
+snapshot with per-adapter installation and registration states, the
 configuration outcome, per-adapter blocked reasons, the route-plan
 outcome, the boundary statement, and ordered next-step guidance. The
 guidance is actionable (which command or document to consult next) and
@@ -155,7 +155,7 @@ always ends with the boundary statement.
 
 ## Provenance labels: configured, not installed
 
-Each provider line renders the snapshot's configured source pin
+Each adapter line renders the snapshot's configured source pin
 (`repository` plus `ref`) through the same compact provenance label
 grammar the startup summary, `medre adapters`, `medre version`, and
 `medre sources show` apply to installed metadata (`github:owner/repo@short8`,

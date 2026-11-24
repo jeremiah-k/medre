@@ -902,7 +902,7 @@ over old inline outbox wording. Outbox lookups scope to the row's current
 attempt generation so a
 superseded failure never presents itself as a settled attempt's outcome. The
 attempt number, failure kind, confirmation level, and status remain inline
-durable facts. Structured provider/adapter metadata stays inline,
+durable facts. Structured adapter metadata stays inline,
 content-classified, and conservative; this separation moves free-form wording
 only. See [diagnostics-evidence.md](diagnostics-evidence.md) for how operator
 reporting consumes the coalesced fields.
@@ -1257,7 +1257,7 @@ are evidence fields, not universal correlation keys.
 
 Observations are append-only. Their state vocabulary is `delivered`, `failed`,
 `rejected`, or `cancelled`. `confirmation_level` remains independent from the
-provider state and **MUST NOT** be upgraded merely because a provider calls a
+transport state and **MUST NOT** be upgraded merely because a transport calls a
 state `delivered`. Duplicate callbacks with the same deterministic observation
 identity are idempotent.
 

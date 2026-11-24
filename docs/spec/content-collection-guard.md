@@ -9,7 +9,7 @@ non-content collection receipt. Inconsistent admission facts, including a body r
 no body was present, MUST fail closed;
 repeated collection MUST be idempotent, including across concurrent writers
 and restarts. It MUST NOT delete immutable delivery, native reference, radio,
-attachment, or provider state. A successful logical delete is not physical
+attachment, or transport state. A successful logical delete is not physical
 erasure; WAL, backup, logs and remote copies are outside this API.
 
 ## Collectable events and column-aware family blockers
@@ -58,7 +58,7 @@ existing. A retained-evidence family MUST block collection when any of its
 registry-classified content-potential columns
 ([storage column classification contract](storage-column-classification.md))
 carries a value on the event's own rows — historical inline diagnostic text
-or non-empty provider metadata JSON. Only SQL NULL represents absent
+or non-empty adapter metadata JSON. Only SQL NULL represents absent
 diagnostic text; literal `'{}'` and empty strings remain conservatively content-bearing. Reviewed JSON metadata
 columns additionally recognize the empty object `'{}'` as content-free. The
 column set is derived from the declared classification registry, never

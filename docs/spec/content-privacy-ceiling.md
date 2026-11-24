@@ -20,7 +20,7 @@ design history in `docs/dev/content-lifecycle.md` and
 The ceiling for one admitted event is one absolute UTC instant derived at
 admission from the trusted local admission time plus the operator's
 declared window (`content_ceiling.max_age_seconds`, bounded to one year at
-load). Remote timestamps, provider TTL hints, retries, plugins, new
+load). Remote timestamps, transport TTL hints, retries, plugins, new
 replays, and unresolved handoffs MUST NOT extend it. The ceiling row
 (`event_content_access_policies.hard_ceiling`) is written once, on the
 first authorized policy installation in the admission transaction, and
@@ -119,8 +119,8 @@ plus the SQLite-level remnants. Coverage classes:
 | `_medre_schema_meta`                                            | none (sweep cursors, schema stamp)                                                                                                                                                   | retained-identity         | retained; cursor values are keyset positions, not content                                                                                                                                                                 |
 | SQLite free pages and WAL frames                                | former page images of any of the above                                                                                                                                               | unmeasured                | explicit operator erasure step (§5)                                                                                                                                                                                       |
 | `radio_attempt_evidence_summaries`                              | Exact attempt provenance, packet states and native correlation, revision, or a closed unreadable-checkpoint marker. No wire bytes, grants, diagnostic text, or payload fingerprints. | retained-identity         | Preserve only the typed evidence projection; an undecodable checkpoint keeps a non-authorizing blocker so it cannot become message-only proof.                                                                            |
-| `delivery_observation_scopes`                                   | Verified original outbox and attempt identity, packet ordinal, or an unreadable-scope marker.                                                                                        | retained-identity         | Preserve mutable, content-free operational scope while clearing provider metadata; changing scope advances its attempt revision.                                                                                          |
-| `delivery_observation_scope_versions`                           | Exact-attempt monotonic revision for every packet-scope mutation, without provider text.                                                                                             | retained-identity         | Three atomic triggers advance the revision on scope insertion, change, or deletion; a row count alone cannot fence an in-place rewrite.                                                                                   |
+| `delivery_observation_scopes`                                   | Verified original outbox and attempt identity, packet ordinal, or an unreadable-scope marker.                                                                                        | retained-identity         | Preserve mutable, content-free operational scope while clearing transport metadata; changing scope advances its attempt revision.                                                                                         |
+| `delivery_observation_scope_versions`                           | Exact-attempt monotonic revision for every packet-scope mutation, without transport text.                                                                                            | retained-identity         | Three atomic triggers advance the revision on scope insertion, change, or deletion; a row count alone cannot fence an in-place rewrite.                                                                                   |
 | `delivery_route_retry_bounds`                                   | none (numeric/boolean retry-policy bounds captured at admission)                                                                                                                     | retained-identity         | retained; after enforcement retires the frozen dispatch context, post-erasure reconciliation reads these bounds instead of any current configuration; they never authorize another native send                            |
 
 Two attribution boundaries bound the incoming-quote rows. An excerpt whose
@@ -358,7 +358,7 @@ original radio packet identities in content-free tables. These facts allow
 authenticated delayed observations to be recorded during `retry_wait` after
 free-form failure diagnostics and radio wire plans are erased. They confer
 **no** packet submission authority. Packet observations retain only their
-closed ordinal/outbox/attempt scope; clearing provider metadata must not
+closed ordinal/outbox/attempt scope; clearing transport metadata must not
 turn a packet ACK into whole-message acceptance. When a re-sweep revisits an
 observation, the retained scope is re-derived from the validated packet
 claim and re-fenced: the scope column carries closed identity only, so the

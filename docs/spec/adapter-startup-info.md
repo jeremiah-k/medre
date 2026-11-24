@@ -4,10 +4,10 @@ Startup info lets an adapter describe the device or account it is running on.
 It is display-only. Its presence or contents MUST NOT change readiness, routing,
 admission, or delivery decisions.
 
-## Provider contract
+## Adapter contract
 
 Core discovers an optional `startup_info()` callable on the adapter object
-and calls it with no arguments. Providers can return an ordered mapping with a
+and calls it with no arguments. Adapters can return an ordered mapping with a
 `rows` entry, each row containing a sequence of facts. Each fact has a machine
 `name`, a display `value`, and an optional short display `label`. Names start
 with an ASCII letter and then use letters, digits, underscores, hyphens, or dots.
@@ -19,8 +19,8 @@ account or node identity in the first row and device or endpoint details in the
 following rows. Core displays up to ten rows of eight accepted facts each. The
 row bound exists to keep a worst-case multi-adapter banner readable, not to
 ration honest detail: ten packed rows carry up to eighty facts, roughly five
-times what today's richest provider reports, and per-row fact packing already
-bounds density. A provider that supplies more rows than displayed is truncated
+times what today's richest adapter reports, and per-row fact packing already
+bounds density. An adapter that supplies more rows than displayed is truncated
 to the first ten, and the rendered block ends with one `… +N more` marker line
 counting the suppressed rows, so truncation is never invisible. For example, a
 radio adapter may provide:
@@ -45,7 +45,7 @@ Make every fact self-describing. When a fact carries no explicit label, core
 derives one from the fact name, so a field named `node_id` renders as
 `node !a4b3c2d1` and a field named `radio_mhz` renders as `radio mhz 910.525`.
 To state units, prefer a label that carries them, such as `"label": "radio
-(MHz)"`. Units are provider-owned guidance: core owns presentation and never
+(MHz)"`. Units are adapter-owned guidance: core owns presentation and never
 attaches transport-specific units or meanings itself. An explicit label always
 wins over the derived one.
 
@@ -53,36 +53,36 @@ A flat mapping of fact names to scalar values produces one row whose facts
 render with labels derived from their names. A non-string sequence under `rows`
 selects grouped output; a scalar `rows` fact is an ordinary flat fact. Core
 examines at most 128 candidates per row.
-Providers MUST supply facts separately for validation and MUST NOT return
+Adapters MUST supply facts separately for validation and MUST NOT return
 preformatted output lines. Firmware means the device's firmware version.
 A public key belongs in startup info when it is a primary operator identifier.
 
 The callable MUST use already-gathered state and MUST NOT perform new device
 I/O, mutate runtime state, or acquire native resources. Synchronous discovery,
-invocation and normalization run in worker threads; providers MUST expose
+invocation and normalization run in worker threads; adapters MUST expose
 thread-safe snapshots for these operations. Async hooks execute on the owner
 event loop and MUST yield cooperatively. A synchronous hook can return a mapping
-or an awaitable that can be awaited on the owner loop. The provider MUST NOT
+or an awaitable that can be awaited on the owner loop. The adapter MUST NOT
 use the hook to own work that needs to survive startup or retirement.
 
 Core supervises collection with a separate wait budget, defaulting to two
-seconds. Provider failure, provider-owned cancellation or expiry yields no
+seconds. Adapter failure, adapter-owned cancellation or expiry yields no
 fresh facts. Caller cancellation propagates. An adapter with no callable
 skips emission. Core cancels outstanding async emission on expiry or caller
 cancellation and discards late results, retaining unfinished work until it
-settles. This bounds the coordinator's wait, not arbitrary provider execution:
+settles. This bounds the coordinator's wait, not arbitrary adapter execution:
 Python cannot preempt synchronous code in an async hook or terminate a blocked
-worker thread. A violating provider can still interfere with event-loop or
+worker thread. A violating adapter can still interfere with event-loop or
 process shutdown; the hook contract prohibits such work.
 
 ## Presentation and cache
 
 Core renders one heading per adapter with indented facts separated by a middle
-dot. Every fact renders in the same `label value` grammar. When the provider
+dot. Every fact renders in the same `label value` grammar. When the adapter
 omits a label, core derives one from the fact name: word boundaries split at
 underscores, hyphens, dots, and camel-case transitions, then lowercase and join
-with spaces, so `node_id` renders `node !a4b3c2d1`. An explicit provider label
-always wins. A provider that supplied more rows than displayed ends the block
+with spaces, so `node_id` renders `node !a4b3c2d1`. An explicit adapter label
+always wins. An adapter that supplied more rows than displayed ends the block
 with an indented `… +N more` line counting the suppressed rows; the JSON output
 carries the same count. At runtime startup, core collects facts at each
 adapter's ready transition but does not log per-adapter blocks: the
@@ -104,7 +104,7 @@ never to truncate an honest record silently. Core displays at most ten rows
 (flood prevention: rows are the visual unit, per-row fact packing already
 bounds density, and ten packed rows keep a worst-case seven-adapter banner
 readable) and packs at most eight accepted facts per row (line packing:
-providers spread more facts across rows instead of overloading one line).
+adapters spread more facts across rows instead of overloading one line).
 Omitted source rows beyond the first ten are counted by the `… +N more`
 marker, including rows whose facts were not examined. The count saturates at
 one million (displayed as a lower bound) consistently in live and cached
@@ -155,7 +155,7 @@ is revalidated on read, serialization and rendering so stale or tampered facts
 must pass the same policy.
 
 These checks are defense in depth, not a proof that arbitrary opaque strings
-are public. Providers MUST NOT supply credentials, private keys, pairing
+are public. Adapters MUST NOT supply credentials, private keys, pairing
 material or other non-public secrets as facts or labels. Startup logs and
 last-known facts contain operator-visible account/device identifiers; they are
 not intended as anonymized telemetry.

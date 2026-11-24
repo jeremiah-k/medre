@@ -46,9 +46,9 @@ protocol payloads that cannot be serialized safely.
 ## 3. Adapter-Owned Native Metadata
 
 Each adapter owns its persisted native-metadata namespace and schema documents.
-Providers publish and validate schemas/examples in their own repositories; core
+Adapters publish and validate schemas/examples in their own repositories; core
 does not carry copies or restrict the vocabulary to the first-party examples
-below. Community providers follow the same versioned namespace and reader
+below. Community adapters follow the same versioned namespace and reader
 contracts in the [registration reference](../dev/adapter-registration.md).
 The transport name is the top-level key inside `NativeMetadata.data`; the
 transport object carries its own positive integer `schema_version`.
@@ -128,7 +128,7 @@ Matrix embedding is selected by the destination adapter's
 only `schema_version`, `canonical_event_id`, `source_transport_id`, and
 `metadata_mode` inside its envelope. `safe` MUST add event/source/native-reference
 identity and normalized `transport`, `routing`, `radio`, and `telemetry` domains
-under `content.medre.metadata`. It MUST exclude provider-native and custom
+under `content.medre.metadata`. It MUST exclude adapter-native and custom
 metadata except an explicitly selected, bounded source-native fact projection.
 `bridge_context.source.native_facts` MAY carry one adapter-owned namespace and
 up to twelve named scalar fields from its explicit `public_facts` map. The term

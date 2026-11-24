@@ -30,19 +30,19 @@ checkout:
 | `medre-adapter-chatmail`    | `4d98eb9fbd58669a462d83dca022a95a74c4afc6` |
 | `medre-adapter-simplexchat` | `b60e55ea08ad09d7c148493353ae51efbbe3bcff` |
 
-Native SDK pins are declared by each provider's own package metadata at the
+Native SDK pins are declared by each adapter's own package metadata at the
 inspected commit (`mindroom-nio[e2e]`, `mtjk`, `meshcore`, `lxmf` with `rns`,
 `slixmpp`, `deltachat-rpc-client` with `deltachat-rpc-server`,
 `simplex-chat`); that metadata is the version authority, so claims below name
 the SDK package rather than repeat its pin.
 
-Core-owned test references use `tests/...`; provider-owned references name the
+Core-owned test references use `tests/...`; adapter-owned references name the
 repository explicitly. A **test path records where a claim is exercised**, not
 proof it passed on these commits. Historical pass counts and hardware
 observations below are dated evidence, _not_ an automatic current-tree native
-qualification. Re-run the relevant opt-in tiers with the exact provider pins
+qualification. Re-run the relevant opt-in tiers with the exact adapter pins
 and record environment, SDK revisions, and raw evidence for a new claim. Where
-a claim cannot be verified from the pinned provider repositories alone, the
+a claim cannot be verified from the pinned adapter repositories alone, the
 entry says so explicitly.
 
 ## 1. Meshtastic → Matrix Live Inbound Evidence
@@ -84,7 +84,7 @@ policy inside the `DELIVER` phase.
 
 LXMF defines a `PAPER` delivery **method** alongside `DIRECT`,
 `OPPORTUNISTIC`, and `PROPAGATED`. The delivery **state** vocabulary
-(`LxmfDeliveryState` in the LXMF provider’s
+(`LxmfDeliveryState` in the LXMF adapter’s
 `medre-adapter-lxmf/src/medre/adapters/lxmf/session.py`) has no
 paper-specific entry.
 
@@ -97,10 +97,10 @@ paper-specific entry.
   returns `UNMAPPED`. Paper-mode state reports fall in this gap by
   design: the pinned SDK's `LXMessage.PAPER` (`0x05`) is a delivery
   METHOD constant that `__mark_paper_generated` assigns to `state`, and
-  because it is not in `LXMessage.states` the provider deliberately maps
+  because it is not in `LXMessage.states` the adapter deliberately maps
   it to `UNMAPPED` (see the state-map note in
   `medre-adapter-lxmf/src/medre/adapters/lxmf/session.py`). Paper mode
-  is a config-selectable default delivery method in the provider's
+  is a config-selectable default delivery method in the adapter's
   configuration model; it is not a delivery state.
 - **Direction:** When paper-mode delivery adds its own state reporting,
   the state map must be extended. Until then, paper-mode delivery is
@@ -183,13 +183,13 @@ decodes through the real inbound adapter/codec path over a loopback
 Reticulum `UDPInterface` pair
 (`medre-adapter-lxmf/tests/test_lxmf_local_integration.py::test_relation_preserved_across_two_local_instances`,
 marked `local_integration` + `lxmf_sdk` at the inspected pin). That
-harness is part of the provider's local-integration tier, which core's
+harness is part of the adapter's local-integration tier, which core's
 required local-integration job runs against the pinned adapter
 revision (`medre-adapter-lxmf` README at the inspected pin; the
 compatibility manifest marks LXMF `local_integration: true`). A dated
 pass exists from the 2026-09-18 gate: 3/3 local-integration tests were
 green in a locked disposable venv on the then-declared pinned SDKs, and
-the provider-owned
+the adapter-owned
 `medre-adapter-lxmf/tests/medre_lxmf_tests/helpers/lxmf_local_probe.py`
 probe exited 0 with every verdict true and the runtime-resolved SDK
 versions recorded in the result payload; that run remains dated
@@ -238,5 +238,5 @@ limitations as `pytest.xfail` guards instead of hiding them:
 - `tests/test_pipeline_conformance.py`,
   `tests/test_live_matrix_radio_bridge.py`, and
   `tests/test_matrix_reaction_mmrelay.py` (MEDRE core), and
-  `medre-adapter-lxmf/tests/test_lxmf_state_mapping.py` (LXMF provider)
+  `medre-adapter-lxmf/tests/test_lxmf_state_mapping.py` (LXMF adapter)
   — the test modules recording the limitations above.

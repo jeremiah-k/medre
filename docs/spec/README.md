@@ -26,7 +26,7 @@ in a document under this tree.
 | [transient-typing.md](transient-typing.md)                             | Bounded transient composing activity and relay aggregation          |
 | [adapter-runtime.md](adapter-runtime.md)                               | Adapter protocol, lifecycle, capabilities, codec                    |
 | [adapter-startup-info.md](adapter-startup-info.md)                     | Duck-typed startup-info seam: bounded emission, cache, redaction    |
-| [native-setup-instructions.md](native-setup-instructions.md)           | Typed informational setup journeys for form-less providers          |
+| [native-setup-instructions.md](native-setup-instructions.md)           | Typed informational setup journeys for form-less adapters           |
 | [routing-delivery.md](routing-delivery.md)                             | Route matching, fanout, delivery plans, receipts                    |
 | [storage.md](storage.md)                                               | SQLite schema, append-only guarantees, replay semantics             |
 | [content-retention.md](content-retention.md)                           | Content surfaces, consumers, and read-only logical-byte accounting  |

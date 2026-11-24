@@ -50,7 +50,7 @@ UTF-8 bytes; it is enforced before native submission.
 The renderer preserves source attribution in plain text, applies the configured
 relay prefix, and binds native quote targets and bounded reply fallbacks to the
 durable attempt. Native targets require core's unique destination binding and
-provider-side validation of the active native profile and exact chat. Platform IDs
+adapter-side validation of the active native profile and exact chat. Platform IDs
 stay in native metadata and correlation references rather than being inferred from
 visible text.
 
@@ -71,9 +71,9 @@ does not establish a MEDRE-verified peer identity.
 ## Qualification limits
 
 SDK contracts cover native group text, quote fields, process recovery and local
-storage. The provider's
+storage. The adapter's
 [native reply qualification](https://github.com/jeremiah-k/medre-adapter-chatmail/blob/86e2783bd6f754d02a5561233881866eb0be0a64/docs/evidence/native-replies-rpc-2.66.0-2026-10-29.json)
-records exact source hashes and core/provider revisions for a dedicated two-profile
+records exact source hashes and core/adapter revisions for a dedicated two-profile
 2.66.0 campaign on fresh native profiles. Its independent encrypted-group peer
 observes the native quote,
 sender/origin presentation and SMTP handoff after reconnect and restart.

@@ -30,16 +30,16 @@ taxonomy forbids — raises before an envelope exists.
 | ------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Attempt identity    | `event_id`, `delivery_plan_id`, `target_adapter`, `target_channel` | The complete event-scoped delivery identity, carried as a `DeliveryIdentity` value object. `None` is the deliberate no-channel identity; the empty string is rejected.             |
 | Attempt anchor      | `outbox_id`, `attempt_number`, `observed_row_updated_at`           | The exact outbox row the evidence is about: its identifier, the raw persisted attempt counter (never display-normalized), and the observed row update version at observation time. |
-| Provider binding    | `provider`, `provider_repository`, `compatibility_pin`             | Which provider the claim is about and the compatibility-manifest pin in force when the observation was made.                                                                       |
+| Adapter binding     | `provider`, `provider_repository`, `compatibility_pin`             | Which adapter the claim is about and the compatibility-manifest pin in force when the observation was made.                                                                        |
 | Observation context | `observation_source`, `tier`, `scope`, `observed_at`               | What produced the fact, the evidence tier, the claim family, and the timezone-aware observation timestamp.                                                                         |
 | Result              | `result`                                                           | One bounded result token (below).                                                                                                                                                  |
-| Identifiers         | `receipt_id`, `native_message_id`, `evidence_reference`            | Optional identifiers of an existing core receipt, a provider-native message, or a persisted evidence record. Identifiers only.                                                     |
+| Identifiers         | `receipt_id`, `native_message_id`, `evidence_reference`            | Optional identifiers of an existing core receipt, a transport-native message, or a persisted evidence record. Identifiers only.                                                    |
 | Derived             | `identity`, `evidence_fingerprint`                                 | The normalized `DeliveryIdentity` and a durable fingerprint over the canonical fact statement.                                                                                     |
 
 The fingerprint is a SHA-256 digest over the canonical fact statement —
 every field above except `observed_at`. The observation timestamp is
 excluded deliberately: the fingerprint identifies the observation
-content, so the same provider fact recorded twice, including across a
+content, so the same transport fact recorded twice, including across a
 persistence or restart boundary, yields the same fingerprint and
 duplicates stay detectable. Equal facts always produce equal
 fingerprints. A fingerprint identifies the supplied statement; it does not
@@ -51,12 +51,12 @@ the stated attempt is current in the ledger.
 The result is a closed four-token vocabulary. No result by itself
 establishes ledger binding or authorizes recovery:
 
-| Result                       | Meaning                                                                                                                                                                                                                            |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `accepted`                   | The observation establishes the provider-specific claim that the send stood as a provider submission.                                                                                                                              |
-| `definitively_not_submitted` | The observation establishes the send never became a standing provider submission.                                                                                                                                                  |
-| `unresolved`                 | The observation establishes neither. It is a real result, not a gap to be filled by inference.                                                                                                                                     |
-| `not_observed`               | No provider observation is available to the constructing caller for this attempt. It is an explicit absence-of-local-evidence statement with its own fingerprint and no identifiers, not proof of a provider-wide negative search. |
+| Result                       | Meaning                                                                                                                                                                                                                              |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `accepted`                   | The observation establishes the transport-specific claim that the send stood as a transport submission.                                                                                                                              |
+| `definitively_not_submitted` | The observation establishes the send never became a standing transport submission.                                                                                                                                                   |
+| `unresolved`                 | The observation establishes neither. It is a real result, not a gap to be filled by inference.                                                                                                                                       |
+| `not_observed`               | No transport observation is available to the constructing caller for this attempt. It is an explicit absence-of-local-evidence statement with its own fingerprint and no identifiers, not proof of a transport-wide negative search. |
 
 The central rule of this contract: **`unresolved` never becomes
 permission to resend, and absence of evidence never proves rejection.**
@@ -70,14 +70,14 @@ result keeps the distinction between "observed and inconclusive" and
 ## Scope vocabulary
 
 The scope names the claim family an observation belongs to, not its
-polarity: an observation of a provider refusal is still
+polarity: an observation of a transport refusal is still
 `provider_acceptance`-scoped evidence whose result is negative.
 
-| Scope                   | Claim family                                         |
-| ----------------------- | ---------------------------------------------------- |
-| `native_handoff`        | Facts about the transport hand-off boundary itself.  |
-| `provider_acceptance`   | Facts about how the provider handled the submission. |
-| `recipient_observation` | Facts established by an independent recipient side.  |
+| Scope                   | Claim family                                          |
+| ----------------------- | ----------------------------------------------------- |
+| `native_handoff`        | Facts about the transport hand-off boundary itself.   |
+| `provider_acceptance`   | Facts about how the transport handled the submission. |
+| `recipient_observation` | Facts established by an independent recipient side.   |
 
 Construction rejects result/scope and result/tier claims that exceed their
 proof boundary:
@@ -87,12 +87,12 @@ proof boundary:
   adapter-reported confirmation level;
 - `definitively_not_submitted` at `recipient_observation` scope — a
   recipient-side fact cannot establish non-submission;
-- `accepted` at `fake_pipeline` or `sdk_contract` tier, in either provider
-  or recipient scope — these tiers cannot establish provider acceptance
+- `accepted` at `fake_pipeline` or `sdk_contract` tier, in either transport
+  or recipient scope — these tiers cannot establish transport acceptance
   or independent recipient observation;
 - `definitively_not_submitted` at `provider_acceptance` scope with either
   of those two tiers — synthetic or SDK-contract evidence cannot establish
-  an actual provider refusal. A pre-handoff failure can still establish
+  an actual transport refusal. A pre-handoff failure can still establish
   a `native_handoff`-scoped negative at the boundary it exercised.
 
 ## Tier proof table
@@ -103,10 +103,10 @@ stands in for a higher one.
 
 | Tier                | Can establish                                                                                                                                                                       | Cannot establish                                                                                    |
 | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `fake_pipeline`     | Core-seam transactional properties over a synthetic adapter boundary.                                                                                                               | Any provider-side fact; a fake-tier handoff is never read as provider acceptance.                   |
-| `sdk_contract`      | Behavior of the exact pinned SDK surface.                                                                                                                                           | Provider-side acceptance of a send.                                                                 |
+| `fake_pipeline`     | Core-seam transactional properties over a synthetic adapter boundary.                                                                                                               | Any transport-side fact; a fake-tier handoff is never read as transport acceptance.                 |
+| `sdk_contract`      | Behavior of the exact pinned SDK surface.                                                                                                                                           | Transport-side acceptance of a send.                                                                |
 | `local_integration` | SDK and session interaction against a deterministic local endpoint or in-process peer: local router or session acceptance, and recipient-side observation over a loopback topology. | External network arrival, propagation peering, or any behavior beyond the exercised local boundary. |
-| `docker`            | Provider acceptance observed against a real containerized provider service, including through an independent second client of that service.                                         | Federation, external peers, or behavior beyond the containerized service class.                     |
+| `docker`            | Transport acceptance observed against a real containerized transport service, including through an independent second client of that service.                                       | Federation, external peers, or behavior beyond the containerized service class.                     |
 | `live`              | Facts against an external service or an independent peer.                                                                                                                           | Nothing beyond what the external party actually exposes; operator-run by design.                    |
 | `hardware`          | Facts against physical devices.                                                                                                                                                     | Nothing beyond the exercised hardware path; operator-run and opt-in.                                |
 
@@ -117,15 +117,15 @@ stands in for a higher one.
    come from the core-issued `DeliveryAttemptProvenance`, and those
    projection constructors accept no identity override. Direct
    `NativeEvidenceObservation` construction and `native_evidence_not_observed`
-   take identity fields from the caller, because no wrapped provider fact
+   take identity fields from the caller, because no wrapped transport fact
    supplies them. These caller-supplied fields require independent ledger
    verification before they are treated as authoritative attempt evidence.
    Projection constructors preserve typed provenance but do not authenticate
    its issuer or query the ledger either; their callers must use the existing
    feedback/provenance validation before treating that binding as authoritative.
-   Provider identity, compatibility pin, source, and tier are caller assertions
+   Adapter identity, compatibility pin, source, and tier are caller assertions
    whose actual observation basis must also be verified independently.
-2. **A provider fact is authoritative only for the provider-specific
+2. **A transport fact is authoritative only for the transport-specific
    claim it can actually establish.** The projections below are the
    complete mapping; no other claim may be derived from a wrapped fact.
 3. **Independent recipient corroboration does not change a core
@@ -140,10 +140,10 @@ stands in for a higher one.
 | `PostHandoffObservation` state `failed` or `cancelled` | `provider_acceptance` | `unresolved`                 |
 | `DeferredHandoffCompleted` (any confirmation level)    | `native_handoff`      | `unresolved`                 |
 | `DeferredHandoffFailed` (any outcome)                  | `native_handoff`      | `definitively_not_submitted` |
-| No provider observation                                | caller-selected       | `not_observed`               |
+| No transport observation                               | caller-selected       | `not_observed`               |
 
 `rejected`, `failed` and `cancelled` post-handoff states occur after
-successful transport hand-off. They cannot establish that the provider
+successful transport hand-off. They cannot establish that the transport
 never accepted the submission, so they project to `unresolved` rather
 than to a definitive negative claim. A `DeferredHandoffFailed` fact's
 own contract establishes that the attempt terminated before transport
@@ -160,7 +160,7 @@ alone cannot establish proof or authorize any state change.
 Projections omit the wrapped fact's error text and adapter metadata. The
 selected receipt/native-reference identifiers are copied verbatim: the
 envelope does not inspect or redact their contents, nor does it verify that
-an identifier refers to an existing ledger or provider record. Callers MUST
+an identifier refers to an existing ledger or transport record. Callers MUST
 supply identifiers without message content or credentials and verify their
 binding before consumption. The `not_observed` result forbids all three
 identifier fields, because none were observed.
@@ -178,7 +178,7 @@ does not either.
 
 The mapping below records only what the current harnesses actually
 establish. No common SDK behavior is assumed and no universal
-provider-status interface is defined; the shared interface waits until
+transport-status interface is defined; the shared interface waits until
 two working native implementations exist.
 
 - **Matrix.** The Synapse second-client timeline observation
@@ -190,7 +190,7 @@ two working native implementations exist.
   (`tests/integration/test_lxmf_exact_target_propagation.py`) is
   `local_integration`-tier, `recipient_observation`-scoped, `accepted`
   evidence for the locally observed propagation, terminated at the same
-  loopback instance that runs the propagation node. The provider-owned
+  loopback instance that runs the propagation node. The adapter-owned
   local router acceptance harness
   (`tests/test_lxmf_local_integration.py`) is `local_integration`-tier,
   `provider_acceptance`-scoped evidence of local router acceptance only.
@@ -200,12 +200,12 @@ two working native implementations exist.
   recipient callback corroborates the exact durable attempt at
   `local_integration`/`recipient_observation` scope. This leg has executed
   successfully through the opt-in qualification workflow; that workflow is
-  distinct from the required provider-level propagation job. The recipient is
+  distinct from the required transport-level propagation job. The recipient is
   also the loopback propagation node: no external-network, multihop, hardware,
   or uncertain-handoff recovery authority follows.
 - **MeshCore companion protocol.**
   `tests/native_qualification/test_meshcore_exact_target_replay.py` executes real pinned
-  SDK commands through core replay into the provider-owned deterministic TCP
+  SDK commands through core replay into the adapter-owned deterministic TCP
   companion endpoint. Independent endpoint command bytes corroborate the
   selected channel and complete wire plan; a receipt alone is insufficient.
   Its typed `local_integration`/`provider_acceptance` observation is limited to
@@ -249,7 +249,7 @@ An earlier attempt remains `historical` when a newer replay has allocated a
 separate outbox row for the same target; an equal competing generation is
 `unbound` rather than arbitrarily current. A previously identified row version
 is likewise `historical`, not rewritten as current. Storage failures MUST propagate; no
-error is converted to a negative provider fact. Reads are metadata-only where
+error is converted to a negative transport fact. Reads are metadata-only where
 supported, and the assessor returns no content and performs no write; receipt history reads
 may contain diagnostic fields that this projection never returns.
 

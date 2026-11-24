@@ -60,7 +60,7 @@ and packet progress; ingress last-error text; attachment bytes;
 checkpoint cursors and metadata; and reserved plugin values. Empty JSON
 envelopes count as stored bytes. Shared attachment blobs count once. An event
 payload can contain attachment metadata, sender names, formatted bodies, reply
-quotes, or provider extensions; counting only its text field is insufficient.
+quotes, or adapter extensions; counting only its text field is insufficient.
 
 Structured relation identity rows MAY remain as non-text evidence while
 same-event excerpt text is removed, but any free-form relation key or metadata
@@ -108,7 +108,7 @@ any deletion:
 ## Boundaries
 
 Correlation identifiers can be sensitive even when bodies are absent; their
-bytes are outside the content totals. Provider profiles, native histories,
+bytes are outside the content totals. Transport profiles, native histories,
 logs, snapshots, exported files, SQLite free pages and WAL are independently
 retained and unmeasured. The report MUST list these boundaries and MUST set
 `retention_authorized` to false. It is not a deletion-safety assessment or an
@@ -129,7 +129,7 @@ other than `completed` and outbox states other than `sent` or `cancelled`
 MUST conservatively remain candidates, including failed and unknown states.
 Concurrent owners may change status after the observation. A false value MUST
 NOT authorize expiry. An unknown event or incomplete storage MUST fail closed. The report
-MUST declare the external provider, peer, backup and log copies it cannot
+MUST declare the external transport, peer, backup and log copies it cannot
 measure, including uncounted core projections and physical SQLite remnants.
 Incoming relation counts describe referring rows, not copies of every original
 message byte; zero counts MUST NOT be interpreted as erasure. Its schema is
@@ -160,7 +160,7 @@ not resurrect content or authorize native sends. The receipt preserves the
 historical collection decision but does not record message bytes. No operation
 may delete durable delivery facts, native references, radio plans, receipts,
 delivery observations, the separated diagnostics side table, attachments,
-provider state, WAL, backups or external copies. Logical removed
+transport state, WAL, backups or external copies. Logical removed
 byte counts MUST NOT be presented as disk savings or secure erasure.
 Automatic or periodic collection is enabled only through the operator
 retention policy declared below; absent that declaration it remains
@@ -271,7 +271,7 @@ Retention under a declared relay-only policy is: "Best-effort, bounded
 logical collection of eligible isolated core text after accepted owners
 settle; refused or unmeasured copies are retained and reported." It is
 not physical erasure, a hard privacy deadline, or retention for
-attachments, provider stores, or plugin-held content.
+attachments, transport stores, or plugin-held content.
 
 The runtime's single owner-fenced collection worker invokes collection
 automatically only under this declared relay-only policy: it is
@@ -302,7 +302,7 @@ continuation. Applying changes MUST require `--mode relay-only --apply --yes`
 and MUST re-evaluate each event inside its write transaction, regardless of
 preview results. The bridge SHOULD be stopped before an apply campaign.
 The CLI MUST NOT install a timer, apply retention settings to future events,
-or claim to remove WAL, backups or provider copies. Its byte counters report
+or claim to remove WAL, backups or transport copies. Its byte counters report
 only logical bytes removed from the classified core subset. Every batch,
 including retain mode and empty pages, MUST list unmeasured copy scopes.
 Collection errors for an individual event MUST produce a content-free `refused`

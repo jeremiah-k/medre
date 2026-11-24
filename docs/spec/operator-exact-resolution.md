@@ -21,7 +21,7 @@ native send was not accepted. The cancellation stops an _upcoming, currently
 unreserved_ attempt; any previous receipt and native uncertainty remain in the
 immutable evidence log. The primitive refuses current `in_progress`, `queued`,
 `sent`, `dead_lettered`, `abandoned` and already `cancelled` states on first
-application. It never clears `active_attempt`, calls a provider or sends bytes.
+application. It never clears `active_attempt`, calls an adapter or sends bytes.
 
 ## Snapshot and transaction boundary
 

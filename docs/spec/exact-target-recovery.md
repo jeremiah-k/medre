@@ -268,11 +268,11 @@ limited to, the transactional and storage-level properties of the contract:
   `stale` evidence only, and execution re-validates persisted state
   through the shared selector before anything is staged.
 
-This tier does NOT prove native acceptance by any real provider: the fake
+This tier does NOT prove native acceptance by any real transport: the fake
 adapter's handoff result is transport simulation, and a fake-tier handoff
 MUST NOT be read as recipient receipt. It does NOT prove independently
 observed recipient delivery, which is reserved for evidence tiers with an
-independent recipient, and it does NOT qualify current-pin provider
+independent recipient, and it does NOT qualify current-pin adapter
 behavior. Native and current-pin qualification of the exact-target
 property remains reserved to those tiers; a lower tier never stands in for
 a higher one.
@@ -303,7 +303,7 @@ receipts.
 The scenario calls the pinned `LxmfSession.send_text` directly. It does not
 exercise a core `ReplayRequest` selection or audited operator decision, so
 it qualifies LXMF native propagation/recipient behavior, not G01/G02
-core-authorized exact-target replay acceptance. That authority-to-provider
+core-authorized exact-target replay acceptance. That authority-to-transport
 leg remains a separate qualification requirement.
 
 The scenario checks the following native properties at the pinned SDK
@@ -352,7 +352,7 @@ and the pytest log are required separately, so a partial artifact upload
 cannot silently lose the native evidence. The tier boundary is unchanged: the topology is a
 loopback-only UDPInterface pair on one host, the recipient verdict comes
 from a separate process through its own delivery callback, and no
-external-network or hardware rung is claimed. The provider-owned
+external-network or hardware rung is claimed. The adapter-owned
 local-integration suite continues to run in the
 `transport-local-integration` job. The external-network and hardware
 rungs remain outstanding. The scenario's owned process group terminates
@@ -383,7 +383,7 @@ resolution of a genuinely uncertain native handoff.
 ### MeshCore core-authorized companion protocol
 
 `tests/native_qualification/test_meshcore_exact_target_replay.py` runs the pinned SDK and
-the provider-owned deterministic TCP companion endpoint through core replay.
+the adapter-owned deterministic TCP companion endpoint through core replay.
 It checks single and multipart channel sends, exact receipt/generation binding,
 same-adapter channel siblings and a separate monitor, invalid selections, fresh
 generation allocation after a stale preview, and rejection of the old worker's
@@ -408,7 +408,7 @@ merged pair remains the qualification gate for `main`.
 ### Prosody core-authorized exact-target replay
 
 `tests/native_qualification/test_prosody_exact_target_replay.py` runs the
-pinned Slixmpp provider through core replay against a disposable Docker
+pinned Slixmpp adapter through core replay against a disposable Docker
 Prosody 13.0 server at the adapter campaign lab's pinned image selection.
 One adapter instance owns two MUC channel targets on the same native
 session, and each room carries an independent raw-SDK recipient account
@@ -422,14 +422,14 @@ admission, `route_event` planning, a live `deliver_to_targets` sibling
 delivery that genuinely completes, and a never-dispatched `pending`
 generation staged for the selected target with the runtime-produced
 dispatch snapshot — then closes and reopens durable storage and retires
-and restarts the provider lifetime before replay. The authorized
+and restarts the adapter lifetime before replay. The authorized
 `ReplayRequest` uses `ReplayMode.BEST_EFFORT` with
 `exact_target_selections`.
 
 The positive control requires the selected recipient to observe exactly
 one nonce-correlated groupchat stanza over a declared window, bound by the
 exact room address, the originating XMPP account, the recorded XEP-0359
-origin id, and the room stanza id the provider returned through its echo,
+origin id, and the room stanza id the transport returned through its echo,
 and the observation binds `current`/`exact` to the durable native-evidence
 ledger. Per the replay attempt identity rule the send is a fresh
 generation; the staged obligation stays pending. The completed excluded
@@ -437,7 +437,7 @@ sibling retains its identity with no matching new stanza in its own
 quiet window, and a monitor sibling never widens.
 
 The negative control, against the same reopened storage and a fresh
-provider lifetime, refuses an unbound selection (`ambiguous`), a drifted
+adapter lifetime, refuses an unbound selection (`ambiguous`), a drifted
 channel no plan names (`No delivery plans matched
 exact_target_selections filter`), and a contested selection (`ambiguous`). The separate preview with the
 superseded fingerprint and generation also refuses; the replay request
@@ -447,7 +447,7 @@ Positive peer controls bracket the refusal window so witness liveness is
 proven, and absence is a bounded wait timeout, never a fixed sleep.
 
 The required Docker Integration workflow step checks out the pinned
-provider through the checkout installer, runs the two cases at the pinned
+adapter through the checkout installer, runs the two cases at the pinned
 Prosody image, and enforces the junit report with
 `enforce_test_execution.py` (exact expected tests, no skips, per-run
 verdict artifacts required), so a job that collects or skips everything
@@ -460,16 +460,16 @@ native handoff is resolved or reauthorized by these cases.
 
 This LXMF scenario does not qualify other transports; the Matrix
 Docker/Synapse acceptance scenario is a separate transport leg, and the
-Prosody leg above is the XMPP service tier at the committed provider pin.
+Prosody leg above is the XMPP service tier at the committed adapter pin.
 Chatmail is recorded `local_integration: false` in the adapter
-compatibility manifest, and its provider suite at its pin defines no
+compatibility manifest, and its adapter suite at its pin defines no
 Docker or local-integration tier: it carries only opt-in live-marked
 tests that require private credentials outside the repository (a
 two-profile Chatmail fixture). Its second native leg therefore needs,
 precisely: a CI-executable service tier — a Chatmail server in the
-integration compose with the provider harness promoted to a deterministic
+integration compose with the adapter harness promoted to a deterministic
 local-integration scenario, or repository-secret-backed private fixtures —
-and a provider-owned scenario at its pin that observes delivery through
+and an adapter-owned scenario at its pin that observes delivery through
 an independent second account, so the exact-target verdict is never MEDRE
 reading back its own receipts. Other transports' native legs and the
 hardware rungs remain outstanding for the full qualification of this
@@ -495,13 +495,13 @@ retain the resulting local packet handoff state. A missing generation or
 wrong-channel selection MUST stage no radio send or sibling delivery.
 
 The SDK-assigned packet ID and local queue counters are **not** independent
-provider observations and MUST NOT be projected as recipient acceptance, RF
+transport observations and MUST NOT be projected as recipient acceptance, RF
 delivery, or proof of non-submission after interruption. This Docker suite
 qualifies the SDK/transport invocation path only. The native acceptance leg
-remains open pending a separate provider/recipient observer. No uncertain
+remains open pending a separate transport/recipient observer. No uncertain
 handoff is automatically reauthorized by this test.
 
 Prosody verdict JSON files are run diagnostics, not standalone native-qualification
-records. CI verifies the selected editable provider and installed SDK before the
+records. CI verifies the selected editable adapter and installed SDK before the
 scenario. Local runs without `MEDRE_XMPP_PROVIDER_ROOT` do not establish that
 source-pair provenance; do not use them to promote compatibility pins.

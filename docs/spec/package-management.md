@@ -1,7 +1,7 @@
 # Explicit package management
 
 MEDRE's package-management CLI is a deployment surface separate from runtime
-configuration, provider discovery, and adapter contracts.
+configuration, adapter discovery, and adapter contracts.
 
 ## Ownership and execution
 
@@ -37,11 +37,11 @@ settings MUST cause scoped
 or source-changing operations to refuse before mutation; native bulk updates
 remain available.
 
-Adapter updates MUST select only installed provider distributions using entry-point
+Adapter updates MUST select only installed adapter distributions using entry-point
 metadata without loading their implementations. Explicit selections MUST NOT
 silently install another package. No installed adapters MUST produce a successful
 no-op for adapter-only updates. Package-management dispatch MUST bypass adapter CLI
-imports so a broken provider can be updated or removed. Package changes require
+imports so a broken adapter can be updated or removed. Package changes require
 a process restart before adapter discovery reflects them.
 
 ## Source catalog
@@ -56,13 +56,13 @@ unknown top-level fields, and duplicate YAML keys MUST be rejected.
 
 Operator aliases override built-in aliases; null removes an alias. Aliases name
 Python distribution requirements, not runtime transport names. Core MUST NOT be
-selectable as an adapter. The catalog MUST NOT limit provider discovery, trigger
+selectable as an adapter. The catalog MUST NOT limit adapter discovery, trigger
 network access at startup, or be populated from CI's compatibility snapshot.
 Ordinary updates MUST retain installed source intent. `--sync-sources` MUST be
 explicit to apply catalog requirements to selected installed packages, retaining
 installed extras and every unrelated explicit request. Optional `core` MUST name
 the medre distribution and MUST NOT affect adapter-only operations. Conflicting
-aliases for a selected distribution MUST be rejected. Catalog-only providers MUST
+aliases for a selected distribution MUST be rejected. Catalog-only adapters MUST
 NOT be installed implicitly and removed aliases MUST NOT uninstall packages.
 Removal by explicit installed distribution name MUST remain possible when its
 alias is absent. No runtime YAML changes or automatic service restart are implied
@@ -116,7 +116,7 @@ This opt-in MUST NOT bypass receipt-shape or ownership checks. A source change
 MUST NOT be described as persisted-state rollback.
 
 `sources show` MUST distinguish configured requirements, requested tool sources
-and installed versions/direct-source metadata without importing providers or
+and installed versions/direct-source metadata without importing adapters or
 contacting an index. The human-readable inventory MUST render each installed
 source with the same compact provenance label as the startup summary; the
 `--full` view MUST instead print the complete recorded source URL with the
@@ -131,9 +131,9 @@ working-tree cleanliness. URL credentials and query secrets MUST be redacted
 from the source inventory, catalog display, MEDRE-generated plan notes and
 command previews. Redaction MUST NOT alter the arguments supplied to uv. uv
 output is owned by uv; operators SHOULD use credential helpers rather than
-embedding secrets in requirements. Installed provider metadata MUST be included
+embedding secrets in requirements. Installed adapter metadata MUST be included
 even when no catalog alias or supported tool receipt exists; an unreadable
-provider metadata inventory MUST be reported without discarding known catalog
+adapter metadata inventory MUST be reported without discarding known catalog
 and receipt rows. An explicit installed distribution name takes precedence
 over a conflicting catalog alias during source switching.
 
@@ -146,7 +146,7 @@ core version and source, Python version/system/architecture,
 and a deterministic list of installed adapter entry-point transport/distribution
 pairs (not just configured or enabled adapter instances). Core-owned entries
 MUST be excluded by normalized distribution name; nonstandard distribution names
-MUST be shown in brackets. The summary MUST NOT load provider implementations,
+MUST be shown in brackets. The summary MUST NOT load adapter implementations,
 query an index, or change deployment state.
 
 The source label reflects installed metadata only, as one compact token per
@@ -165,7 +165,7 @@ MUST NOT appear in the startup summary, including for non-HTTP schemes; Git
 labels are derived from the validated URL's host and path only. Paths
 and hostnames remain visible, so operators MUST NOT embed credentials in paths
 and SHOULD review logs before sharing them. Invalid metadata MUST NOT be logged
-verbatim or prevent startup; an incomplete provider inventory MUST be indicated
+verbatim or prevent startup; an incomplete adapter inventory MUST be indicated
 without suppressing healthy entries already discovered. This text is not a
 versioned evidence or snapshot schema.
 
@@ -179,7 +179,7 @@ fields from the same validation and redaction boundary: no userinfo, query
 values, fragments or unvalidated revisions, regardless of URL scheme. The
 structured installed source is null when it cannot be validated; the compact
 label remains `unknown`. An absent distribution retains a null label. All four
-surfaces MUST NOT import provider implementations or contact an index to
+surfaces MUST NOT import adapter implementations or contact an index to
 produce these identities.
 
 `medre readiness` renders the compatibility snapshot's configured repository

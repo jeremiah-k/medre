@@ -105,7 +105,7 @@ Event envelope identifiers remain authoritative.
 
 The shared prefix formatter (`format_relay_prefix` in
 `src/medre/core/rendering/attribution.py`) defines all available template
-variables. This is the authoritative list used by provider renderers, including
+variables. This is the authoritative list used by adapter renderers, including
 Matrix, Meshtastic, MeshCore, LXMF, XMPP, Chatmail, and SimpleX Chat.
 
 **Canonical fields** (from `RelayAttribution`):

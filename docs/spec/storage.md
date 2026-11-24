@@ -848,7 +848,7 @@ address supplied by the adapter; they are not required to be equal.
 
 `observation_id` is deterministic for idempotent callback replay. `sequence`
 provides append order within this table. `confirmation_level` is an evidence
-strength independent of provider `state`; a provider state named `delivered`
+strength independent of transport `state`; a transport state named `delivered`
 does not by itself imply `end_to_end`. The free-form `error` text is
 separated diagnostic content: it lands only in
 `delivery_evidence_diagnostics` (Section 4.10.1) in the same transaction,
@@ -1196,7 +1196,7 @@ MUST NOT resurrect that failure. Explicit clears on mutable work MUST
 suppress earlier diagnostics, including those from the same attempt, without
 deleting historical evidence. Empty side-table strings record these clears
 and typed reads return no error. A clear marker is unnecessary when no value
-exists to supersede. Structured provider/adapter metadata (`metadata`
+exists to supersede. Structured adapter metadata (`metadata`
 columns) is deliberately NOT separated: it stays inline, content-classified,
 and conservative in its family table.
 
@@ -1697,7 +1697,7 @@ SQLite transactions are atomic. An event write either completes fully or not at 
 
 `get`, `get_envelope` and `get_metadata` return identity/routing projections.
 They MUST NOT select canonical payload, relation excerpts/keys, or opaque
-provider/custom metadata. Missing identity returns `None`.
+adapter/custom metadata. Missing identity returns `None`.
 
 ### 8.3 query(filter)
 
@@ -2423,35 +2423,35 @@ file with duplicate JSON keys rejected. Its closed versioned contract is
 [stopped-state-inventory.schema.json](../schemas/stopped-state-inventory.schema.json).
 Runtime validation MUST also enforce unique file paths, exactly one core
 SQLite file owned by `core`, declared ownership for every file, and at least one
-selected file for every declared provider. The inventory is an operator input;
+selected file for every declared adapter. The inventory is an operator input;
 it MUST NOT be presented as adapter discovery or proof of complete SDK state.
 
 Capture and restore MUST require the operator's explicit stopped assertion and
 MUST use the selected-state snapshot verification and absent-destination rules.
 Verification MUST NOT open an adapter, acquire send authority, or promote an
-outbox. Provider declarations describe capture selection only; snapshot
+outbox. Adapter declarations describe capture selection only; snapshot
 verification establishes integrity of the captured file set, not completeness
 against runtime configuration or authenticity of the operator's inventory.
 
 AdapterSpec.stopped_state_declaration is an optional lazy symbol reference to
-an SDK-free provider declaration. Core MUST resolve it only during maintenance
+an SDK-free adapter declaration. Core MUST resolve it only during maintenance
 planning, exclusion checking, or configured capture. Missing, unloadable, or non-conforming
 declarations MUST report unsupported coverage rather than infer native paths.
-Provider callback results MUST match the coverage or exclusion contract;
+Adapter callback results MUST match the coverage or exclusion contract;
 unexpected callback errors MUST become typed maintenance failures without
-exposing provider exception messages through the CLI. Configuration preparation
+exposing adapter exception messages through the CLI. Configuration preparation
 failures MUST use the same sanitized CLI refusal path.
 
 The CLI `check` command MUST release acquired exclusion primitives at exit.
 Retaining exclusion during capture requires the library context to remain held
-across the capture operation. Providers MUST close partially acquired exclusion
+across the capture operation. Adapters MUST close partially acquired exclusion
 resources before propagating an acquisition failure or cancellation; core owns
-cleanup only after the provider returns a valid exclusion object. No exclusion
+cleanup only after the adapter returns a valid exclusion object. No exclusion
 check proves another host with the same identity is inactive.
 
 The `capture-config` command MUST require the stopped assertion, prepare each
-enabled instance once, and retain supported file-backed provider exclusion
-through native metadata resolution and snapshot publication. A provider MAY
+enabled instance once, and retain supported file-backed adapter exclusion
+through native metadata resolution and snapshot publication. An adapter MAY
 implement the optional `NativeStateResolver.resolve_coverage` callback to
 resolve bounded read-only native metadata while exclusion is held. Ordinary
 configuration-only `coverage` and `plan` MUST NOT invoke that callback or
@@ -2459,11 +2459,11 @@ perform native filesystem discovery. Neither callback may start an SDK, open
 a native session, or acquire delivery authority.
 
 Configured capture MUST refuse unsupported or externally managed host state,
-required provider exports, resolved coverage for a different instance, and
+required adapter exports, resolved coverage for a different instance, and
 file-backed coverage without required files. Such refusal MUST NOT publish a
 partial snapshot. Fake, stateless-local, and device-attached declarations may
 select zero host files; this does not mean that server credentials or device
-firmware identity were backed up. Provider exclusions MUST unwind in reverse
+firmware identity were backed up. Adapter exclusions MUST unwind in reverse
 order on success, error, or cancellation. Core SQLite writer exclusion remains
 the snapshot API's per-database `BEGIN IMMEDIATE` guard, not an additional
 profile lease or proof that the original runtime cannot start.
@@ -2476,7 +2476,7 @@ MUST NOT be treated as continuous ownership or complete-installation evidence.
 
 The maintenance snapshot API MUST require an explicit stopped-runtime assertion
 for capture and restore. This assertion MUST NOT be treated as proof that native
-workers have exited or that the selected provider inventory is complete.
+workers have exited or that the selected adapter inventory is complete.
 Exactly one selected core database is required; the caller selects every other
 ledger and identity needed by its installation.
 
@@ -2487,7 +2487,7 @@ malformed field types MUST raise `ValueError` before file access. Every selected
 SQLite file MUST use SQLite backup, including committed WAL content. Each SQLite
 backup MUST pass integrity and foreign-key checks. Opaque inputs MUST NOT be plaintext SQLite or have a nonempty
 `-wal` or `-journal` companion; unsupported encrypted state requires a qualified
-provider export. Opaque files are copied through regular-file descriptors;
+adapter export. Opaque files are copied through regular-file descriptors;
 paths, symlinks and duplicate manifest fields MUST be rejected when invalid.
 The published manifest follows
 [stopped-state-snapshot.schema.json](../schemas/stopped-state-snapshot.schema.json).
@@ -2503,7 +2503,7 @@ place; it is not a verified snapshot.
 
 This API MUST NOT reopen delivery work, authorize replay or switch a running
 installation. Checksums establish integrity relative to the supplied manifest,
-not authenticity. Encrypted native stores and provider-specific companion files
+not authenticity. Encrypted native stores and transport-specific companion files
 require a separately qualified inventory. This API does not claim crash-durable
 publication across filesystem or power failure.
 
