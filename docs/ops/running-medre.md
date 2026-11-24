@@ -475,39 +475,16 @@ runtime:
 
 ## Retry
 
-Retry is **opt-in** — disabled by default. Two levels need to be enabled:
-
-1. **Per-route retry** (`routes.<id>.retry`) — controls whether retry receipts are scheduled.
-2. **Global retry** (`retry.enabled: true`) — controls whether the RetryWorker processes them.
-
-Retry uses frozen target semantics — retries target the originally recorded adapter and channel, not the current route config. The retry policy is captured at first failure and does not change with route config updates.
-
-See [configuration.md](configuration.md) for retry configuration fields.
+Retry is **opt-in** — disabled by default. Enabling retry, its frozen target
+semantics, and the retry-versus-replay comparison live in
+[recovery-and-replay.md](recovery-and-replay.md#enabling-retry).
 
 ## Replay
 
-Replay re-processes historical events through pipeline stages. Five modes:
-
-| Mode          | Delivers? | Side effects          | Use case                                       |
-| ------------- | --------- | --------------------- | ---------------------------------------------- |
-| `strict`      | No        | None                  | Validate events against current schema only    |
-| `re_render`   | No        | None                  | Re-run rendering for existing events           |
-| `re_route`    | No        | None                  | Re-evaluate route matching after config change |
-| `dry_run`     | No        | None                  | Preview what replay would do                   |
-| `best_effort` | Yes       | Real adapter delivery | Re-deliver historical events                   |
-
-Always run `dry_run` first. `best_effort` produces real outbound messages without deduplication.
-
-```bash
-# Preview
-medre replay --mode dry_run --config bridge.yaml --json
-
-# Re-deliver
-medre replay --mode best_effort --config bridge.yaml --json
-```
-
-Replay-origin receipts carry `replay_run_id` for audit. Initial attempts use
-`source="replay"`; later retries retain the run ID with `source="retry"`.
+Replay re-processes historical events through pipeline stages. It is manual and
+operator-initiated; the replay modes, command shape, result interpretation, and
+replay receipts live in
+[recovery-and-replay.md](recovery-and-replay.md#replay-modes).
 
 ## Route Loop Prevention
 

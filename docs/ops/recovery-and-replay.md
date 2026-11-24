@@ -762,6 +762,17 @@ ORDER BY e.created_at DESC;
 4. **Accept duplicates for radio transports.** Meshtastic and MeshCore treat duplicate sends as normal operational practice.
 5. **Warn for Matrix.** Matrix duplicates are rarer and more visible to users.
 
+## Enabling Retry
+
+Retry is **opt-in** — disabled by default. Two levels need to be enabled:
+
+1. **Per-route retry** (`routes.<id>.retry`) — controls whether retry receipts are scheduled.
+2. **Global retry** (`retry.enabled: true`) — controls whether the RetryWorker processes them.
+
+Retry uses frozen target semantics — retries target the originally recorded adapter and channel, not the current route config. The retry policy is captured at first failure and does not change with route config updates.
+
+See [configuration.md](configuration.md) for retry configuration fields.
+
 ## Retry vs Replay
 
 |                    | Retry (automatic)                                                     | Replay (manual)                                                                                |
