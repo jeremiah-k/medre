@@ -371,7 +371,11 @@ extension), no timeout value will help, and the process needs a `SIGKILL`.
 
 ## Loop Prevention
 
-MEDRE provides three layers of loop prevention at different stages.
+MEDRE uses four loop safeguards: one startup warning and three runtime
+guards (native-reference ingress deduplication, route-trace, and self-loop
+suppression). Replay has an additional scope-specific filter. These checks
+are local to one MEDRE runtime, not peer-relay authentication or distributed
+loop prevention.
 
 ### Self-Loop Guard (Runtime, Per-Delivery)
 
@@ -397,6 +401,13 @@ When it fires: every delivery attempt, before the self-loop guard.
 
 Expected: `DeliveryOutcome`: `status == "skipped"`, `error == "loop_prevented: route already in route_trace"`.
 
+### Native-reference duplicate suppression (Ingress, Before Routing)
+
+A previously recorded `source_native_ref` suppresses duplicate ingress before
+routing. This guard is distinct from the route-trace and delivery guards: it
+applies to repeated native identities, not every message seen from a peer
+bridge. It does not establish cross-instance deduplication or peer trust.
+
 ### Config-Time Detection (Startup)
 
 **Direct loop detection:** `check_route_loops` builds edge pairs from all enabled routes. If both `(A, B)` and `(B, A)` edges exist, a warning is logged. Startup continues.
@@ -407,12 +418,13 @@ Both config-time checks produce warnings only. They do not block startup.
 
 ### Loop Prevention Scope
 
-| Context     | Mechanism                          | Blocks startup?   | Blocks delivery? |
-| ----------- | ---------------------------------- | ----------------- | ---------------- |
-| Config-time | `check_route_loops` (direct + DFS) | No (warning only) | N/A              |
-| Runtime     | Route-trace loop prevention        | N/A               | Yes              |
-| Runtime     | Self-loop guard                    | N/A               | Yes              |
-| Replay      | `_filter_replay_loops`             | N/A               | Yes              |
+| Context     | Mechanism                          | Blocks startup?   | Blocks delivery?    |
+| ----------- | ---------------------------------- | ----------------- | ------------------- |
+| Config-time | `check_route_loops` (direct + DFS) | No (warning only) | N/A                 |
+| Runtime     | Native-ref ingress deduplication   | N/A               | Yes (before routing)|
+| Runtime     | Route-trace loop prevention        | N/A               | Yes                 |
+| Runtime     | Self-loop guard                    | N/A               | Yes                 |
+| Replay      | `_filter_replay_loops`             | N/A               | Yes                 |
 
 ### Capability Suppression
 

@@ -7,7 +7,7 @@ and lock files in its own layout, and a missing file silently becomes a
 restored installation that cannot authenticate or that replays work twice.
 `medre.maintenance.stopped_declare` derives the inventory from per-adapter
 declarations instead. The result is still an operator-confirmed selection, not
-a adapter-completeness certificate — but every adapter that cannot be
+an adapter-completeness certificate — but every adapter that cannot be
 described by files is labeled honestly instead of silently omitted.
 
 ## Deriving an inventory from the configured installation
