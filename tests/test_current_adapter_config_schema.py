@@ -37,6 +37,35 @@ def test_current_schema_is_only_the_reviewed_optional_addition():
         == 15
     )
     arm["properties"]["startup_packet_drain_seconds"] = field
+    # Description-only rewordings of copied frozen arms: the adapter and
+    # transport vocabulary replaces the retired provider wording. Each delta
+    # names its arm with the pinned new literal.
+    for title, description in (
+        (
+            "XMPPConfig",
+            "Immutable configuration for the XMPP adapter: explicitly configured"
+            " bare-JID rooms and peers, text limits, and optional relay"
+            " attribution. Installed-adapter validation also checks native"
+            " identities, allowlists and cross-field constraints.",
+        ),
+        (
+            "ChatmailConfig",
+            "Immutable configuration for the Chatmail adapter: one private native"
+            " account with an explicit allowlist of ordinary chats."
+            " Installed-adapter validation also checks native identities,"
+            " allowlists and cross-field constraints.",
+        ),
+        (
+            "SimplexChatConfig",
+            "Immutable configuration for the SimpleX Chat adapter: one native"
+            " profile with explicit group and contact allowlists."
+            " Installed-adapter validation also checks native identities,"
+            " allowlists and cross-field constraints.",
+        ),
+    ):
+        expected_arm = next(x for x in expected["anyOf"] if x["title"] == title)
+        assert expected_arm["description"] != description
+        expected_arm["description"] = description
     assert current == expected
     assert current["$id"].endswith("/current/adapter-config.schema.json")
 

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/current/runtime-config.schema.json",
   "title": "RuntimeConfig",
-  "description": "Full MEDRE runtime configuration structure. Adapter transport names are extensible; installed adapter configuration models validate their fields. medre config check is the authoritative validator, including installed-provider availability, cross-adapter identifiers, and route semantics.",
+  "description": "Full MEDRE runtime configuration structure. Adapter transport names are extensible; installed adapter configuration models validate their fields. medre config check is the authoritative validator, including installed-adapter availability, cross-adapter identifiers, and route semantics.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -286,7 +286,7 @@
     },
     "adapters": {
       "type": "object",
-      "description": "Adapter instances grouped by transport entry-point name. The schema validates structure for any provider; medre config check rejects transports without an installed provider and validates provider-owned settings. An empty mapping is valid when no installed provider contributes an offline sample; runtime startup still requires an enabled adapter.",
+      "description": "Adapter instances grouped by transport entry-point name. The schema validates structure for any transport; medre config check rejects transports without an installed adapter and validates adapter-owned settings. An empty mapping is valid when no installed adapter contributes an offline sample; runtime startup still requires an enabled adapter.",
       "propertyNames": {
         "pattern": "^[a-z][a-z0-9_-]*$"
       },

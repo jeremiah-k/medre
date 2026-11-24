@@ -659,7 +659,7 @@
     },
     {
       "title": "XMPPConfig",
-      "description": "Immutable configuration for the XMPP adapter: explicitly configured bare-JID rooms and peers, text limits, and optional relay attribution. Installed-provider validation also checks native identities, allowlists and cross-field constraints.",
+      "description": "Immutable configuration for the XMPP adapter: explicitly configured bare-JID rooms and peers, text limits, and optional relay attribution. Installed-adapter validation also checks native identities, allowlists and cross-field constraints.",
       "type": "object",
       "properties": {
         "adapter_id": {
@@ -771,7 +771,7 @@
     },
     {
       "title": "ChatmailConfig",
-      "description": "Immutable configuration for the Chatmail adapter: one private native account with an explicit allowlist of ordinary chats. Installed-provider validation also checks native identities, allowlists and cross-field constraints.",
+      "description": "Immutable configuration for the Chatmail adapter: one private native account with an explicit allowlist of ordinary chats. Installed-adapter validation also checks native identities, allowlists and cross-field constraints.",
       "type": "object",
       "properties": {
         "adapter_id": {
@@ -866,7 +866,7 @@
     },
     {
       "title": "SimplexChatConfig",
-      "description": "Immutable configuration for the SimpleX Chat adapter: one native profile with explicit group and contact allowlists. Installed-provider validation also checks native identities, allowlists and cross-field constraints.",
+      "description": "Immutable configuration for the SimpleX Chat adapter: one native profile with explicit group and contact allowlists. Installed-adapter validation also checks native identities, allowlists and cross-field constraints.",
       "type": "object",
       "properties": {
         "adapter_id": {

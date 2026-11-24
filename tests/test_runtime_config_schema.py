@@ -157,6 +157,24 @@ def test_current_runtime_schema_adds_the_optional_ceiling_sweep() -> None:
     accepted_window["type"] = "integer"
     accepted_window["minimum"] = 1
     accepted_window["maximum"] = 31536000
+    # Description-only rewordings at named leaves: the adapter and transport
+    # vocabulary replaces the retired provider wording. Each delta names the
+    # leaf it replaces with the pinned new literal.
+    expected["description"] = (
+        "Full MEDRE runtime configuration structure. Adapter transport names are"
+        " extensible; installed adapter configuration models validate their"
+        " fields. medre config check is the authoritative validator, including"
+        " installed-adapter availability, cross-adapter identifiers, and route"
+        " semantics."
+    )
+    expected["properties"]["adapters"]["description"] = (
+        "Adapter instances grouped by transport entry-point name. The schema"
+        " validates structure for any transport; medre config check rejects"
+        " transports without an installed adapter and validates adapter-owned"
+        " settings. An empty mapping is valid when no installed adapter"
+        " contributes an offline sample; runtime startup still requires an"
+        " enabled adapter."
+    )
     assert current == expected
 
     # Independent leaf assertions: each enumerated delta names the frozen
@@ -193,6 +211,13 @@ def test_current_runtime_schema_adds_the_optional_ceiling_sweep() -> None:
     assert current["properties"]["content_ceiling"]["properties"]["max_age_seconds"][
         "type"
     ] == ["integer", "null"]
+    assert "installed-provider availability" in frozen["description"]
+    assert "installed-adapter availability" in current["description"]
+    frozen_adapters_description = frozen["properties"]["adapters"]["description"]
+    assert "provider-owned settings" in frozen_adapters_description
+    assert "adapter-owned settings" in (
+        current["properties"]["adapters"]["description"]
+    )
     Draft202012Validator(current).validate(
         {"retry": {"ceiling_sweep": {"enabled": True}}}
     )
