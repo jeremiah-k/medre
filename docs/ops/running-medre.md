@@ -386,14 +386,7 @@ monitoring.
 
 ## Docker Deployment
 
-Container deployment has one authoritative guide: [Docker](docker.md). It
-covers the committed image and Compose deployment, source-selected builds,
-published and development image tags, persistent state on the `/data` volume,
-the separately mounted host config file, serial and Bluetooth hardware access,
-and update and backup procedures. The deployment runs as a non-root user with
-a read-only container filesystem; keep secrets in the host config file or a
-local Compose override, never in image build arguments. Podman and Kubernetes
-are not qualified by the committed Docker workflow.
+Container deployment has one authoritative guide: [Docker](docker.md).
 
 ## Explicit Non-Guarantees
 

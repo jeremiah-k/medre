@@ -911,7 +911,7 @@ Data:      /opt/medre/data/
 Cache:     /opt/medre/cache/
 ```
 
-Use this mode for Docker, Kubernetes, portable deployments, and development. See [running-medre.md](running-medre.md) for Docker deployment details.
+Use this mode for Docker, Kubernetes, portable deployments, and development. See the [Docker guide](docker.md) for deployment details.
 
 ```bash
 export MEDRE_HOME=/opt/medre
