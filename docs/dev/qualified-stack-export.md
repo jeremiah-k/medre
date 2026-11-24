@@ -1,7 +1,7 @@
 # Exact-pinned offline source exports
 
 The compatibility manifest stored in the selected core commit is the single
-selection authority. Hidden checkout edits cannot replace its provider pins.
+selection authority. Hidden checkout edits cannot replace its adapter pins.
 Ordinary
 stack exports can contain development checkout heads and omit selected commits;
 that is useful for work-in-progress but is **not** an exact release build.
@@ -11,8 +11,8 @@ python scripts/export_qualified_stack.py /path/to/sibling-checkouts /private/new
 ```
 
 The command requires a clean core checkout plus a clean checkout and exact pin
-commit object for every provider in core's compatibility manifest.
-Provider selections must be full immutable commit SHAs; branch and tag refs are
+commit object for every adapter in core's compatibility manifest.
+Adapter selections must be full immutable commit SHAs; branch and tag refs are
 refused even when they currently resolve locally.
 It creates independent bundles from the selected pinned objects even if a
 checkout is on a newer branch, then verifies commit and tree identity using

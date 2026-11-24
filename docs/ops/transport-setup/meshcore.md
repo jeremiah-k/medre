@@ -1,9 +1,9 @@
 # MeshCore Transport Setup
 
-Install the provider in the same environment as MEDRE using the
+Install the adapter in the same environment as MEDRE using the
 [installation guide](../install.md). Activate a project environment before
 invoking CLI tools; persistent uv tools already expose `medre` on PATH.
-The provider supplies both its SDK-free fake and its native SDK dependencies.
+The adapter supplies both its SDK-free fake and its native SDK dependencies.
 
 Setting up and running the MEDRE MeshCore adapter against a real radio node.
 
@@ -13,14 +13,14 @@ Fake mode is the default and recommended path for all development and testing. R
 
 ### Prerequisites
 
-| Requirement          | Details                                                                                                                     |
-| -------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| MeshCore node        | A MeshCore companion radio node accessible via TCP, serial, or BLE                                                          |
-| Python               | 3.11 or later                                                                                                               |
-| Package install      | Install the provider in the MEDRE environment; see [installation](../install.md) (its pinned MeshCore SDK installs with it) |
-| Network access (TCP) | Your machine can reach the node's IP address on port 4000                                                                   |
-| Serial access        | USB cable connecting the node; user in `dialout` group on Linux                                                             |
-| BLE access           | BLE-capable hardware and BlueZ on Linux (optional)                                                                          |
+| Requirement          | Details                                                                                                                    |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| MeshCore node        | A MeshCore companion radio node accessible via TCP, serial, or BLE                                                         |
+| Python               | 3.11 or later                                                                                                              |
+| Package install      | Install the adapter in the MEDRE environment; see [installation](../install.md) (its pinned MeshCore SDK installs with it) |
+| Network access (TCP) | Your machine can reach the node's IP address on port 4000                                                                  |
+| Serial access        | USB cable connecting the node; user in `dialout` group on Linux                                                            |
+| BLE access           | BLE-capable hardware and BlueZ on Linux (optional)                                                                         |
 
 ### Node Setup
 
@@ -89,7 +89,7 @@ bluetoothctl --version
 sudo usermod -aG bluetooth $USER
 # Log out and back in for group changes to take effect
 
-# The provider distribution installs the pinned meshcore SDK (includes bleak)
+# The adapter distribution installs the pinned meshcore SDK (includes bleak)
 ```
 
 ##### Pair the device first
@@ -109,7 +109,7 @@ bluetoothctl
 
 ##### Firmware Compatibility
 
-The provider distribution pins its MeshCore SDK directly in its package
+The adapter distribution pins its MeshCore SDK directly in its package
 metadata; the installed adapter's declared pin is the version authority.
 Verify the installed SDK surface in the environment containing MEDRE:
 
@@ -121,7 +121,7 @@ python -c "import meshcore; print(meshcore.__all__)"
 ```
 
 For the equivalent Windows PowerShell invocation see
-[installation](../install.md#run-provider-sdk-tools-in-the-same-environment).
+[installation](../install.md#run-adapter-sdk-tools-in-the-same-environment).
 The SDK should expose `MeshCore`, `BLEConnection`, `SerialConnection`,
 `TCPConnection`, `ConnectionManager`, `EventType` and `BinaryReqType`. Run
 the optional TCP connectivity probe above with the same interpreter.
@@ -271,10 +271,10 @@ BLE connections are sensitive to distance and interference. Try these steps:
 
 ### `bleak` import error
 
-The pinned `meshcore` SDK depends on `bleak`; it installs with the provider
+The pinned `meshcore` SDK depends on `bleak`; it installs with the adapter
 distribution. Check the interpreter in the
-[MEDRE environment](../install.md#run-provider-sdk-tools-in-the-same-environment)
-first. If the import fails there, check whether the provider and its native SDK
+[MEDRE environment](../install.md#run-adapter-sdk-tools-in-the-same-environment)
+first. If the import fails there, check whether the adapter and its native SDK
 are installed correctly; an unrelated shell interpreter proves nothing.
 
 ### `bluetoothctl scan on` does not show the node

@@ -34,14 +34,14 @@ do not set it manually.
 
 ## Optional SDK-free native setup prompts
 
-A provider may expose `AdapterSpec.native_setup_fields` as a tuple of
+An adapter may expose `AdapterSpec.native_setup_fields` as a tuple of
 `NativeSetupField` declarations from `medre.adapter_spec`. Each declaration
-names a field in the provider-owned configuration model and its operator
+names a field in the adapter-owned configuration model and its operator
 prompt; `secret=True` hides terminal input, `choices` provides valid choices,
 `active_when=(field, value)` selects dependent inputs, and `numeric=True`
 parses an integer. The core does **not** hardcode native connection fields.
 The wizard calls the usual typed loader and pure runtime preflight; it never
-imports an SDK or starts an adapter. The provider remains responsible for
+imports an SDK or starts an adapter. The adapter remains responsible for
 validation, runtime prerequisites, address formats, and documentation. Do not
 include fields with side effects or secrets that cannot safely be written to
 a private config file. Fields in `support_secret_fields` require hidden input;
@@ -49,26 +49,26 @@ choice prompts accept unique text values and cannot be numeric or secret.
 Conditional inputs reference a declared choice of a preceding prompt. To retain
 compatibility with core versions without native forms, check for
 `medre.adapter_spec.NativeSetupField` before constructing the optional tuple or
-passing the keyword to `AdapterSpec`; provider discovery can then work on core
+passing the keyword to `AdapterSpec`; adapter discovery can then work on core
 main while form support is qualified against a candidate core revision. Omitting the tuple leaves guided native setup unavailable
-for that provider without affecting manual configuration.
+for that adapter without affecting manual configuration.
 
-## Optional typed setup instructions for form-less providers
+## Optional typed setup instructions for form-less adapters
 
-A provider whose provisioning cannot be an offline form (for example, when a
+An adapter whose provisioning cannot be an offline form (for example, when a
 profile can only be created by native tooling that contacts the native
 service) may expose `AdapterSpec.native_setup_instructions` as a single
 `NativeSetupInstructions(title, summary, steps)` declaration from
 `medre.adapter_spec`. Each `NativeSetupStep(command, purpose, evidence_note)`
-renders one ordered stage of the provider's own journey. The command is the
-verbatim provider tooling invocation, exactly as the provider contributes it;
-core renders it informationally and never executes it, because provider setup
+renders one ordered stage of the adapter's own journey. The command is the
+verbatim adapter tooling invocation, exactly as the adapter contributes it;
+core renders it informationally and never executes it, because adapter setup
 commands contact native services. The evidence note states what observing the
 completed step proves and what it does not prove: a completed provisioning
 step is never relay acceptance, delivery, or read evidence and grants no send
 authority. `medre config native` prints the journey for an instructions-only
-provider with an `informational_only` classification, writes no file, and
-fabricates no configuration; a provider with `native_setup_fields` keeps the
+adapter with an `informational_only` classification, writes no file, and
+fabricates no configuration; an adapter with `native_setup_fields` keeps the
 guided form. Declarations must stay deterministic: no secrets, no
 building-machine paths, no timestamps.
 
@@ -76,7 +76,7 @@ To retain compatibility with core versions without this seam, check for
 `medre.adapter_spec.NativeSetupInstructions` (for example with `getattr` on
 the module) before constructing the declaration or passing the
 `native_setup_instructions` keyword to `AdapterSpec`; older cores then keep
-discovering the provider exactly as before.
+discovering the adapter exactly as before.
 
 ## Step 1: Implement the Adapter Protocol
 
@@ -411,8 +411,8 @@ Use a distinctive transport-qualified kind to avoid clashes.
 Installed entry points are discovered once per process and ordered by name.
 Duplicate transport names, broken factories, and conflicting declarations
 are quarantined with diagnostics available through `medre adapters check`.
-Conflicting owners are all rejected; healthy providers remain usable. Discovery never fetches packages. Restart after changing
-installed providers. Config YAML selects `adapters.<transport>.<instance>`;
+Conflicting owners are all rejected; healthy adapters remain usable. Discovery never fetches packages. Restart after changing
+installed adapters. Config YAML selects `adapters.<transport>.<instance>`;
 it contains neither installer URLs nor arbitrary Python class paths.
 
 Adding an adapter requires no core registration-list edit. Generic consumers
@@ -426,7 +426,7 @@ discovery and open third-party distribution.
 Set `sample_config=SymbolRef("your_package.sample", "sample_config")` to a
 zero-argument callback returning `AdapterSample(native_values, channel="opaque-conversation")`. Core supplies distinct instance IDs,
 `enabled: true`, and `adapter_kind: fake`. Leave lifecycle fields out of
-`native_values`. This callback is optional and SDK-free. Providers without a
+`native_values`. This callback is optional and SDK-free. Adapters without a
 fake or sample remain supported, but are omitted from `medre config sample`.
 The callback owns native config values and addressing; core generates routes
 without recognizing your platform name.
@@ -441,8 +441,8 @@ hook signature, loading phase, public metadata helper, and conformance tool.
 An adapter may declare a fake variant through `AdapterSpec.fake_adapter`,
 implemented in that adapter's distribution. Its fake exercises the full
 pipeline without network or hardware dependencies. `fake_adapter=None` is valid;
-core does not fabricate fake support for that provider. Lifecycle drills choose
-only declared fake providers and report failure when none is available.
+core does not fabricate fake support for that adapter. Lifecycle drills choose
+only declared fake adapters and report failure when none is available.
 Fake event factories may expose `make_event(text=..., event_kind=...)` for smoke
 injection. Run-session callback ingress uses the canonical
 `AdapterContract.publish_inbound(event)` seam; native packet simulation methods

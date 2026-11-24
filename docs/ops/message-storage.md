@@ -53,7 +53,7 @@ policy declaration, activation epochs, and preview contract are specified in
 
 Collection stays best-effort and bounded: blocked, refused, and unmeasured
 copies are retained and reported. It is not physical erasure. Attachment
-bytes, delivery evidence, native provider stores, relation excerpts on other
+bytes, delivery evidence, native transport stores, relation excerpts on other
 events, SQLite free pages, WAL files, and backups are all retained — see
 [content collection guard](../spec/content-collection-guard.md) for the
 exact boundaries.

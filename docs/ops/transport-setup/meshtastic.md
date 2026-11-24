@@ -1,9 +1,9 @@
 # Meshtastic Transport Setup
 
-Install the provider in the same environment as MEDRE using the
+Install the adapter in the same environment as MEDRE using the
 [installation guide](../install.md). Activate a project environment before
 invoking CLI tools; persistent uv tools already expose `medre` on PATH.
-The provider supplies both its SDK-free fake and its native SDK dependencies.
+The adapter supplies both its SDK-free fake and its native SDK dependencies.
 
 Setting up and running the MEDRE Meshtastic adapter against a real radio node.
 
@@ -17,7 +17,7 @@ Fake mode is the default and recommended path for all development and testing. R
 | -------------------- | -------------------------------------------------------------------------------------------- |
 | Meshtastic node      | A real radio node (e.g. LilyGO T-Beam, Heltec v3, RAK WisBlock) accessible via TCP or serial |
 | Python               | 3.11 or later                                                                                |
-| Package install      | Install the provider in the MEDRE environment; see [installation](../install.md)             |
+| Package install      | Install the adapter in the MEDRE environment; see [installation](../install.md)              |
 | Network access (TCP) | Your machine can reach the node's IP address on port 4403                                    |
 | Serial access        | USB cable connecting the node; user in `dialout` group on Linux                              |
 | Radio channel        | A channel index (default 0) not used for critical or emergency communications                |
@@ -36,7 +36,7 @@ Most Meshtastic nodes expose a TCP API when connected via WiFi or Ethernet. Defa
    nc -zv meshtastic.local 4403
    ```
 
-1. Optionally verify with the Meshtastic CLI supplied by the provider. Use
+1. Optionally verify with the Meshtastic CLI supplied by the adapter. Use
    the appropriate environment (stop any MEDRE process owning the radio first):
 
    ```bash
@@ -52,7 +52,7 @@ Most Meshtastic nodes expose a TCP API when connected via WiFi or Ethernet. Defa
    & (Join-Path (uv tool dir) 'medre/Scripts/meshtastic.exe') --host meshtastic.local --info
    ```
 
-   See [the same-environment SDK instructions](../install.md#run-provider-sdk-tools-in-the-same-environment).
+   See [the same-environment SDK instructions](../install.md#run-adapter-sdk-tools-in-the-same-environment).
 
 #### Serial Connectivity
 
@@ -78,10 +78,10 @@ bluetoothctl scan on
 
 #### Firmware Compatibility
 
-The provider distribution pins its Meshtastic SDK (`mtjk`) directly in its
+The adapter distribution pins its Meshtastic SDK (`mtjk`) directly in its
 package metadata, which also supplies the `meshtastic` CLI used above; the
 installed adapter's declared pin is the version authority. If you encounter
-protocol errors, upgrade the installed provider and node firmware together,
+protocol errors, upgrade the installed adapter and node firmware together,
 then rerun the installed-SDK and local validation tiers.
 
 ## Set up

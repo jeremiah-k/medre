@@ -82,7 +82,7 @@ until shutdown.
 
 This abbreviated text example omits some component logs.
 The `Core`, `Python` and `Adapter` lines report the running installation:
-provider entries show installed versions and a compact provenance label —
+adapter entries show installed versions and a compact provenance label —
 `github:owner/repo@<commit>` (or `git:host/path@<commit>` for other hosts,
 `hg:`/`svn:` revisions), `pypi` when no direct URL is recorded, `editable:`/
 `local:` for local directories, or `url:` for a direct source location.

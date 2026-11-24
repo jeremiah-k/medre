@@ -119,7 +119,7 @@ that installation and restore it against the same live database, or restore
 to an unused destination and reconcile the evidence explicitly. A supplied
 `--against-live` path that does not exist, like an omitted one, skips the
 check and is only appropriate for a genuinely new installation without a
-prior authoritative database. Core equality does not prove that provider-side
+prior authoritative database. Core equality does not prove that transport-side
 sends or operator actions outside the selected state files are included;
 reconcile those effects before activating the restored installation.
 
@@ -137,7 +137,7 @@ all receipts, native effects, and operator decisions created since backup.
 A backup is a point-in-time copy. A delivery that was pending when the
 backup was taken may have completed natively afterward; restoring that
 backup erases the completion record, so the restored build can send it
-again. Before resuming a restored database, reconcile the provider and
+again. Before resuming a restored database, reconcile the adapter and
 radio effects that landed after the backup was taken, or prefer the
 upgraded database when it holds work recorded since the backup.
 
@@ -148,7 +148,7 @@ before starting the runtime: preview, verify the observed evidence, then
 apply with the observed outbox ID, generation, status, and update version.
 That command refuses `queued`, `in_progress`, uncertain, or accepted native
 attempts. If the restored row is in one of those states, do not start the
-restored build; reconcile the provider and radio outcome while it stays
+restored build; reconcile the adapter and radio outcome while it stays
 offline, or keep the upgraded database authoritative.
 
 ### How to tell if your database is stale
@@ -232,7 +232,7 @@ an incompatible schema.
    do not copy the source WAL onto that snapshot. Copying only the main file is
    **not** a complete raw-file backup: committed data may remain in its WAL.
    A raw copy needs the matching main file and any `-wal`/`-shm` sidecars together.
-   This preserves core state only; native identities, credentials and provider
+   This preserves core state only; native identities, credentials and transport
    stores have separate [capture requirements](stopped-state-provider-inventory.md).
 
 3. **Reset the disposable database deliberately.** With all users stopped,
@@ -447,7 +447,7 @@ medre smoke --config examples/configs/fake-bridge-smoke.yaml --json
 medre smoke --config examples/configs/fake-bridge-smoke.yaml \
   --storage-path /tmp/medre-smoke.db --json
 
-# Installed package with a sample-contributing provider
+# Installed package with a sample-contributing adapter
 medre config sample > /tmp/medre-walkthrough.yaml
 medre smoke --config /tmp/medre-walkthrough.yaml \
   --storage-path /tmp/medre-walkthrough.db --json
@@ -844,7 +844,7 @@ Look for `queue_total_sent`, `queue_total_failed`, `queue_total_rejected`.
 Check diagnostics for `undecryptable_event_count`. Non-zero indicates E2EE decryption
 failures. Compare `megolm_recovery_attempts`, `megolm_recovery_successes`, and
 `megolm_recovery_failures` to determine whether live missing-key recovery is being
-accepted by the provider. Also inspect `cross_signing_chain_status`,
+accepted by the transport. Also inspect `cross_signing_chain_status`,
 `cross_signing_current_device_self_signed`, and `cross_signing_reset_required`.
 Cross-signing establishes MEDRE's own device identity but does not replace room-key
 backup/import/export. If identity reset is required, back up the Matrix state directory
@@ -945,7 +945,7 @@ If you have environment variables set for a Matrix adapter, you can validate MED
 
 - A Matrix homeserver (Synapse or Conduit) running and reachable.
 - A bot account on that homeserver.
-- The Matrix provider installed with its SDK; see [installation](install.md).
+- The Matrix adapter installed with its SDK; see [installation](install.md).
 
 ### Procedure — Matrix
 
@@ -993,7 +993,7 @@ If you have a Meshtastic radio node accessible via TCP or serial, you can valida
 ### Prerequisites — Meshtastic
 
 - A Meshtastic radio node powered on and accessible via TCP (port 4403) or serial.
-- The Meshtastic provider installed with its SDK; see [installation](install.md).
+- The Meshtastic adapter installed with its SDK; see [installation](install.md).
 - The node on a non-critical channel (do not use emergency or default channel 0 for testing).
 
 ### Procedure — Meshtastic

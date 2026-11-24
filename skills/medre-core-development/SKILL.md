@@ -1,13 +1,13 @@
 ---
 name: medre-core-development
-description: Implement or diagnose behavior changes in MEDRE core. Use for config and route semantics, runtime or storage behavior, shared provider contracts, and core dependency or compatibility changes.
+description: Implement or diagnose behavior changes in MEDRE core. Use for config and route semantics, runtime or storage behavior, shared adapter contracts, and core dependency or compatibility changes.
 ---
 
 # Develop MEDRE core
 
 ## Trace the change to its owner
 
-State the expected behavior at the CLI, runtime, or provider boundary.
+State the expected behavior at the CLI, runtime, or adapter boundary.
 Follow that entry point to the code that makes the decision. Use the
 applicable spec to identify the invariant and find a regression case that
 would distinguish the old behavior from the expected behavior.
@@ -23,8 +23,8 @@ would distinguish the old behavior from the expected behavior.
   [delivery lifecycle](../../docs/spec/delivery-lifecycle.md) and the relevant
   [storage](../../docs/spec/storage.md) or
   [evidence](../../docs/spec/diagnostics-evidence.md) contract.
-- **Provider contract**. Keep generic orchestration in core and native
-  addressing, SDK handling, and protocol behavior in the provider. See
+- **Adapter contract**. Keep generic orchestration in core and native
+  addressing, SDK handling, and protocol behavior in the adapter. See
   [adapter runtime](../../docs/spec/adapter-runtime.md) and
   [external adapters](../../docs/dev/external-adapters.md).
 - **Dependencies, extras, or package artifacts**. Sync the locked environment
@@ -44,17 +44,17 @@ schema assets. Preserve the frozen release bytes.
   When the risk is wiring or restart behavior, include a test that reaches it
   through that path. Use deterministic lifecycle hooks for races.
 - Keep generic regression tests runnable with `pytest --core-only`. Declare
-  provider-dependent modules as compatibility tests using the
+  adapter-dependent modules as compatibility tests using the
   [test-tier guidance](../../docs/dev/testing.md#adapter-free-and-compatibility-ownership).
-  Put provider-native regressions in the provider repository.
-- For a shared contract change, qualify the exact core/provider pair.
+  Put adapter-native regressions in the adapter repository.
+- For a shared contract change, qualify the exact core/adapter pair.
   Candidate pair results describe those revisions. The committed compatibility
-  manifest takes landed provider commits. Follow
+  manifest takes landed adapter commits. Follow
   [coordinated changes](../../docs/dev/coordinated-changes.md) for the pin and
   merge sequence.
 - Match the claim to the test. A fake smoke run exercises the core pipeline.
   SDK and live tests have separate prerequisites. Keep native handoff,
-  provider acceptance, and independent recipient observation distinct when
+  transport acceptance, and independent recipient observation distinct when
   reporting delivery evidence.
 
 Update the relevant spec and regression coverage with a semantic change.

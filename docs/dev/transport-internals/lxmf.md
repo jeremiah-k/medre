@@ -38,7 +38,7 @@ states the SDK did not report. These observations appear in `medre trace`,
 `medre inspect`, and evidence bundles. They do not rewrite the original
 `sent/local_queue` receipt or reopen terminal outbox state.
 
-Treat the persisted state as the LXMF provider's report, not as a stronger
+Treat the persisted state as the LXMF adapter's report, not as a stronger
 MEDRE proof claim. In particular, an LXMF `delivered` observation currently
 keeps `confirmation_level="unknown"`; MEDRE does not promote it to
 `end_to_end` automatically.

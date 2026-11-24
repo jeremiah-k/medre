@@ -69,7 +69,7 @@ medre smoke --json > bundle-smoke.json
 
 ### Persistent Smoke (inspectable after exit)
 
-Use a sample-contributing provider and choose a SQLite file with
+Use a sample-contributing adapter and choose a SQLite file with
 `--storage-path`; no config edit is needed:
 
 ```bash
@@ -577,12 +577,12 @@ medre smoke --drill DRILL_NAME --config /tmp/medre-smoke.yaml --json
 ```
 
 These four programmatic drills use synthetic instances of one installed fake
-provider. Their JSON includes `adapter_transports` (instance ID to actual
+adapter. Their JSON includes `adapter_transports` (instance ID to actual
 transport) and `coverage_scope: synthetic_adapter_instances`. The bad-route
 fixture uses the neutral instance ID `source`. Startup totals count independent
-instances, so a three-instance drill can run with one provider installed; it
+instances, so a three-instance drill can run with one adapter installed; it
 proves generic lifecycle supervision. Cross-transport behavior has its own
-compatibility tests. With no provider installed, the drill fails with an
+compatibility tests. With no adapter installed, the drill fails with an
 installation reason and an empty assignment map.
 
 Each drill **exits 0** when the expected failure is correctly observed. The drill report documents what exit code and error the runtime would produce if run independently.

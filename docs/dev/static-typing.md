@@ -60,12 +60,12 @@ semantics.
 ## Next work, in risk order
 
 1. **Optional SDK typing.** Install pinned runtime dependencies in dedicated
-   provider CI jobs, add precise stubs or SDK-specific protocols for untyped
+   adapter CI jobs, add precise stubs or SDK-specific protocols for untyped
    APIs, and remove the missing-import exemption when packages/stubs are
    available. Keep adapter discovery SDK-free.
 2. **Adapter CI enforcement.** Core's required quality job runs
    `uv run --no-sync mypy --no-incremental src/medre` under its repository
-   configuration. Extend mandatory provider checks to the independent adapter
+   configuration. Extend mandatory adapter checks to the independent adapter
    workflows; the multi-repository checker remains the local developer gate.
 
 This is not a request to change transport runtime behavior merely to appease a

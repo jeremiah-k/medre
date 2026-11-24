@@ -20,15 +20,15 @@ with `uv sync --locked --extra dev --python 3.13` when reproducing a CI leg.
 CI tests CPython 3.11–3.14 and pins its uv tool version in `.tool-versions`.
 `pyproject.toml` declares the minimum supported uv version.
 
-Core supports Python 3.11+. Providers can require a newer interpreter: the Matrix
+Core supports Python 3.11+. Adapters can require a newer interpreter: the Matrix
 adapter requires Python 3.12+ for its durable mindroom-nio sync backend. CI records
-provider minimum minor versions as `python_requires` (for example, `>=3.12`) in
-the compatibility snapshot, and selects only supported provider/interpreter pairs.
-Full cross-adapter tests use interpreters supported by every selected provider;
-the adapter-free core suite also runs on Python 3.11. Individual provider contract
-jobs retain Python 3.11 coverage wherever the provider supports it.
+adapter minimum minor versions as `python_requires` (for example, `>=3.12`) in
+the compatibility snapshot, and selects only supported adapter/interpreter pairs.
+Full cross-adapter tests use interpreters supported by every selected adapter;
+the adapter-free core suite also runs on Python 3.11. Individual adapter contract
+jobs retain Python 3.11 coverage wherever the adapter supports it.
 Package metadata remains authoritative during installation. On Python 3.11,
-select providers explicitly with `medre dev sync meshtastic meshcore` or another
+select adapters explicitly with `medre dev sync meshtastic meshcore` or another
 compatible subset; use Python 3.12+ for Matrix and the full development selection.
 
 MEDRE's `dev` dependencies are an optional extra, not a dependency group.
@@ -107,11 +107,11 @@ uv run --no-sync medre dev sync --dry-run
 
 Adapter SDK CI recipes can generate `sdk-constraints.txt` and
 `sdk-requirements.txt` in their `.core` checkout. These disposable install
-inputs derive from `uv.lock` and provider package metadata; they are ignored
+inputs derive from `uv.lock` and adapter package metadata; they are ignored
 at the checkout root and must not be committed as dependency authorities.
 
 SDK mode exports constraints from the locked core graph before installing the
-providers and their declared dependencies. A conflicting SDK/core requirement
+adapters and their declared dependencies. A conflicting SDK/core requirement
 fails resolution instead of replacing the editable core or its pinned shared
 dependencies. SDK-free mode omits adapter runtime dependencies; installing SDKs
 and then requesting an SDK-free sync removes them through uv's exact core sync.
@@ -132,7 +132,7 @@ uv run --no-sync medre dev test --editable matrix=/work/providers/matrix matrix 
 `dev test` uses the core environment's Python and runs pytest from the adapter
 checkout, preserving that repository's pytest configuration and helpers. Put
 MEDRE options before the adapter name; arguments after `--` belong to pytest.
-Before pytest runs, it verifies the installed core and provider are editable at
+Before pytest runs, it verifies the installed core and adapter are editable at
 the selected paths; a stale or different installation requires repeating `dev sync`.
 It does not install packages. Select SDKs with `dev sync --sdk` before running SDK
 contracts; for the SDK-only Matrix selection, use
@@ -170,7 +170,7 @@ selects a profile outside the checkout; the default local profile is never
 created implicitly. The profile shape is published in
 [dev-environment.schema.json](../schemas/dev-environment.schema.json).
 
-For custom Git revisions or third-party providers, pass `--sources PATH` (or set
+For custom Git revisions or third-party adapters, pass `--sources PATH` (or set
 `sources` in the profile) using the [source catalog format](../ops/package-management.md#choose-your-own-sources).
 Only this explicitly selected catalog overrides the CI snapshot defaults;
 operator source preferences do not silently affect compatibility tests. A null
@@ -180,7 +180,7 @@ checkout is validated against its selected distribution before synchronization.
 
 For a reproducible bridge deployment, use a separate
 [locked deployment project](../ops/adapter-installation.md). `dev sync` does not
-create a combined adapter lock. Provider metadata declares eligible SDK versions.
+create a combined adapter lock. Adapter metadata declares eligible SDK versions.
 Capture the resolved SDK versions separately when recording qualification evidence.
 Use the coordinated-change policy below to qualify and land exact candidate pairs.
 
@@ -241,7 +241,7 @@ leak into a core install. The proof requires network access.
 `scripts/verify_released_artifact_continuity.py` qualifies released artifacts
 against the current build: an actual medre 0.1.0-created stopped database is
 reopened by a clean candidate wheel with stable event, reference, receipt and
-delivery identities, and the published Meshtastic 0.1.1 provider wheel is
+delivery identities, and the published Meshtastic 0.1.1 adapter wheel is
 bridged at the core floor read from its own wheel metadata. It consumes
 sha256-pinned published wheels from a local cache:
 
@@ -296,7 +296,7 @@ The Tests and Coverage and Docker Integration workflows accept an optional
 `adapter_refs` JSON object through manual dispatch. Supply every transport in
 `.github/adapter-compatibility.json`, each mapped to its exact candidate commit
 SHA. The selected workflow ref supplies the core revision. The workflow logs the
-resolved snapshot before installing providers; adapter repositories and tier
+resolved snapshot before installing adapters; adapter repositories and tier
 selection still come from the compatibility manifest.
 
 This input selects a temporary qualification snapshot. It does not edit the

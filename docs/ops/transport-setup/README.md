@@ -1,6 +1,6 @@
 # Transport setup
 
-Install each provider in the same environment as MEDRE. A persistent tool uses
+Install each adapter in the same environment as MEDRE. A persistent tool uses
 `medre adapters install ALIAS`; a deployment project uses its locked dependency
 selection. All seven adapters use the same configuration and route builder.
 Native accounts, devices, profiles, and delivery evidence remain transport-specific.
@@ -22,7 +22,7 @@ knows where to look in the next.
 | [Chatmail](chatmail.md)        | Dedicated account and accepted chats            | Profile-local decimal chat ID                  |
 | [SimpleX Chat](simplexchat.md) | Dedicated profile and active conversations      | Profile-local `group:ID` or `contact:ID`       |
 
-Use `medre adapters` to inspect the installed providers. A generated
+Use `medre adapters` to inspect the installed adapters. A generated
 `medre config sample` includes their SDK-free fakes. A fake smoke test checks
 routing and evidence locally; validate native delivery from an independent
 recipient before relying on a bridge. See the

@@ -1,6 +1,6 @@
 # XMPP transport setup
 
-The XMPP provider bridges live text between configured multi-user chat rooms
+The XMPP adapter bridges live text between configured multi-user chat rooms
 (MUC), direct peers, and other MEDRE adapters. It uses Slixmpp for TLS,
 authentication, room membership, and protocol negotiation.
 
@@ -18,7 +18,7 @@ medre adapters install xmpp
 medre adapters
 ```
 
-For a locked deployment, add the provider to the same project as MEDRE and use
+For a locked deployment, add the adapter to the same project as MEDRE and use
 `uv run --locked medre` for the commands below. See [installation](../install.md).
 
 ### Configure native conversations
@@ -91,14 +91,14 @@ Test both bridge directions from independent accounts.
 
 ## Troubleshooting
 
-The provider reconnects and rejoins after a transport outage; authentication
+The adapter reconnects and rejoins after a transport outage; authentication
 rejection needs operator action. If a room or contact does not bridge, check
 that its exact lowercase bare JID appears in exactly one of `rooms` or
 `peers`, and that the account has permission to join the room.
 
 ## Reference
 
-- [profile](../../spec/transport-profiles/xmpp.md) and provider-owned
+- [profile](../../spec/transport-profiles/xmpp.md) and adapter-owned
   [configuration schema](https://github.com/jeremiah-k/medre-adapter-xmpp/blob/main/docs/schemas/config.schema.json)
   for the full contract.
 - [guided configuration](../guided-configuration.md) — the route builder used

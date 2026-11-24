@@ -1,6 +1,6 @@
 # Testing Guide
 
-For end-to-end bench messages across every installed provider, use the
+For end-to-end bench messages across every installed adapter, use the
 [cross-adapter campaign](live-validation/adapter-campaign.md). It combines
 native peer commands, durable MEDRE evidence, and independent far-side receipt
 for all six adapters, with an explicit partial-run option for smaller labs.
@@ -9,7 +9,7 @@ This guide covers testing patterns, rules, and conventions for the MEDRE
 project. It is the authoritative reference for how tests are written, what
 each test tier proves, and how to run the suite.
 
-Providers may supply a fake adapter that exercises the full pipeline. The
+Adapter packages may supply a fake adapter that exercises the full pipeline. The
 default marker policy excludes live, Docker, hardware, optional SDK, local
 integration, and soak tiers. The full default suite can exceed ten minutes;
 use affected files during development and CI for broad verification. Collection
@@ -23,7 +23,7 @@ For real devices, follow the [short hardware iteration sequence](live-validation
 It records independent RF observations separately from durable admission and
 SDK acceptance, with focused repeats before endurance runs.
 
-Native provider suites live in their independent repositories. Configure local
+Native adapter suites live in their independent repositories. Configure local
 checkout paths in `.medre-dev.yaml`, then run
 `uv run --no-sync medre dev test ALIAS -- PYTEST_ARGUMENTS` from core. This uses
 the adapter's pytest configuration without assuming sibling checkouts; see the
@@ -38,15 +38,15 @@ for coordinated bench setup.
 `uv run --no-sync pytest tests/ --core-only -q` runs all adapter-free modules.
 CI uses a core-only environment for this tier on Linux, macOS, and Windows.
 There is no positive file allowlist: new modules belong to this tier by default.
-A module requiring installed providers declares
+A module requiring installed adapters declares
 `# medre-test-tier: compatibility` within its first ten lines. A containing
-`conftest.py` can declare an entire provider-dependent suite before pytest
+`conftest.py` can declare an entire adapter-dependent suite before pytest
 imports that conftest. Mixed modules should be split when practical so generic
 contracts can run in the core tier.
 
 A static import walk follows local test helpers and rejects undeclared imports
 of adapter-owned MEDRE modules before collection. It also recognizes relative helper imports and literal
-dynamic imports. Provider fixtures, native source audits, metadata assertions,
+dynamic imports. Adapter fixtures, native source audits, metadata assertions,
 and source-example smoke sessions require explicit compatibility ownership;
 these dependencies cannot all be inferred from imports. The compatibility job
 still runs the complete suite with its resolved adapter snapshot. No tests are
@@ -591,11 +591,11 @@ raising the constant.
   so development runs cannot transmit accidentally:
 
   - `MESHTASTIC_LIVE_SEND=1` — Meshtastic RF transmission (see
-    `tests/test_meshtastic_live.py` in the meshtastic provider repository).
+    `tests/test_meshtastic_live.py` in the meshtastic adapter repository).
   - `MESHCORE_LIVE_SEND=1` — MeshCore node send (see
-    `tests/test_meshcore_live.py` in the meshcore provider repository).
+    `tests/test_meshcore_live.py` in the meshcore adapter repository).
   - `LXMF_LIVE_SEND=1` — LXMF / Reticulum outbound send (see
-    `tests/test_lxmf_live.py` in the lxmf provider repository).
+    `tests/test_lxmf_live.py` in the lxmf adapter repository).
 
   Without the corresponding flag, live-send tests in that module are
   skipped. Other live and hardware opt-ins (e.g. the `docker` marker,
@@ -610,7 +610,7 @@ For operator bring-up walkthroughs, see
 
 ### Local Synapse homeserver for Matrix testing
 
-Matrix live tests and manual provider bring-up need a reachable homeserver;
+Matrix live tests and manual adapter bring-up need a reachable homeserver;
 Docker-marked tests start their own disposable containers. To run a local
 server for testing, install Synapse into a dedicated environment, separate
 from MEDRE's `.venv`. This service installation is independent of the
@@ -1107,12 +1107,12 @@ before treating local cross-adapter tests as evidence for the pinned CI snapshot
 
 `bad_route_config`, `all_adapters_build_fail`, `partial_degraded_startup`, and
 `all_adapters_start_fail` construct neutral instance IDs using one installed fake
-provider. Their explicit `adapter_transports` map and
+adapter. Their explicit `adapter_transports` map and
 `coverage_scope: synthetic_adapter_instances` disclose the scope of the proof.
 The three-instance startup drill still constructs three different objects with
-one provider; adapter-instance counts do not imply a count of transport types.
+one adapter; adapter-instance counts do not imply a count of transport types.
 Cross-transport coverage belongs to the compatibility suite. No installed
-provider produces a failed report with an installation reason.
+adapter produces a failed report with an installation reason.
 
 The bounded regressions live in `tests/test_drill_transport_assignments.py` and
 validate `docs/schemas/lifecycle-drill-report.schema.json` alongside the actual

@@ -91,7 +91,7 @@ these examples do not reproduce their qualification evidence by themselves.
 
 All seven adapters are included by default, with Matrix E2EE dependencies.
 Each adapter remains an independently maintained Python distribution; no
-provider-specific Docker release pipeline is required.
+adapter-specific Docker release pipeline is required.
 
 ```bash
 make build ADAPTERS="matrix meshtastic"
@@ -104,7 +104,7 @@ make build ADAPTERS="matrix meshtastic" \
 
 The default `SOURCE=git` installs the **exact committed compatibility revisions**
 from core's adapter manifest. This is the coordinated, reviewed source set used
-for image qualification. It does not follow provider main branches. Core is
+for image qualification. It does not follow adapter main branches. Core is
 built from this checkout, including current edits; the image revision label
 marks a dirty checkout. A different core checkout or fork builds its own core.
 
@@ -137,16 +137,16 @@ fragments are supported. The builder refuses unsafe direct-source metadata,
 including transitive direct sources, before copying the runtime environment;
 verification repeats that check in the installed image. Keep credentials out of
 URL paths, wheel contents, source trees and build inputs as well. Host Git
-credentials are not forwarded. For private provider development, use an explicit
+credentials are not forwarded. For private adapter development, use an explicit
 trusted local checkout context. Native SDK assets, including
 SimpleX's SQLite library, are resolved and initialized during the build. Image
 verification exercises native initialization without contacting chat services.
 No operator identities or database profiles are retained in the image.
 
-Use `make verify` to inspect installed providers and perform the offline
+Use `make verify` to inspect installed adapters and perform the offline
 SimpleX native-library check, comparing actual packages and direct-source
 records with the build report. Official image qualification also checks every
-committed provider revision and a terminal runtime/adapter shutdown snapshot.
+committed adapter revision and a terminal runtime/adapter shutdown snapshot.
 This is installation and fake-runtime evidence, not proof of service
 authentication, encryption interoperability or RF delivery.
 
@@ -177,7 +177,7 @@ environment still authorizes the selected code: qualification is not a security
 sandbox for arbitrary untrusted source. Use an image digest for exact lab
 qualification; rerunning a build can replace the same SHA-bearing tag with
 refreshed system or transitive packages. Adapter refs still come from that core
-revision's committed compatibility manifest; no moving provider branches are
+revision's committed compatibility manifest; no moving adapter branches are
 implicitly selected.
 
 After an image has been published:

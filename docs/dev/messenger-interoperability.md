@@ -12,7 +12,7 @@ behavior is defined by the [transport profiles](../spec/transport-profiles/READM
 [transient typing](../spec/transient-typing.md) contracts. XMPP, Chatmail, and
 SimpleX Chat are supported adapters. Multiple attachments and puppeting remain
 extension work. The [presentation guide](../ops/message-presentation.md)
-distinguishes operator settings from provider/session implementation work. The
+distinguishes operator settings from adapter/session implementation work. The
 protocol references below were checked on 2026-10-17.
 
 ## Decisions before a stable freeze
@@ -103,7 +103,7 @@ or permissions from a formatted mention.
 including composing and paused. Matrix has
 [typing notifications](https://spec.matrix.org/latest/client-server-api/#typing-notifications)
 with timeout behavior and ephemeral room events. MEDRE's Matrix and XMPP
-providers expose transient typing through the shared activity contract. Routing remains opt-in and transient activity does not enter
+adapters expose transient typing through the shared activity contract. Routing remains opt-in and transient activity does not enter
 durable message history or offline replay.
 
 An open CanonicalEvent payload can encode a typing flag, but the durable
@@ -192,7 +192,7 @@ Prioritize an XMPP/Matrix fixture pair for rich content and chat activity, then
 qualify the SimpleX process seam against those semantics. Build narrow features
 from that evidence rather than adding every scout-listed field to the envelope.
 Polls, contact cards, expiry, membership/roles, locations, and fan-out addressing
-remain feature contracts to design against concrete providers; they are not
+remain feature contracts to design against concrete adapters; they are not
 promised by the open payload mapping or a generic capability flag.
 
 ## Content lifetime is shared across consumers

@@ -7,17 +7,17 @@ presentation does not change which account sent the message.
 
 ## Choose the level you need
 
-| Goal                                                  | Support                                                                                                                    |
-| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| Show a sender and source network in a Matrix room     | Use source labels and the destination's `relay_prefix`.                                                                    |
-| Preserve formatting, native replies or threads        | Use the provider's supported renderer and capability profile; unsupported features fall back as documented.                |
-| Change native message layout beyond provider settings | A developer can customize the provider's renderer factory.                                                                 |
-| Use a different Matrix client library                 | Requires a compatible provider/session implementation; installing another library alone does not switch MEDRE's transport. |
-| Send as separate Matrix virtual users                 | Matrix application-service integration and principal-aware delivery need implementation and qualification.                 |
-| Send as a user's existing Matrix account              | Requires explicit account authorization and additional ownership/crypto handling; it is not a display-name setting.        |
+| Goal                                                 | Support                                                                                                                   |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Show a sender and source network in a Matrix room    | Use source labels and the destination's `relay_prefix`.                                                                   |
+| Preserve formatting, native replies or threads       | Use the adapter's supported renderer and capability profile; unsupported features fall back as documented.                |
+| Change native message layout beyond adapter settings | A developer can customize the adapter's renderer factory.                                                                 |
+| Use a different Matrix client library                | Requires a compatible adapter/session implementation; installing another library alone does not switch MEDRE's transport. |
+| Send as separate Matrix virtual users                | Matrix application-service integration and principal-aware delivery need implementation and qualification.                |
+| Send as a user's existing Matrix account             | Requires explicit account authorization and additional ownership/crypto handling; it is not a display-name setting.       |
 
 The last two are forms of **puppeting**. They are not supported configuration
-modes in the distributed Matrix provider. Ordinary bot bridging does not require
+modes in the distributed Matrix adapter. Ordinary bot bridging does not require
 you to administer a homeserver.
 
 ## Adjust labels first
@@ -55,7 +55,7 @@ settings in your private real configuration after reviewing the example. See
 ## Custom rendering and enrichment
 
 Rendering turns a canonical event into the destination's native message shape.
-The Matrix provider already emits plain text and formatted HTML where supported;
+The Matrix adapter already emits plain text and formatted HTML where supported;
 a different layout is a renderer concern. Retain a readable plain-text body and
 escape untrusted display values. Keep source attribution, relation fallback and
 size limits intact.
@@ -66,7 +66,7 @@ identity. Expired or unavailable quote content must degrade honestly; it must
 not be fetched from private stores without the applicable access/retention policy.
 
 Custom renderers are packaged through the existing
-[provider registration interface](../dev/adapter-registration.md). There is no
+[adapter registration interface](../dev/adapter-registration.md). There is no
 operator setting that loads an arbitrary renderer or SDK module by name. The
 plugin package is protocol scaffolding, not a deployed event-enrichment loader.
 See [messenger interoperability](../dev/messenger-interoperability.md) for the
@@ -82,7 +82,7 @@ See the [Matrix Application Service specification](https://spec.matrix.org/lates
 [mautrix-python](https://docs.mau.fi/python/latest/) provides Matrix client and
 application-service interfaces that could support a separate implementation.
 It is a library candidate, not a MEDRE backend that can be enabled today. A
-provider implementation must own native transactions, account/device state,
+adapter implementation must own native transactions, account/device state,
 crypto, retries and teardown; a renderer should not create accounts or make
 native network calls.
 

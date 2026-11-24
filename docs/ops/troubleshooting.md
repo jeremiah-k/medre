@@ -133,7 +133,7 @@ medre diagnostics --config /tmp/missing-sdk.yaml
 
 Expected: if **all** adapters fail to build: exit code **3**. If **some** succeed: exit code **0** with `startup_health == "degraded"`.
 
-Fix: install the Matrix provider with its SDK in the MEDRE environment using
+Fix: install the Matrix adapter with its SDK in the MEDRE environment using
 [installation](install.md), then re-run `medre diagnostics`.
 
 **Caveat:** A single adapter failing to build with others succeeding results in degraded health (exit 0), not a build failure exit code.
@@ -371,7 +371,11 @@ extension), no timeout value will help, and the process needs a `SIGKILL`.
 
 ## Loop Prevention
 
-MEDRE provides three layers of loop prevention at different stages.
+MEDRE uses four loop safeguards: one startup warning and three runtime
+guards (native-reference ingress deduplication, route-trace, and self-loop
+suppression). Replay has an additional scope-specific filter. These checks
+are local to one MEDRE runtime, not peer-relay authentication or distributed
+loop prevention.
 
 ### Self-Loop Guard (Runtime, Per-Delivery)
 
@@ -395,7 +399,14 @@ The `route_trace` is bounded to 16 entries — older entries are dropped when th
 
 When it fires: every delivery attempt, before the self-loop guard.
 
-Expected: `DeliveryOutcome`: `status == "skipped"`, `error == "loop_prevented: route already in route_trace"`.
+Expected: `DeliveryOutcome`: `status == "skipped"`, `error == "loop_prevented: route already traversed in prior routing pass"`.
+
+### Native-reference duplicate suppression (Ingress, Before Routing)
+
+A previously recorded `source_native_ref` suppresses duplicate ingress before
+routing. This guard is distinct from the route-trace and delivery guards: it
+applies to repeated native identities, not every message seen from a peer
+bridge. It does not establish cross-instance deduplication or peer trust.
 
 ### Config-Time Detection (Startup)
 
@@ -407,12 +418,13 @@ Both config-time checks produce warnings only. They do not block startup.
 
 ### Loop Prevention Scope
 
-| Context     | Mechanism                          | Blocks startup?   | Blocks delivery? |
-| ----------- | ---------------------------------- | ----------------- | ---------------- |
-| Config-time | `check_route_loops` (direct + DFS) | No (warning only) | N/A              |
-| Runtime     | Route-trace loop prevention        | N/A               | Yes              |
-| Runtime     | Self-loop guard                    | N/A               | Yes              |
-| Replay      | `_filter_replay_loops`             | N/A               | Yes              |
+| Context     | Mechanism                          | Blocks startup?   | Blocks delivery?     |
+| ----------- | ---------------------------------- | ----------------- | -------------------- |
+| Config-time | `check_route_loops` (direct + DFS) | No (warning only) | N/A                  |
+| Runtime     | Native-ref ingress deduplication   | N/A               | Yes (before routing) |
+| Runtime     | Route-trace loop prevention        | N/A               | Yes                  |
+| Runtime     | Self-loop guard                    | N/A               | Yes                  |
+| Replay      | `_filter_replay_loops`             | N/A               | Yes                  |
 
 ### Capability Suppression
 
@@ -640,7 +652,7 @@ directionality decision matrix.
 
 ### Self-Loop Guard Firing Unexpectedly
 
-**Symptom:** Deliveries showing `status="skipped"` with `error="loop_prevented"`.
+**Symptom:** Deliveries showing `status="skipped"` with an `error` that starts with `"loop_prevented"`.
 
 **Cause:** A route's destination adapter matches the source adapter of the event.
 
@@ -738,7 +750,7 @@ Symptom-driven shortcuts for the common post-crash cases:
   restart/worker recovery may converge it; if the finding persists, inspect the
   outbox lease/status and the worker that should advance it.
 - **`terminal_outbox_nonterminal_receipt`**: the outbox is already terminal and
-  will not be reclaimed. Inspect the complete receipt chain and deferred feedback/provider
+  will not be reclaimed. Inspect the complete receipt chain and deferred feedback/transport
   observation evidence directly; treat a persistent mismatch as missing or contradictory
   receipt evidence rather than waiting for reclaim.
 - **`retry_wait_missing_next_retry`**: the scheduler cannot retry; replay the

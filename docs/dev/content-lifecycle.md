@@ -127,7 +127,7 @@ immediately before the persisted native-submission fence. Derive it from a
 trusted local admission time and operator policy; remote timestamps or TTL hints
 do not create local authority. Test with an injected aware clock and an explicit
 inclusive expiry boundary. Carry the selected deadline with the immutable attempt
-into provider-owned queues; checking it only before core queue admission would
+into transport-owned queues; checking it only before core queue admission would
 allow stale work to begin native submission later.
 
 On deadline expiry, prevent further unsubmitted targets from starting, settle
@@ -170,7 +170,7 @@ references. Arbitrary relation keys or metadata, and incoming excerpts stored
 by other events, block collection, and unmeasured external or physical copies
 stay reported as unmeasured. The first classified collection subset contains
 only separately persisted canonical text and same-event excerpt rows. Shared
-blobs remain retained while any authorized consumer needs them. Provider
+blobs remain retained while any authorized consumer needs them. Adapter
 declarations identify native stores and their deletion limitations; core
 cannot promise to erase remote recipients, third-party histories or backups.
 
@@ -191,12 +191,12 @@ semantics in addition to execution identity.
 ## Implementation and qualification order
 
 The core authority and guarded collection foundations in steps 1–4 are
-implemented. Optional scopes, shared attachments and provider-copy
+implemented. Optional scopes, shared attachments and transport-copy
 qualification remain outside that subset:
 
 1. The inventory, the metadata-only dependency projection and the versioned
    availability policy preview are in place. A preview lists holds, expiry and
-   unknown/provider-owned copies; it never treats a byte count as permission to
+   unknown/transport-owned copies; it never treats a byte count as permission to
    delete.
 2. One content-reference/availability representation is validated on fresh
    state. Immutable envelope and attempt identity are preserved throughout
@@ -211,7 +211,7 @@ qualification remain outside that subset:
    record and copy blocker, and repeated collection stays idempotent across
    concurrent writers and restarts. The relay-only step now also includes the
    policy-gated runtime worker and its qualification: the clock/policy
-   boundary, transaction/race, and fake-provider suites in
+   boundary, transaction/race, and fake-adapter suites in
    `tests/test_content_lifecycle_*.py` drive the real worker over the real
    storage through the plan's race families and clock boundaries, and the
    bounded mixed-workload measurement in

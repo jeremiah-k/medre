@@ -48,7 +48,7 @@ live router's results.
 
 For a self-contained service bench, use the [Docker ecosystem harness](docker-ecosystem.md).
 
-Install the selected providers and their native SDKs in the core development
+Install the selected adapters and their native SDKs in the core development
 environment. Use [dev sync](../environment.md#work-on-adapters-at-any-location)
 for local editable checkouts at any location. Candidate sources belong in a local
 profile/catalog; do not change committed compatibility pins to run the bench.

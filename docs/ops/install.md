@@ -42,7 +42,7 @@ invoke the project's `.venv/bin/medre` (Windows: `.venv\Scripts\medre.exe`)
 with the same `MEDRE_HOME` and environment variables used during setup.
 
 If you prefer a globally available **isolated CLI** rather than a deployment
-project, install core once, then add providers to the **same tool environment**. Select Python 3.12 or later for Matrix:
+project, install core once, then add adapters to the **same tool environment**. Select Python 3.12 or later for Matrix:
 
 ```bash
 uv tool install --python 3.12 medre
@@ -54,15 +54,15 @@ medre adapters
 Adapter installation defaults to package-index requirements. Existing
 Git-backed requests retain their source and require Git. See
 [package management](package-management.md) for source inspection and switching.
-Native uv `--with` can also install providers into the same tool environment. The provider's Python requirement
+Native uv `--with` can also install adapters into the same tool environment. The adapter's Python requirement
 applies to the entire tool environment; for an existing Python 3.11 MEDRE tool,
 reinstall through native uv with `--python 3.12` and retain the complete request
-(including other providers, extras and sources).
+(including other adapters, extras and sources).
 
 Use `medre sources show` to distinguish installed sources from catalog choices,
 `medre sources switch` to select releases, Git revisions or local checkouts,
 `medre adapters sources` to inspect the YAML source catalog,
-`medre adapters remove ALIAS` to remove a provider requirement, and
+`medre adapters remove ALIAS` to remove an adapter requirement, and
 `medre update` to update the tool within its recorded source constraints.
 Add `--dry-run` to preview a package change. See
 [package management](package-management.md) for private/local sources, extras,
@@ -83,7 +83,7 @@ index versions for repeatability. `uv tool install` does **not** create a deploy
 `uv tool list` to inspect installed tools. If `medre` is not on your `PATH`,
 follow uv's `uv tool update-shell` guidance.
 
-### Run provider SDK tools in the same environment
+### Run adapter SDK tools in the same environment
 
 For an activated deployment project, use its `python` and dependency
 executables directly. For a persistent uv tool installation, locate the
@@ -103,12 +103,12 @@ On Windows PowerShell, use the corresponding Scripts directory:
 & (Join-Path (uv tool dir) 'medre/Scripts/meshtastic.exe') --help
 ```
 
-These examples require the corresponding provider installed alongside MEDRE.
+These examples require the corresponding adapter installed alongside MEDRE.
 Do not use `uvx` to inspect an installed SDK: it can resolve another environment.
 
 `uvx --from 'git+https://github.com/jeremiah-k/medre.git@main'
 medre version` is fine for one-off commands, but a temporary uvx environment
-cannot see providers installed elsewhere. Prefer a project for live services.
+cannot see adapters installed elsewhere. Prefer a project for live services.
 
 ## Docker
 
@@ -127,7 +127,7 @@ uv run --no-sync medre version
 This creates `.venv`, installs core in editable mode, and installs test/build
 tools via the `dev` extra. For adapter work, use Git sources or editable checkouts at any location;
 see the [development environment guide](../dev/environment.md). A later core `uv sync` can remove separately
-installed providers. See [development environment](../dev/environment.md).
+installed adapters. See [development environment](../dev/environment.md).
 
 Standard pip remains supported in a standalone virtualenv:
 
@@ -147,7 +147,7 @@ workflow if you need reproducibility with pip.
 
 ## Verify the installation
 
-Run in whichever environment contains **both core and your providers**:
+Run in whichever environment contains **both core and your adapters**:
 
 ```bash
 medre version
@@ -159,9 +159,9 @@ medre config check --config sample.yaml
 medre smoke --config sample.yaml --storage-path smoke.sqlite3 --json
 ```
 
-A sample contributing provider creates SDK-free sample instances and a route
-without connecting to a service or radio. If none of your installed providers
-contributes a sample, the generated config is empty: install a provider before
+A sample contributing adapter creates SDK-free sample instances and a route
+without connecting to a service or radio. If none of your installed adapters
+contributes a sample, the generated config is empty: install an adapter before
 expecting smoke delivery. The smoke result reports a source, receipts and an
 event ID. Inspect durable evidence with:
 
@@ -194,10 +194,10 @@ and [development environment](../dev/environment.md), respectively.
 
 ## Troubleshooting
 
-Missing provider? `medre adapters check --config bridge.yaml` distinguishes
+Missing adapter? `medre adapters check --config bridge.yaml` distinguishes
 missing/broken entry points; then run `medre config check` for full validation.
-An installed provider may still lack its optional SDK. Check `medre adapters`
-and the provider's setup guide. Environment or permissions errors with devices,
+An installed adapter may still lack its optional SDK. Check `medre adapters`
+and the adapter's setup guide. Environment or permissions errors with devices,
 Matrix crypto or native identity files need native verification rather than a
 fake smoke. See [troubleshooting](troubleshooting.md).
 
@@ -209,7 +209,7 @@ file alone is not a complete backup. See
 [stopped-state snapshots](stopped-state-snapshots.md).
 
 For a bridge you intend to keep running, create a uv project and pin the
-reviewed MEDRE and provider Git commits. `uv.lock` captures the resolved
+reviewed MEDRE and adapter Git commits. `uv.lock` captures the resolved
 packages, and `uv run --locked` executes against that project's environment.
 The following is a **starting example** using moving branches; replace each
 `@main` with the full reviewed commit SHA and keep the resulting lockfile.

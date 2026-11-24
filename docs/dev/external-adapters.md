@@ -16,7 +16,7 @@ transport SDK graph. Import adapter-owned wrappers directly; core has no
 legacy transport-named runtime wrapper facade.
 
 First-party distributions retain their original Python namespaces
-through `pkgutil.extend_path`. Community providers may use a separate top-level
+through `pkgutil.extend_path`. Community adapters may use a separate top-level
 package instead; namespace layout is not part of discovery. The adapter's
 `medre` dependency range states the core interface versions it supports.
 No radio category is required: chat services, webhooks, sidecars, and other
@@ -26,7 +26,7 @@ skew. Source histories and original attribution remain in each repository.
 Structured destination kinds are extensible through `DestinationSpec`. Core
 owns named `channel` addressing; adapters own native kinds and pure validation.
 The static runtime/routing schemas validate common structure and accept community
-transport/addressing names. Installed-provider checks and native field rules
+transport/addressing names. Installed-adapter checks and native field rules
 are enforced by configuration loading. Transport-specific schema snapshots in
 MEDRE's documentation describe first-party examples, not an installation list.
 
@@ -34,7 +34,7 @@ MEDRE's documentation describe first-party examples, not an installation list.
 
 1. **Core independence:** the CI core job installs zero adapter distributions
    and exercises generic event/routing/fake contracts, configuration, discovery,
-   a metadata-backed community provider, and installed core-wheel behavior.
+   a metadata-backed community adapter, and installed core-wheel behavior.
    It runs on Linux, macOS, and Windows independently of adapter availability,
    selecting every module without a compatibility declaration through
    `pytest tests/ --core-only`. Import dependency guards reject undeclared
@@ -46,16 +46,16 @@ MEDRE's documentation describe first-party examples, not an installation list.
    Suite helpers are local test code, outside the shipped package.
 3. **Cross-adapter compatibility:** MEDRE retains multi-transport routing,
    lifecycle, configuration orchestration, operator workflows, and architecture
-   checks. This suite explicitly installs the curated provider set without SDKs.
+   checks. This suite explicitly installs the curated adapter set without SDKs.
    Core CI also runs each selected adapter suite against the proposed core
    revision, including its native SDK contract and local integration tier.
 4. **Installed artifacts:** `scripts/check_installed_package.py` proves the
-   core wheel without providers. Repeated `--adapter-wheel` arguments additionally
+   core wheel without adapters. Repeated `--adapter-wheel` arguments additionally
    prove the sample bridge with external Matrix and Meshtastic wheels, outside
    all source checkouts and without SDKs.
 
 The default suite includes cross-adapter tests. After the initial core setup,
-run `uv run --no-sync medre dev sync` to install the CI-pinned providers without
+run `uv run --no-sync medre dev sync` to install the CI-pinned adapters without
 SDK dependencies. Use a local development profile or `--editable ALIAS=PATH` for
 arbitrarily located checkouts, then run `medre dev test ALIAS -- -q` through
 `uv run --no-sync`. The helper uses the adapter's own working directory and the
@@ -135,8 +135,8 @@ when runtime degradation removes an unavailable target. Event-factory errors
 produce a failed report and trigger runtime cleanup. Adapter-failure drills use
 the router's actual channel and event-kind matching to select a target.
 
-`medre adapters check` inspects installed provider metadata without loading SDKs.
-`medre adapters` uses each provider's declared dependency probe for SDK readiness;
+`medre adapters check` inspects installed adapter metadata without loading SDKs.
+`medre adapters` uses each adapter's declared dependency probe for SDK readiness;
 a partial SDK installation cannot satisfy a probe requiring multiple modules.
 See [multi-source smoke coverage](testing.md#multi-source-fake-smoke-coverage).
 
@@ -149,15 +149,15 @@ job is authoritative; standalone results qualify the recorded pair only.
 ## Chatmail and SimpleX qualification
 
 The curated compatibility snapshot includes Chatmail and SimpleX Chat at their
-merged default-branch commits. Both provider suites run with their released
+merged default-branch commits. Both adapter suites run with their released
 native SDKs across Python 3.11–3.14. SimpleX native assets are prepared explicitly
-in a runner-local cache before the provider suite starts.
+in a runner-local cache before the adapter suite starts.
 
 Chatmail native contracts cover process crash/restart and exclusive profile
 ownership. Its opt-in two-profile group test also checks native reply references,
 RPC reconnect, offline recovery, SMTP acceptance and independent peer receipt.
 SimpleX native contracts check official group history, local queue persistence,
-restart deduplication and profile reuse after worker failure. The frozen seven-provider campaign reports separate SimpleX group peer
+restart deduplication and profile reuse after worker failure. The frozen seven-adapter campaign reports separate SimpleX group peer
 observations; its private receipt details are not committed here. Direct-contact
 and restart recipient delivery require separate qualification. Local queue
 acceptance by itself does not establish a peer receipt.

@@ -10,7 +10,7 @@ needed to restore that particular installation.
 The operator supplies an installation root and explicit `SnapshotEntry` paths:
 one `core_sqlite`, plus the relevant `adapter_ledger` and `native_identity`
 files. Each entry also requires an explicit `format`: `sqlite` for a plaintext
-SQLite database or `opaque` for a self-contained provider export or key file.
+SQLite database or `opaque` for a self-contained transport export or key file.
 For example, `SnapshotEntry("state/medre.sqlite", "core_sqlite", "sqlite")`
 selects the database backup protocol. Role labels never choose a capture format.
 Omission is not detected by SDK introspection. Treat secret native
@@ -50,7 +50,7 @@ database (`VACUUM`, `ANALYZE`) does not refuse. An unreadable live database
 also refuses the restore. A `--against-live` path that is omitted or does not
 exist skips this comparison and MUST NOT be treated as evidence that a
 replacement is safe. Never start both installations together. Reconcile
-provider-side effects separately, since a matching core database does not
+transport-side effects separately, since a matching core database does not
 attest native systems. See
 [operator workflows](operator-workflows.md) for the full policy wording.
 
@@ -58,11 +58,11 @@ No delivery attempt is sent, reopened, or changed by these functions. A
 successful file checksum proves byte integrity, not the safety of replaying an
 unknown native send. Recovery must continue to use the existing outbox claim
 and packet evidence checks after activation. Production installations still
-need provider-specific file inventories and independently tested restore runs.
+need transport-specific file inventories and independently tested restore runs.
 
 An opaque input with a nonempty `-wal` or `-journal` sidecar is refused. Plaintext
 SQLite cannot be labelled opaque to bypass backup. Encrypted databases require a
-provider-produced consistent export before this generic library can capture it.
+transport-produced consistent export before this generic library can capture it.
 Output locations are resolved and must stay outside the capture or restore source,
 including paths containing `..` or symlinked ancestors.
 This library does not claim durable publication across power or filesystem failure.
@@ -123,11 +123,11 @@ when present; do not rely on its saved bytes to establish a live lock after
 restore. Map configured `state_dir`, `native_cache_dir` (`XDG_CACHE_HOME`),
 `database_prefix`, and any other identity-bearing XDG directories into the
 selected common root. If configured state lives outside that root, stop the
-native SDK and prepare a coherent provider-owned export before capture; do
+native SDK and prepare a coherent transport-owned export before capture; do
 not point a manifest through symlinks or claim that a copied partial tree is
-complete. An inventory's declared provider set is closed and each listed
-provider must own selected state, but this cannot detect unlisted native
-state. The operator must compare the inventory to actual provider locations.
+complete. An inventory's declared adapter set is closed and each listed
+adapter must own selected state, but this cannot detect unlisted native
+state. The operator must compare the inventory to actual adapter locations.
 
 ```bash
 python -m medre.maintenance.stopped_cli capture \
@@ -177,22 +177,22 @@ error, a manifest or inventory the JSON parser rejects, a configuration failure,
 or a check that applies to `capture` alone. Invalid CLI syntax emits a generic
 argument error without echoing supplied path values.
 
-Before starting a restored installation, independently verify the provider
+Before starting a restored installation, independently verify the adapter
 profiles and ensure the original installation is not simultaneously active. Unknown radio work remains
 held and is not replay-authorized by restoring its database.
 
-Provider labels validate the capture selection; they are not stored as a
-provider-completeness certificate in the snapshot. Keep the inventory alongside
-the installation's configuration and provider instructions. `verify` checks the
+Adapter labels validate the capture selection; they are not stored as a
+adapter-completeness certificate in the snapshot. Keep the inventory alongside
+the installation's configuration and adapter instructions. `verify` checks the
 captured manifest and files; it cannot detect state omitted from the inventory.
 
 Instead of hand-writing the file list, `medre.maintenance.stopped_declare` can
-derive it from per-provider declarations: each configured provider resolves its
+derive it from per-adapter declarations: each configured adapter resolves its
 own identity, journal, and lock files, and anything that cannot honestly be
 captured by files (device firmware, encrypted profiles, credentials outside
 the root) is reported as export-only instead of silently omitted. See
-[provider stopped-state declarations](stopped-state-provider-inventory.md)
-for the derivation command, the supported per-provider scope, the point-in-time
+[adapter stopped-state declarations](stopped-state-provider-inventory.md)
+for the derivation command, the supported per-adapter scope, the point-in-time
 `check` command, and the library `retain_local_exclusion` helper. The library
 helper retains local exclusion across capture only while its context is held;
 separate CLI invocations do not retain locks between commands.
@@ -202,4 +202,4 @@ core/SimpleX restore using seven selected files, including committed core WAL
 content, native profile databases and adapter ledgers. The relocated native
 profile reopened and reused an accepted handoff without another submission.
 That result covers the recorded installation and SDK revision; each other
-provider requires its actual identity and journal inventory.
+adapter requires its actual identity and journal inventory.

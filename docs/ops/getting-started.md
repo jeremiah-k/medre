@@ -7,7 +7,7 @@ The example below connects Matrix and Meshtastic.
 ## 1. Install MEDRE
 
 Install [uv](https://docs.astral.sh/uv/getting-started/installation/).
-The Matrix provider requires Python 3.12 or later; explicitly choose it when
+The Matrix adapter requires Python 3.12 or later; explicitly choose it when
 installing the isolated tool:
 
 ```bash
@@ -102,7 +102,7 @@ native dispatch starts when the deadline is observed, and work already accepted
 by a transport may still arrive later. The guarded
 retirement sweep for expired unstarted work is disabled by default.
 General timed retention profiles and physical erasure are not available, and
-copies held by connected transports and providers are unaffected. See
+copies held by connected transports and adapters are unaffected. See
 [privacy and message storage](message-storage.md) before bridging sensitive
 conversations.
 

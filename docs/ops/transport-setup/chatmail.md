@@ -13,7 +13,7 @@ only private journal retention; relay-side SMTP acceptance arrives later
 through delivery feedback. Completing a provisioning step never proves relay
 acceptance, delivery, or read evidence.
 
-The provider installs its RPC client and native server together.
+The adapter installs its RPC client and native server together.
 
 ## Set up
 
@@ -27,7 +27,7 @@ medre adapter chatmail join --adapter mail
 medre adapter chatmail chats --adapter mail --groups --json
 ```
 
-These provider commands work inside MEDRE's persistent tool environment. In a
+These adapter commands work inside MEDRE's persistent tool environment. In a
 locked deployment project, prefix them with `uv run --locked`; the standalone
 `medre-chatmail` helper is also available there. See [installation](../install.md).
 
@@ -122,7 +122,7 @@ client must not open it concurrently.
 
 - [stopped-state snapshots](../stopped-state-snapshots.md) — coherent backup
   procedure.
-- The [profile](../../spec/transport-profiles/chatmail.md) and provider-owned
+- The [profile](../../spec/transport-profiles/chatmail.md) and adapter-owned
   [configuration schema](https://github.com/jeremiah-k/medre-adapter-chatmail/blob/main/docs/schemas/config.schema.json).
 - [guided configuration](../guided-configuration.md) — the route builder used
   to connect two adapters.

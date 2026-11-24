@@ -13,7 +13,7 @@ Prepare a private profile containing explicit paths to **all seven** candidate
 adapters and a candidate MMRelay checkout, as required by the existing lab
 build machinery. These extra source checkouts are a **build provenance
 requirement**; this reference campaign starts only the Matrix and XMPP
-providers. Follow the [ecosystem-lab setup](docker-ecosystem.md) to create
+adapters. Follow the [ecosystem-lab setup](docker-ecosystem.md) to create
 a fresh, owner-only lab directory and populate its private development profile.
 
 The recorded evidence describes the checkouts the profile names, not the

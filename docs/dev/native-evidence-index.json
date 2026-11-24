@@ -47,7 +47,7 @@
     {
       "transport": "lxmf",
       "compatibility_ref_source": ".github/adapter-compatibility.json",
-      "historical_substrate": "native SDK over Docker TCP in the frozen seven-provider baseline",
+      "historical_substrate": "native SDK over Docker TCP in the frozen seven-adapter baseline",
       "reported_native_evidence": "independent baseline native text observation",
       "outside_reported_scope": "physical RF qualification of that baseline and structured context",
       "scope": "historical private evidence; do not infer later source revision qualification"
@@ -72,7 +72,7 @@
       "transport": "simplexchat",
       "compatibility_ref_source": ".github/adapter-compatibility.json",
       "historical_substrate": "two independent official SDK profiles in an accepted group",
-      "reported_native_evidence": "independent group peer observation in the frozen seven-provider baseline",
+      "reported_native_evidence": "independent group peer observation in the frozen seven-adapter baseline",
       "outside_reported_scope": "independent direct-contact receipts and profile/worker restart recipient qualification",
       "scope": "historical private evidence; do not infer later source revision qualification"
     }
@@ -146,7 +146,7 @@
       "limits": [
         "Linux process SIGKILL with real physical radio peers; no radio firmware power-cycle or host power-loss injection.",
         "Eight-second late-duplicate observation windows; no long-outage or soak claim.",
-        "Restored installation contains core and SimpleX; other providers require their own complete inventories.",
+        "Restored installation contains core and SimpleX; other adapters require their own complete inventories.",
         "SimpleX native SDK worker retention established; arbitrary descendants that close the descriptor remain outside scope.",
         "Independent RF witnesses are external evidence; no native ACK producer or parent confirmation-level promotion was enabled."
       ],

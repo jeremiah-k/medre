@@ -27,8 +27,8 @@ recall, pacing, and process exit; raising only the subprocess timeout would
 leave the child's delivery wait too short. A ceiling is a test budget, not an
 SDK retry setting or a guarantee that any link can deliver within that time.
 
-Peer JSON distinguishes a terminal provider state from a bounded observation
-that ended with a pending message: `delivered` reports provider confirmation,
+Peer JSON distinguishes a terminal adapter state from a bounded observation
+that ended with a pending message: `delivered` reports transport confirmation,
 and `timed_out` reports that the message was nonterminal at the ceiling. A
 timed-out observation does not manufacture an LXMF `FAILED` state. Rejected and
 cancelled messages return promptly along with delivered and failed messages.
