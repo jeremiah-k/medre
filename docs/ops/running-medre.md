@@ -1,6 +1,6 @@
 # Running MEDRE
 
-Starting, stopping, and operating the MEDRE runtime — including lifecycle, exit codes, Docker deployment, and delivery semantics.
+Starting, stopping, and operating the MEDRE runtime — lifecycle, exit codes, health, shutdown, logs, and what to expect while it runs.
 
 ## Starting MEDRE
 
@@ -367,6 +367,9 @@ What loop prevention does not cover:
 - Cross-instance loops (two separate MEDRE instances bridging the same transports).
 - Application-level loops (user commands triggering replies — normal bidirectional operation).
 
+Per-delivery loop drills, replay loop filtering, and the capability-suppression
+matrix live in [troubleshooting](troubleshooting.md#loop-prevention).
+
 ## Persistence and Crash Semantics
 
 Canonical events, delivery receipts, post-handoff delivery observations, native
@@ -554,6 +557,9 @@ What the soak harness validates: start/stop cycling, replay cycling, delivery un
 
 What the soak harness does not validate: live transport behaviour, multi-hour stability, radio transport pressure, exactly-once delivery.
 
+Soak runs are part of the developer test suite; the test-tier taxonomy lives
+in [testing](../dev/testing.md).
+
 ## Operational Caveats
 
 ### Radio Transport Pressure
@@ -567,18 +573,5 @@ Radio transports (Meshtastic, MeshCore) are inherently constrained:
 
 Under sustained radio pressure, the Meshtastic outbound queue rejects new items when full. This is by design — the runtime prioritizes stability over delivery completeness.
 
-### No Exactly-Once Delivery
-
-No transport in MEDRE provides exactly-once semantics:
-
-- Radio transports (Meshtastic, MeshCore): probabilistic fire-and-forget. Duplicate sends are normal practice.
-- Matrix: at-least-once. Retries after connection loss may produce duplicates.
-- LXMF (Reticulum): at-least-once with eventual delivery. Propagation delays range from seconds to hours.
-
-### No Transactional Fan-Out
-
-When a single inbound event routes to multiple targets, each target gets an independent delivery. No transactional coordination:
-
-- A failure on one target does not affect the other.
-- A success on one target does not guarantee the other.
-- Partial delivery is a normal outcome, not an error.
+Exactly-once delivery and transactional fan-out are absent by design; see
+[Explicit Non-Guarantees](#explicit-non-guarantees).
