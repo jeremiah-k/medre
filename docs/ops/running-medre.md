@@ -357,10 +357,10 @@ replay receipts live in
 
 Multiple layers prevent routing loops:
 
-1. **Direct loop detection (startup)** — detects cycles in route configuration. Logged as warnings; startup is not blocked.
-2. **Self-loop guard (per-delivery)** — if `target_adapter == event.source_adapter`, delivery is skipped.
-3. **Native-ref duplicate suppression (per-ingress)** — checks inbound event's `source_native_ref` against stored refs. Duplicates are dropped before routing.
-4. **Route-trace guard (per-delivery)** — if a route ID appears more than once in the event's route trace, delivery is skipped.
+1. **Direct loop detection (startup)** — detects route cycles and warns; it does not block startup.
+2. **Native-ref duplicate suppression (per-ingress)** — checks inbound `source_native_ref` against stored references before routing; this does not establish peer-relay trust.
+3. **Route-trace guard (per-delivery)** — skips routing through a route already present in the event's trace.
+4. **Self-loop guard (per-delivery)** — skips a target that matches the event's source adapter.
 
 What loop prevention does not cover:
 
