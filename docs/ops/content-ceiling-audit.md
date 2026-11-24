@@ -177,6 +177,7 @@ rehearsal sends nothing and writes nothing outside that private directory
 and the copy.
 
 ```bash
+set -euo pipefail # fail the rehearsal if capture, audit, enforcement or verify fails
 REH=$(mktemp -d) # private 0700 working directory for everything below
 cat > "$REH/inventory.json" <<'JSON'
 {
@@ -251,25 +252,35 @@ while :; do
     --storage-path "$REH/root/state/medre.sqlite" --limit 25 \
     > "$REH/audit.json" || {
     cat "$REH/audit.json"
-    break
+    exit 1 # never continue after audit fails
   }
-  python - "$REH/audit.json" <<'PY' && break
+  if python - "$REH/audit.json" <<'PY'
 import json
 import sys
 
-with open(sys.argv[1]) as handle:
-    report = json.load(handle)
-clean = (
-    report["elapsed_pending"] == []
-    and report["residual_enforced"] == []
-    and not report["elapsed_pending_has_more"]
-    and not report["residual_enforced_has_more"]
-)
+try:
+    with open(sys.argv[1]) as handle:
+        report = json.load(handle)
+    clean = (
+        report["elapsed_pending"] == []
+        and report["residual_enforced"] == []
+        and not report["elapsed_pending_has_more"]
+        and not report["residual_enforced_has_more"]
+    )
+except (OSError, ValueError, TypeError, KeyError) as exc:
+    print(f"invalid audit report: {exc}", file=sys.stderr)
+    raise SystemExit(2) from exc
 if not clean:
     print("pending:", len(report["elapsed_pending"]),
           "residual:", len(report["residual_enforced"]))
 raise SystemExit(0 if clean else 1)
 PY
+  then
+    break
+  else
+    status=$?
+    [ "$status" -eq 1 ] || exit "$status"
+  fi
   python "$REH/enforce_once.py" "$REH/root/state/medre.sqlite"
 done
 
@@ -277,7 +288,7 @@ done
 #    bounded page of receipts and exits 1 when its verdict is failed;
 #    follow receipts_next_after_event with --after-event while
 #    receipts_has_more is true and require "verdict": "passed" on every
-#    page. One clean page never proves the unchecked history clean.
+#    page. Any failed page aborts; one clean page never proves the rest.
 after=""
 while :; do
   if [ -n "$after" ]; then
@@ -301,7 +312,7 @@ print(report["receipts_next_after_event"] or "")
 PY
 ) || {
   cat "$REH/verify.json"
-  break
+  exit 1 # failed receipt verification fails the rehearsal
 }
   [ -z "$after" ] && break
 done
