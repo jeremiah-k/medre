@@ -6,7 +6,7 @@ and private profile for each adapter instance.
 
 ## Before you begin
 
-Provisioning proceeds through explicit stages with the provider's own
+Provisioning proceeds through explicit stages with the adapter's own
 commands: create the profile, confirm the configured account, accept
 conversations, and discover chat IDs. A deferred `local_queue` result records
 only private journal retention; relay-side SMTP acceptance arrives later
@@ -97,7 +97,7 @@ recipient received or read the message.
 | `account_id`                | `1`                                       | Which local account of the profile is used            | Multi-account profiles                                        |
 | `chats`                     | empty                                     | Accepted chat IDs routed by this instance             | Every bridged chat; discovered IDs only                       |
 | `accounts_dir`              | `{state}/adapters/mail/chatmail/accounts` | Profile storage location                              | Custom state layouts; keep provisioning and runtime identical |
-| `rpc_server_path`           | provider default                          | Path to the Chatmail RPC helper binary                | Non-standard installs                                         |
+| `rpc_server_path`           | adapter default                           | Path to the Chatmail RPC helper binary                | Non-standard installs                                         |
 | `rpc_timeout_seconds`       | `30.0`                                    | Bound per RPC call                                    | Slow relays                                                   |
 | `poll_interval_seconds`     | `5.0`                                     | Interval between inbound polls                        | Latency versus relay load                                     |
 | `reconnect_delay_seconds`   | `5.0`                                     | Base delay between reconnect attempts                 | Reconnect pacing                                              |

@@ -28,7 +28,7 @@ The uniform profile uses `[{sender_raw}/{origin_label}]: ` for chat transports
 and `{sender_compact}[{source_adapter_id}]: ` for Meshtastic and MeshCore.
 <!-- markdownlint-enable MD038 -->
 
-The ordinary smoke campaign retains provider defaults. Radio qualification is
+The ordinary smoke campaign retains adapter defaults. Radio qualification is
 an [explicit separate stage](hardware-qualification.md), with a persistent
 MeshCore pause after a communication failure.
 
@@ -122,7 +122,7 @@ and [runtime.example.yaml](fixtures/runtime.example.yaml) as `runtime.yaml` into
 a private directory, then replace the endpoint and peer-display-name placeholders. Keep the files outside Git.
 The campaign runtime config accepts ordinary MEDRE adapter settings. Its routes,
 core storage, retry policy, logging, and MEDRE paths are replaced for the run;
-explicit provider profile, identity, and storage paths retain their meaning.
+explicit adapter profile, identity, and storage paths retain their meaning.
 
 Preview the topology and validate runtime settings without connecting or sending:
 
@@ -175,7 +175,7 @@ After the final turn, an observation window checks late duplicates and canonical
 echoes. Every peer and MEDRE must stop cleanly before the report becomes passed.
 Radio runs enforce at least 2.5 seconds between source turns. This is a small
 connectivity campaign, not a load, restart, attachment, or relation conformance run.
-Run provider-owned recovery tiers separately; a successful text campaign cannot
+Run adapter-owned recovery tiers separately; a successful text campaign cannot
 qualify restart recovery or native feature support.
 
 The output directory has mode 0700 and contains:
@@ -193,12 +193,12 @@ SQLite state and SDK diagnostics can contain private data; keep the entire
 directory private. Credentials travel to child processes over stdin and are not
 recorded in command arguments or the JSON report.
 
-The default suite also runs test_all_adapter_campaign.py with SDK-free providers:
+The default suite also runs test_all_adapter_campaign.py with SDK-free adapters:
 42 individually named directed-pair cases and a fanout case for each source,
 including SimpleX Chat. The native campaign uses independent peers for all seven
-providers; a missing SimpleX fixture requires an explicit six-transport --only
+adapters; a missing SimpleX fixture requires an explicit six-transport --only
 selection and reports partial coverage.
-Unavailable provider cases are explicitly skipped. This tier checks routing,
+Unavailable adapter cases are explicitly skipped. This tier checks routing,
 renderers, storage, addressing, and delivery provenance; native receipt requires
 the opt-in campaign above.
 
@@ -218,7 +218,7 @@ failure trace.
 A passed message campaign proves the selected instances were ready before
 traffic was sent. It does not qualify startup failure handling: the readiness
 barrier intentionally rejects unavailable peers. One endpoint per transport also
-cannot exercise a healthy and an offline instance of the same provider together.
+cannot exercise a healthy and an offline instance of the same adapter together.
 Serial-radio results do not qualify offline BLE connection behavior, and an image
 with every optional SDK installed cannot qualify missing-dependency diagnostics.
 
@@ -232,7 +232,7 @@ uv run --no-sync pytest -q \
 ```
 
 These cases use production runtime assembly and real core resources, with
-controlled pauses and failures at provider boundaries. They check independent
+controlled pauses and failures at adapter boundaries. They check independent
 startup progress, degraded health, concurrent-stop rejection, cancellation during
 core preparation and rollback, and CLI shutdown ownership. They do not substitute
 for SDK or hardware qualification.
@@ -241,8 +241,8 @@ Record each native startup profile separately in private campaign evidence:
 
 | Profile                               | Required observation                                                                                                               |
 | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| Online and offline instances together | The online instance progresses independently; the offline instance reaches a bounded provider failure or degraded recovery state.  |
-| Device returns after startup          | A provider with owned recovery becomes healthy without overlapping connection attempts; routes and durable work remain consistent. |
+| Online and offline instances together | The online instance progresses independently; the offline instance reaches a bounded adapter failure or degraded recovery state.   |
+| Device returns after startup          | An adapter with owned recovery becomes healthy without overlapping connection attempts; routes and durable work remain consistent. |
 | Shutdown before readiness             | The CLI awaits startup rollback, retires partial resources and child tasks, and preserves cancellation.                            |
 | Matrix without its encryption extra   | Optional encryption reports degraded health with installation guidance; encrypted-room delivery remains refused.                   |
 | Signals during native construction    | The enclosing shutdown handler receives the signal, or the report explicitly records an unqualified SDK constructor window.        |
@@ -292,7 +292,7 @@ published ports, certificate expiry, group membership, and independently known
 peer names. A running container alone does not establish server readiness.
 Do not change host services, pairing, networking, or trust stores to run a lab.
 
-Record the exact core/provider Git revisions and working-tree state before
+Record the exact core/adapter Git revisions and working-tree state before
 starting. Use the checkout-local dev profile to select sources explicitly.
 Finish synchronization and formatting first; keep the source and configuration
 unchanged while the campaign runs. Preview the topology before permitting sends,
@@ -319,7 +319,7 @@ credentials. This is an evidence consistency check, not a new native run or an
 independent revalidation of the original presentation expectations. Keep the
 original report and its source revisions together.
 
-Run provider-owned SDK and recovery tests separately from connectivity. Chatmail's
+Run adapter-owned SDK and recovery tests separately from connectivity. Chatmail's
 live group tier exercises a real RPC process crash, reconnect, stopped-adapter
 recovery, quotes, and an independently observed reply. SimpleX's SDK tier checks
 local queue persistence, duplicate suppression, and worker failure; the shared
@@ -339,7 +339,7 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 uv run --no-sync pytest \
 For another project, preserve the same boundaries: declarative topology and
 expected presentation, independent native peer drivers, durable evidence
 verification, bounded process ownership, and offline analysis. Replace the
-provider drivers and storage verifier rather than deriving expected results
+adapter drivers and storage verifier rather than deriving expected results
 from the implementation under test. Commit sanitized templates and executable
 checks; keep profiles, tokens, message captures, SQLite databases, and run-specific
 reports outside Git.
