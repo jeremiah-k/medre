@@ -866,7 +866,9 @@ installed, elapsed ceilings. The sweep defaults to disabled and can run with
 and how often the maintenance worker wakes. Run `medre config check` before
 deployment; `limit` must be a whole-number YAML integer such as `50`, not
 `50.0`. See the [storage contract](../spec/content-privacy-ceiling.md#4-enforcement-transition)
-and [audit commands](content-ceiling-audit.md).
+and [audit commands](content-ceiling-audit.md) for the observed ceiling
+states, the disposable-copy rehearsal, the failure policy, and the measured
+opt-in rollout profile.
 
 ## XDG Default Paths
 
