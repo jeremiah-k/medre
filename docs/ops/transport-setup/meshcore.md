@@ -13,14 +13,14 @@ Fake mode is the default and recommended path for all development and testing. R
 
 ### Prerequisites
 
-| Requirement          | Details                                                                                                                     |
-| -------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| MeshCore node        | A MeshCore companion radio node accessible via TCP, serial, or BLE                                                          |
-| Python               | 3.11 or later                                                                                                               |
+| Requirement          | Details                                                                                                                    |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| MeshCore node        | A MeshCore companion radio node accessible via TCP, serial, or BLE                                                         |
+| Python               | 3.11 or later                                                                                                              |
 | Package install      | Install the adapter in the MEDRE environment; see [installation](../install.md) (its pinned MeshCore SDK installs with it) |
-| Network access (TCP) | Your machine can reach the node's IP address on port 4000                                                                   |
-| Serial access        | USB cable connecting the node; user in `dialout` group on Linux                                                             |
-| BLE access           | BLE-capable hardware and BlueZ on Linux (optional)                                                                          |
+| Network access (TCP) | Your machine can reach the node's IP address on port 4000                                                                  |
+| Serial access        | USB cable connecting the node; user in `dialout` group on Linux                                                            |
+| BLE access           | BLE-capable hardware and BlueZ on Linux (optional)                                                                         |
 
 ### Node Setup
 
