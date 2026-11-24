@@ -30,7 +30,7 @@ dev = [
   "build==1.6.1",
   "setuptools==84.2.1",
   "jsonschema==4.26.0",
-  "packaging==26.3",
+  "packaging==26.4",
   "mypy==2.4.1",
   "types-PyYAML==6.0.12.20261122",
 ]
