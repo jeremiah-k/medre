@@ -652,7 +652,7 @@ directionality decision matrix.
 
 ### Self-Loop Guard Firing Unexpectedly
 
-**Symptom:** Deliveries showing `status="skipped"` with `error="loop_prevented"`.
+**Symptom:** Deliveries showing `status="skipped"` with an `error` that starts with `"loop_prevented"`.
 
 **Cause:** A route's destination adapter matches the source adapter of the event.
 
