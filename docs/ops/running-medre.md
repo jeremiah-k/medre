@@ -277,61 +277,11 @@ paths from the support bundle. See [troubleshooting.md](troubleshooting.md)
 § "Support Bundles" for the complete bundle contents, the full
 not-included list, and the redaction scope.
 
-## Per-Transport Delivery Semantics
+## Delivery Semantics
 
-Each transport has fundamentally different delivery guarantees. Understanding these differences is essential for interpreting receipts.
-
-### Matrix
-
-| Property               | Value                                                                |
-| ---------------------- | -------------------------------------------------------------------- |
-| Server acknowledgment  | Yes — Synapse returns `event_id` on successful `room_send`           |
-| Delivery confirmation  | Server-level only (not per-recipient)                                |
-| Duplicate risk         | Low — retries after connection loss may produce duplicates           |
-| Receipt interpretation | `sent` with `adapter_message_id` means homeserver accepted the event |
-
-Matrix is the only transport where `sent` implies server-verified persistence.
-
-### Meshtastic
-
-| Property               | Value                                                                                  |
-| ---------------------- | -------------------------------------------------------------------------------------- |
-| Server acknowledgment  | None beyond local-node acceptance                                                      |
-| Delivery confirmation  | None — whether any remote node received the packet is unknown                          |
-| Duplicate risk         | High — radio environments cause packet loss; duplicates are normal practice            |
-| Receipt interpretation | `sent` means local node accepted for transmission, not that any other node received it |
-
-### MeshCore
-
-Same discipline as Meshtastic — radio best-effort, no confirmation, duplicates are normal.
-
-### LXMF (Reticulum)
-
-| Property               | Value                                                                                                 |
-| ---------------------- | ----------------------------------------------------------------------------------------------------- |
-| Delivery confirmation  | Eventual — propagation delays from seconds to hours                                                   |
-| Duplicate risk         | Low                                                                                                   |
-| Receipt interpretation | `sent` means local router accepted for propagation; delivery to destination may take significant time |
-
-## Delivery Receipt States
-
-Receipts progress through these states:
-
-```text
-queued → sent
-       ↘ failed → dead_lettered
-       ↘ suppressed
-```
-
-| Status          | Meaning                                                                                                                                                                                                                                       |
-| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `queued`        | Delivery plan created, waiting for adapter execution.                                                                                                                                                                                         |
-| `sent`          | Adapter reported successful handoff to transport. See per-transport table for what this means.                                                                                                                                                |
-| `failed`        | Adapter reported delivery failure. Classified by `failure_kind`.                                                                                                                                                                              |
-| `dead_lettered` | Exhausted all retries. Permanently failed.                                                                                                                                                                                                    |
-| `suppressed`    | Terminal for that delivery attempt. Policy/loop denials remain terminal; direct/replay capacity or shutdown rejection is also terminal for that attempt. Storage-backed live ingress instead defers its durable work row for a later attempt. |
-
-Each receipt carries `attempt_number` and `parent_receipt_id` forming a retry lineage. The `source` column identifies the dispatch mechanism (`"live"`, `"replay"`, or `"retry"`); `replay_run_id` separately preserves named replay origin across later retries.
+Delivery guarantees and receipt interpretation are per-transport. The
+per-transport semantics tables and the receipt-state reference live in
+[delivery-semantics.md](delivery-semantics.md).
 
 ## Configuration Examples
 
