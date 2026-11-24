@@ -421,7 +421,7 @@ Both config-time checks produce warnings only. They do not block startup.
 | Context     | Mechanism                          | Blocks startup?   | Blocks delivery?    |
 | ----------- | ---------------------------------- | ----------------- | ------------------- |
 | Config-time | `check_route_loops` (direct + DFS) | No (warning only) | N/A                 |
-| Runtime     | Native-ref ingress deduplication   | N/A               | Yes (before routing)|
+| Runtime     | Native-ref ingress deduplication   | N/A               | Yes (before routing) |
 | Runtime     | Route-trace loop prevention        | N/A               | Yes                 |
 | Runtime     | Self-loop guard                    | N/A               | Yes                 |
 | Replay      | `_filter_replay_loops`             | N/A               | Yes                 |
