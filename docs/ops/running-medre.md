@@ -506,19 +506,15 @@ Canonical events, delivery receipts, post-handoff delivery observations, native
 refs, and the delivery outbox persist in local SQLite
 (`{state}/medre.sqlite`); Matrix E2EE keys and LXMF
 identities persist under `{state}/adapters/`. In-flight deliveries without an
-outbox row are lost on termination. Non-terminal outbox rows survive restart;
-`pending`/`retry_wait` work is claimable when due and expired `in_progress` work is
-reclaimed under its lease rule; `queued` work is the durable confirmation-pending
-disposition and is never claimed or re-dispatched. Terminal outbox rows persist as
-history and are never reclaimed. Runtime counters, RouteStats,
-gauges, and the runtime event buffer reset on startup (capture the buffer with
-`--snapshot-on-shutdown PATH`).
+outbox row are lost on termination; non-terminal outbox rows survive restart as
+resumable work. Runtime counters, RouteStats, gauges, and the runtime event
+buffer reset on startup (capture the buffer with `--snapshot-on-shutdown PATH`).
 
-The canonical crash-recovery procedure, the survives/lost breakdown, and the
-orphaned-event query live in
-[recovery-and-replay.md](recovery-and-replay.md). MEDRE persists to local
-SQLite and the local filesystem only — no replication, remote backup, or
-distributed coordination; operators own backup, log rotation, and disk
+The authoritative survives/lost breakdown, the crash-recovery procedure, and
+the orphaned-event query live in
+[recovery-and-replay.md](recovery-and-replay.md#what-was-lost). MEDRE persists
+to local SQLite and the local filesystem only — no replication, remote backup,
+or distributed coordination; operators own backup, log rotation, and disk
 monitoring.
 
 ## Docker Deployment
@@ -594,25 +590,13 @@ MEDRE does not rotate logs internally. Use external log rotation (logrotate, Doc
 
 ## Recovery Procedures
 
-### Adapter Not Connecting
-
-1. Check adapter health: `medre diagnostics`
-2. Look for WARNING/ERROR entries for the adapter in the log file.
-3. Verify transport connectivity (network, serial device, BLE pairing).
-4. Restart the runtime — the adapter reconnects from scratch.
-
-### Config Error
-
-1. Run `medre config check` to identify the issue.
-2. Fix the config file.
-3. Restart the runtime.
-
-### Corrupted State
-
-1. Stop the runtime.
-2. Back up `{state}/medre.sqlite`.
-3. If the database is corrupted, delete it and restart. The runtime creates a fresh database.
-4. Note: this loses all event history. Crypto stores (under `{state}/adapters/`) are separate and unaffected.
+The canonical procedures live in [recovery-and-replay.md](recovery-and-replay.md):
+the [complete incident workflow](recovery-and-replay.md#complete-incident-workflow),
+[adapter failure recovery](recovery-and-replay.md#adapter-failure-recovery), and
+[database corruption recovery](recovery-and-replay.md#database-corruption-recovery).
+For config errors: run `medre config check` to identify the issue, fix the
+config file, and restart the runtime; config failure drills live in
+[troubleshooting](troubleshooting.md#config-failure-drills).
 
 ## Queue Discipline
 
