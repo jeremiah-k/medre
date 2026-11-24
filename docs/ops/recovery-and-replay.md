@@ -493,6 +493,17 @@ Replay re-evaluates capabilities against the current adapter registry, not the a
 medre replay --mode <mode> [--event <event_id>] --config my-bridge.yaml
 ```
 
+Preview before re-delivering; `best_effort` produces real outbound messages
+without deduplication:
+
+```bash
+# Preview
+medre replay --mode dry_run --config bridge.yaml --json
+
+# Re-deliver
+medre replay --mode best_effort --config bridge.yaml --json
+```
+
 | Flag       | Required | Description                                                             |
 | ---------- | -------- | ----------------------------------------------------------------------- |
 | `--mode`   | Yes      | One of: `strict`, `re_render`, `re_route`, `dry_run`, `best_effort`     |
