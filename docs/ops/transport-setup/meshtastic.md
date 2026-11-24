@@ -7,7 +7,11 @@ The provider supplies both its SDK-free fake and its native SDK dependencies.
 
 Setting up and running the MEDRE Meshtastic adapter against a real radio node.
 
-## Prerequisites
+Fake mode is the default and recommended path for all development and testing. Real connectivity modes (TCP, serial) are opt-in for live validation only.
+
+## Before you begin
+
+### Prerequisites
 
 | Requirement          | Details                                                                                      |
 | -------------------- | -------------------------------------------------------------------------------------------- |
@@ -18,11 +22,9 @@ Setting up and running the MEDRE Meshtastic adapter against a real radio node.
 | Serial access        | USB cable connecting the node; user in `dialout` group on Linux                              |
 | Radio channel        | A channel index (default 0) not used for critical or emergency communications                |
 
-Fake mode is the default and recommended path for all development and testing. Real connectivity modes (TCP, serial) are opt-in for live validation only.
+### Node Setup
 
-## Node Setup
-
-### TCP Connectivity (recommended)
+#### TCP Connectivity (recommended)
 
 Most Meshtastic nodes expose a TCP API when connected via WiFi or Ethernet. Default port: 4403.
 
@@ -52,7 +54,7 @@ Most Meshtastic nodes expose a TCP API when connected via WiFi or Ethernet. Defa
 
    See [the same-environment SDK instructions](../install.md#run-provider-sdk-tools-in-the-same-environment).
 
-### Serial Connectivity
+#### Serial Connectivity
 
 Connect the node via USB. The node appears as a serial device.
 
@@ -65,7 +67,7 @@ sudo usermod -aG dialout $USER
 # Log out and back in
 ```
 
-### BLE Connectivity
+#### BLE Connectivity
 
 BLE is a supported connection type but has not been validated against real hardware.
 
@@ -74,7 +76,7 @@ bluetoothctl scan on
 # Note the MAC address of your Meshtastic node
 ```
 
-### Firmware Compatibility
+#### Firmware Compatibility
 
 The provider distribution pins its Meshtastic SDK (`mtjk`) directly in its
 package metadata, which also supplies the `meshtastic` CLI used above; the
@@ -82,88 +84,32 @@ installed adapter's declared pin is the version authority. If you encounter
 protocol errors, upgrade the installed provider and node firmware together,
 then rerun the installed-SDK and local validation tiers.
 
-## Connection Modes
+## Set up
 
-### Fake Mode (default)
+Install the adapter:
 
-No real client. Used for development and testing without hardware.
-
-```python
-from medre.config.adapters.meshtastic import MeshtasticConfig
-
-config = MeshtasticConfig(
-    adapter_id="mesh-alpha",
-    connection_type="fake",
-)
+```bash
+medre adapters install meshtastic
 ```
 
-- No `mtjk` package required. All adapter submodules import successfully without it.
-- `start()` sets `_client = None`. No network or serial activity.
-- `deliver()` reports deferred local queue admission. With no connected session, `send_one()` returns `None` and no transport-completion feedback is emitted.
-- `simulate_inbound()` is available for injecting test packets.
-- `health_check()` returns `"healthy"` after start.
+Save a private `connections.yaml` with one real TCP instance. The common case
+needs the connection type and the node host; the default TCP port is shown in
+[Options](#options):
 
-### TCP Mode
-
-Connects to a Meshtastic node via its TCP API.
-
-```python
-config = MeshtasticConfig(
-    adapter_id="mesh-alpha",
-    connection_type="tcp",
-    host="meshtastic.local",
-    port=4403,
-    tcp_liveness_interval_seconds=60,
-    tcp_liveness_timeout_seconds=30,
-)
+```yaml
+adapters:
+  meshtastic:
+    radio-a:
+      adapter_kind: real
+      connection_type: tcp
+      host: meshtastic.local
+routes: {}
 ```
 
-- Uses the pinned mtjk `meshtastic.tcp_interface.TCPInterface(hostname, portNumber)`.
-- Connection is synchronous internally; `send_one()` wraps `sendText` in `asyncio.to_thread()`.
-- mtjk owns low-level TCP heartbeat/socket recovery. MEDRE adds session-level supervision above it: a bounded local metadata request proves round-trip liveness and complete client recreation continues with capped backoff until recovery or adapter shutdown.
-- Set `tcp_liveness_interval_seconds=0` to disable the active probe. This is not recommended for long-running TCP bridges because a half-open path may otherwise remain undetected until another operation fails.
+Add another adapter instance (a second radio, or a different transport), then
+build routes with [guided configuration](../guided-configuration.md).
 
-### Serial Mode
-
-Connects via USB serial.
-
-```python
-config = MeshtasticConfig(
-    adapter_id="mesh-alpha",
-    connection_type="serial",
-    serial_port="/dev/ttyUSB0",
-)
-```
-
-- Uses `meshtastic.serial_interface.SerialInterface(devPath)`.
-- Port must exist and be accessible.
-
-### BLE Mode
-
-Connects via Bluetooth Low Energy. Documented but not validated against real hardware.
-
-```python
-config = MeshtasticConfig(
-    adapter_id="mesh-alpha",
-    connection_type="ble",
-    ble_address="AA:BB:CC:DD:EE:FF",
-)
-```
-
-### Configuration Validation
-
-`MeshtasticConfig.validate()` enforces:
-
-| Connection type | Required fields             |
-| --------------- | --------------------------- |
-| `fake`          | `adapter_id` only           |
-| `tcp`           | `adapter_id`, `host`        |
-| `serial`        | `adapter_id`, `serial_port` |
-| `ble`           | `adapter_id`, `ble_address` |
-
-Invalid configurations raise `MeshtasticConfigError` before any connection attempt.
-
-## Environment Overrides
+### Environment Overrides
 
 Override an existing YAML adapter:
 
@@ -184,107 +130,22 @@ export MEDRE_ADAPTER__RADIO_A__SERIAL_PORT=/dev/ttyUSB0
 [configuration](../configuration.md#environment-variable-overrides) for the
 complete override contract.
 
-## Manual Adapter Wiring
+## Verify
 
-There is no dedicated Meshtastic runner. Wire the adapter manually:
+Check and run the bridge configuration saved by guided configuration:
 
-```python
-import asyncio
-import logging
-
-from medre.adapters.meshtastic.adapter import MeshtasticAdapter
-from medre.config.adapters.meshtastic import MeshtasticConfig
-from medre.core.contracts.adapter import AdapterContext
-from medre.core.events.bus import EventBus
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("mesh-alpha")
-
-config = MeshtasticConfig(
-    adapter_id="mesh-alpha",
-    connection_type="tcp",
-    host="meshtastic.local",
-    port=4403,
-).validate()
-
-adapter = MeshtasticAdapter(config)
-event_bus = EventBus()
-ctx = AdapterContext(event_bus=event_bus, logger=logger)
-
-async def main():
-    await adapter.start(ctx)
-    logger.info("Adapter started: %s", await adapter.health_check())
-    try:
-        await asyncio.Event().wait()
-    except asyncio.CancelledError:
-        pass
-    finally:
-        await adapter.stop()
-        logger.info("Adapter stopped")
-
-asyncio.run(main())
+```bash
+medre config check --config bridge.yaml
+medre routes plan --config bridge.yaml
+medre run --config bridge.yaml
 ```
 
-## Startup and Shutdown
+A healthy start logs `MeshtasticAdapter radio-a started (mode=tcp)` and
+health settles at `healthy`. Configurations missing the fields required for
+their connection type are rejected at load — see
+[Configuration Validation](#configuration-validation).
 
-### Startup Sequence
-
-1. The adapter checks `HAS_MESHTASTIC` (the `mtjk` import guard). If not installed and not fake mode, raises `MeshtasticConnectionError`.
-2. A `MeshtasticSession` is created, which delegates transport lifecycle to the session boundary.
-3. `session.start(message_callback=...)` creates the appropriate interface and subscribes to receive/connection-loss pubsub callbacks. Client creation is synchronous and blocking.
-4. TCP sessions start the MEDRE liveness supervisor after initial connection setup; serial/BLE do not run this TCP-specific probe.
-5. A background `_drain_task` is created to continuously drain the outbound queue.
-6. `_started` is set to `True`.
-
-Expected output:
-
-```text
-INFO  MeshtasticAdapter mesh-alpha started (mode=tcp)
-```
-
-### Shutdown Sequence
-
-1. The `_drain_task` is cancelled and awaited with a 5-second timeout.
-2. All tracked adapter background tasks are cancelled and drained.
-3. `session.stop()` cancels TCP liveness/reconnect supervision, unsubscribes pubsub callbacks, and closes the underlying client interface.
-4. State is cleared.
-
-**Queue durability:** The adapter-local queue is in-memory and non-durable across process restart. During an ordinary adapter stop, an item interrupted mid-send is reported through the queue-terminal path; when there is no in-flight cancellation, pending queue items remain on the adapter object for a subsequent `start()` of that same object. Durable delivery receipts/outbox state remain owned by core storage.
-
-Shutdown is idempotent.
-
-## Startup drain and reconnect receive watermark
-
-A Meshtastic radio hands its FROMRADIO queue to the next successful
-connection, and BLE, serial and TCP connections can deliver queued mesh
-packets without a usable `rxTime` or with an unsynchronized clock. After the
-first receive-ready connection of each adapter start, the session drops
-relay-classified packets for `startup_packet_drain_seconds` (default 15.0;
-`0` disables) before `rxTime` evaluation, decode, staging or publication. A
-real message arriving during the interval is also lost; drained packets are
-not replayed or retried. Non-relay classification, node information and
-native routing correlation are not gated by the drain.
-
-After a transparent reconnect, the radio can hand its pre-reconnect queue to
-the fresh connection. Every connection generation records a receive-ready
-watermark, and the `rxTime` cutoff judges each packet against its own
-generation's watermark with `startup_backlog_suppress_seconds` (default 5.0)
-as the cutoff tolerance. A fixed five-second, generation-scoped window drops
-relay-classified packets without a usable `rxTime` right after a reconnect:
-they cannot prove they are not queue backlog. Provably fresh traffic relays
-immediately, a rapid reconnect retires any remaining initial drain, and
-`startup_packet_drain_seconds: 0` disables both the initial drain and the
-reconnect window. The timestamp cutoff still applies after either drain
-expires (or is disabled): a radio clock trailing the host by more than the
-configured `startup_backlog_suppress_seconds` tolerance can drop fresh
-messages. Check clock synchronization and the `startup_backlog_packets_suppressed`
-diagnostic before adjusting the tolerance. A zero tolerance setting disables
-the timestamp cutoff; future timestamps are accepted, and unknown-age packets
-are accepted after the reconnect window, subject to ordinary admission. See
-[configuration](../configuration.md) for the field reference and the [transport profile](../../spec/transport-profiles/meshtastic.md)
-for the normative contract.
-
-## Health States
+### Health States
 
 | State     | Meaning                                                         |
 | --------- | --------------------------------------------------------------- |
@@ -292,9 +153,9 @@ for the normative contract.
 | `healthy` | Adapter started successfully; client is connected               |
 | `failed`  | Client exists but start did not complete (subscription failure) |
 
-## Delivery Semantics
+### Delivery Semantics
 
-### Two-Phase Delivery
+#### Two-Phase Delivery
 
 Meshtastic delivery is two-phase: `queued` (local queue acceptance) then `sent` (queue drain completed radio send). Neither `queued` nor `sent` means RF confirmation, remote-node receipt, or ACK.
 
@@ -302,45 +163,63 @@ Meshtastic delivery is two-phase: `queued` (local queue acceptance) then `sent` 
 - If the process crashes between phases, evidence correctly shows `queued` with no `sent` receipt.
 - `sent` means the local node queued the packet for LoRa transmission. Remote receipt is unknown. Fire-and-forget.
 
-### Outbound Gate
+#### Outbound Gate
 
 When configured with `outbound_mode = "listen_only"`, outbound deliveries are suppressed before RF transmission. Suppressed deliveries appear as non-retryable adapter failures with detail `outbound suppressed: listen_only mode`.
 
-### Renderer Truncation
+#### Renderer Truncation
 
 The renderer applies a UTF-8 byte budget of 227 bytes (`max_text_bytes=227` default) for outbound text. Messages exceeding this are truncated.
 
-## Queue Diagnostics
+## Options
 
-The adapter exposes `queue_health` as a snapshot of the outbound queue:
+| Key                                | Default    | What it changes                                                            | When to touch it                                       |
+| ---------------------------------- | ---------- | -------------------------------------------------------------------------- | ------------------------------------------------------ |
+| `port`                             | SDK (4403) | TCP port of the node API                                                   | Non-default node port                                  |
+| `serial_port`                      | unset      | Serial device path (required for `serial`)                                 | Serial connections                                     |
+| `ble_address`                      | unset      | BLE MAC address (required for `ble`)                                       | BLE connections                                        |
+| `outbound_mode`                    | `enabled`  | `listen_only` suppresses all outbound sends before RF transmission         | Receive-only monitoring                                |
+| `max_text_bytes`                   | `227`      | UTF-8 byte budget for rendered radio text                                  | Longer payloads on LoRa                                |
+| `message_delay_seconds`            | `2.2`      | Minimum spacing between outbound messages                                  | Congested channels                                     |
+| `tcp_liveness_interval_seconds`    | `60.0`     | Seconds between TCP round-trip liveness probes; `0` disables               | Long-running TCP bridges keep the default              |
+| `tcp_liveness_timeout_seconds`     | `30.0`     | Bound for each liveness probe                                              | Slow nodes                                             |
+| `startup_packet_drain_seconds`     | `15.0`     | Startup drain for relay-classified backlog; `0` disables                   | Radios that replay queued packets on connect           |
+| `startup_backlog_suppress_seconds` | `5.0`      | Post-reconnect stale-`rxTime` tolerance; `0` disables the timestamp cutoff | Clock-synchronized radios or deliberate replay testing |
+| `queue_send_max_attempts`          | `3`        | Send attempts per queued item before exhaustion                            | Lossy local links                                      |
+| `queue_max_size`                   | `1024`     | Adapter-local outbound queue capacity                                      | Bursty outbound traffic                                |
+| `queue_warning_threshold_pct`      | `75.0`     | Utilization entering advisory `warning` pressure                           | Tuning queue alerts                                    |
+| `queue_critical_threshold_pct`     | `90.0`     | Utilization degrading adapter health                                       | Tuning queue alerts                                    |
+| `origin_label`                     | empty      | Prefix identifying this origin on the other side                           | Labeling in mixed bridges                              |
+| `relay_prefix`                     | unset      | Custom rendering template for relayed text                                 | Custom presentation                                    |
 
-| Field                    | Meaning                                               |
-| ------------------------ | ----------------------------------------------------- |
-| `pending_count`          | Items currently in the outbound queue                 |
-| `total_sent`             | Cumulative successful sends                           |
-| `total_failed`           | Cumulative send failures (after exhausting retries)   |
-| `total_requeued`         | Items requeued for retry after transient send failure |
-| `total_exhausted`        | Items that exhausted `max_attempts` and were dropped  |
-| `total_permanent_failed` | Items that failed permanently on first attempt        |
-| `max_queue_size`         | Maximum queue capacity                                |
-| `utilization_pct`        | Current queue utilization as percentage               |
-| `pressure_state`         | `normal`, `warning`, `critical`, or `full`            |
-| `warning_threshold_pct`  | Configured advisory pressure threshold                |
-| `critical_threshold_pct` | Configured health-degrading pressure threshold        |
-| `peak_depth`             | Maximum observed pending depth                        |
+### Configuration Validation
 
-## Packet Classification
+`MeshtasticConfig.validate()` enforces:
 
-The `MeshtasticPacketClassifier` classifies all packet types:
+| Connection type | Required fields             |
+| --------------- | --------------------------- |
+| `fake`          | `adapter_id` only           |
+| `tcp`           | `adapter_id`, `host`        |
+| `serial`        | `adapter_id`, `serial_port` |
+| `ble`           | `adapter_id`, `ble_address` |
 
-- **Relay** (`relay` action): text messages on shared channels — produce canonical events.
-- **Ignore**: ACK, telemetry, position, nodeinfo, admin, direct message, empty text — counted in diagnostics and skipped.
-- **Drop**: malformed, encrypted — counted and skipped.
-- **Deferred**: detection sensor, unknown portnum, plugin_only — counted and skipped.
+Invalid configurations raise `MeshtasticConfigError` before any connection attempt.
 
-Only relay-action text messages produce canonical events. Everything else is classified, counted, and skipped.
+The startup drain and reconnect receive watermark behavior behind
+`startup_packet_drain_seconds` and `startup_backlog_suppress_seconds` is
+described in the
+[Meshtastic internals page](../../dev/transport-internals/meshtastic.md).
 
-## Known Limitations
+## Troubleshooting
+
+Protocol errors after a firmware update point at the SDK pin; see
+[Firmware Compatibility](#firmware-compatibility). Suppressed outbound
+deliveries with detail `outbound suppressed: listen_only mode` are the
+[outbound gate](#outbound-gate) working as configured. A healthy adapter
+proves only the MEDRE-to-local-radio API round trip, never remote mesh peer
+reachability.
+
+### Known Limitations
 
 1. **Fire-and-forget delivery.** `sent` means local node acceptance. No remote receipt confirmation.
 2. **In-memory queue is non-durable.** Process crash loses queued items. Receipts in SQLite survive.
@@ -350,7 +229,26 @@ Only relay-action text messages produce canonical events. Everything else is cla
 6. **Single-channel operation.** Current validation covers text on a single channel index only.
 7. **No inbound pubsub delivery proven at Docker level.** meshtasticd simulation mode may not relay packets between TCP clients.
 
-## See Also
+### Sharing a room with MMRelay
+
+[MMRelay](https://github.com/jeremiah-k/meshtastic-matrix-relay) can share a
+Matrix room with a MEDRE deployment that owns its own mesh: MEDRE needs only
+the room in the Matrix adapter's `room_allowlist`, and the MMRelay operator
+must trust the MEDRE bot's Matrix user ID on their side. Keep one relay per
+radio mesh: two relays attached to the same mesh while sharing a room relay
+each other's messages back until the mesh and the room flood. See
+[sharing a room with MMRelay](../shared-rooms-with-mmrelay.md) for what each
+side sets, verification, privacy notes, and account migration.
+
+## Reference
+
+- Connection mode construction, manual adapter wiring, startup and shutdown
+  sequences, queue diagnostics, and packet classification:
+  [Meshtastic transport internals](../../dev/transport-internals/meshtastic.md)
+- [guided configuration](../guided-configuration.md) — the route builder used
+  to connect two adapters
+
+### See Also
 
 - [live-validation/meshtastic.md](../live-validation/meshtastic.md) — live smoke test procedures
 - [diagnostics-and-evidence.md](../diagnostics-and-evidence.md) — evidence provenance and bundle collection

@@ -14,6 +14,7 @@ Set up your [development environment](environment.md), then use the
 | [testing.md](testing.md)                                                                             | Test suite structure, patterns, tiers, live-test harness                              |
 | [static-typing.md](static-typing.md)                                                                 | Strict-mypy gate scope, SDK import exemptions, and typing status                      |
 | [adapter-authoring.md](adapter-authoring.md)                                                         | How to write a new transport adapter                                                  |
+| [transport-internals/](transport-internals/README.md)                                                | Per-transport adapter internals behind the operator setup guides                      |
 | [adapter-registration.md](adapter-registration.md)                                                   | `AdapterSpec` fields and the `medre.adapters` entry-point contract                    |
 | [adapter-sdk-parity.md](adapter-sdk-parity.md)                                                       | Installed-SDK contract tiers and open SDK parity gaps                                 |
 | [external-adapters.md](external-adapters.md)                                                         | External adapter distributions, entry-point discovery, and CI ownership               |
