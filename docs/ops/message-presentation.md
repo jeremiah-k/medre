@@ -52,6 +52,35 @@ settings in your private real configuration after reviewing the example. See
 [configuration](configuration.md) for the supported prefix variables and
 [transport profiles](../spec/transport-profiles/README.md) for native features.
 
+## Bridged Message Appearance
+
+Messages are rendered by transport-specific renderers when bridging between transports.
+
+### Matrix → Meshtastic
+
+`MeshtasticRenderer` produces a plain-text payload. The `text` field is extracted from the event payload's `body` key. No Matrix formatting, HTML, or metadata is preserved in the Meshtastic output. The source adapter label is not included in the radio text.
+
+### Meshtastic → Matrix
+
+`MatrixRenderer` produces an `m.room.message` content dict. The `body` is the decoded text from the Meshtastic packet. A MEDRE provenance envelope is embedded in the `medre.envelope` subtree recording the source adapter and channel. If the event carries a reply relation, the rendered output includes `m.relates_to` with `m.in_reply_to` referencing the original message ID.
+
+### Reply Threading
+
+| Target renderer | Reply support                                                                        |
+| --------------- | ------------------------------------------------------------------------------------ |
+| Matrix          | Supported — `m.relates_to` with `m.in_reply_to` added; body includes quoted fallback |
+| Meshtastic      | Not supported — reply relations ignored; plain text only                             |
+| MeshCore        | Not supported — same as Meshtastic                                                   |
+| LXMF            | Partial — relations recorded in fields envelope but not used for display             |
+
+### Source Adapter Label
+
+- Included in Matrix renderer output via `medre.envelope.source_adapter`.
+- Included in LXMF renderer output via the fields envelope.
+- Included in Meshtastic and MeshCore renderer output when `origin_label` is
+  set — the label is embedded in the relay prefix template via
+  `{origin_label}`.
+
 ## Custom rendering and enrichment
 
 Rendering turns a canonical event into the destination's native message shape.
