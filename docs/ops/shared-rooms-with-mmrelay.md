@@ -37,19 +37,22 @@ before that.
 
 ## One relay per radio mesh
 
-A radio mesh carries the traffic of exactly one bridge whose rooms are
-shared. Two relays attached to the same mesh while sharing a room relay each
-other's messages back: every transmission is re-broadcast onto the mesh and
-re-posted into the room until both flood. The supported topology is a star —
-each bridge attaches to its own mesh, and the bridges meet only in the
-shared rooms. MMRelay documents the matching constraint for its own
-deployments; the restriction binds whichever bridges share the medium.
+The recommended shared-room topology has **one bridge per radio mesh**.
+Two relays attached to the same mesh and sharing a room can generate an
+escalating echo cycle. Relay-side self-mesh checks may suppress particular
+echoes, but they are not a guarantee for arbitrary mixed deployments. Keep
+bridges on distinct meshes that meet only in the shared rooms. This reduces
+loop risk, but does **not** prove exactly-once radio delivery or distributed
+deduplication.
 
 ## What to set on MEDRE
 
-Set the shared room in the Matrix adapter's `room_allowlist`, and leave the
-room encrypted so the default `encryption_mode: e2ee_required` setup applies;
-the full procedure is the [Matrix setup guide](transport-setup/matrix.md).
+Set the shared room in the Matrix adapter's `room_allowlist`. For an
+encrypted room, use `encryption_mode: e2ee_required` and confirm that **both**
+bridges have working device identity, room keys, and permissions; selecting
+the setting does not prove either bridge can decrypt. For a deliberately
+unencrypted room, use the separate plaintext procedure in the
+[Matrix setup guide](transport-setup/matrix.md).
 Connect the room to your other transports with
 [guided configuration](guided-configuration.md) as for any other route.
 
@@ -66,8 +69,10 @@ On the MMRelay side, every instance sharing the room runs MMRelay 1.5.0 or
 later and lists the exact Matrix user ID of every other relay bot in the
 room — including this MEDRE bot — under `matrix.trusted_relays`. An empty
 list is the default; entries match exactly, with no wildcards; malformed
-entries fail `mmrelay config check`. MMRelay's guide shows the exact
-configuration and is the authority for that side.
+entries fail `mmrelay config check`. The minimum version is a deployment
+requirement, not a runtime version gate that excludes older instances.
+MMRelay's guide shows the exact configuration and is the authority for
+that side.
 
 Give the MMRelay operator this bot's Matrix user ID. It is the account the
 adapter logs in as — the `MEDRE_ADAPTER__<TOKEN>__USER_ID` override value,
