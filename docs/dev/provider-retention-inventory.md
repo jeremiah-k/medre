@@ -93,9 +93,9 @@ firmware or credential sidecars, as export-only or device-attached instead
 of silently omitting it. The qualification table in
 `core:docs/ops/mixed-installation-restore-qualification.md:14-17` states the
 same split from the restore side. A snapshot extends the lifetime of
-**only the adapter and SDK bytes it actually captures** to wherever it is
-stored; that copy is operator-owned
-and outside every sweep in the system.
+**only the bytes it actually captures** — the core database, adapter
+ledgers, and native SDK stores — to wherever it is stored; that copy is
+operator-owned and outside every sweep in the system.
 
 ## Per-transport scope matrices
 
