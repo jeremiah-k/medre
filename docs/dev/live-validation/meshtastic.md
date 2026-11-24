@@ -10,7 +10,7 @@ your current core, adapter commits, SDKs, and endpoints.
 ## Quick Validation
 
 ```bash
-# Install meshtastic in the MEDRE environment; see [installation](../install.md)
+# Install meshtastic in the MEDRE environment; see [installation](../../ops/install.md)
 source .venv/bin/activate
 
 export MESHTASTIC_CONNECTION_TYPE="tcp"
@@ -133,7 +133,7 @@ Physical-radio lifecycle endurance is opt-in and never runs in the default
 suite. Configure the same connection variables as the live smoke tests, then:
 
 ```bash
-# Install meshtastic in the MEDRE environment; see [installation](../install.md)
+# Install meshtastic in the MEDRE environment; see [installation](../../ops/install.md)
 export MESHTASTIC_SOAK_CYCLES=10
 pytest ../medre-adapter-meshtastic/tests/test_meshtastic_hardware_soak.py \
   -m "hardware and live and soak and meshtastic_sdk" -v
@@ -150,5 +150,5 @@ record. Runs without that independent device record remain lifecycle validation.
 
 ## See Also
 
-- [transport-setup/meshtastic.md](../transport-setup/meshtastic.md) — adapter setup, config, delivery semantics
-- [diagnostics-and-evidence.md](../diagnostics-and-evidence.md) — evidence provenance and bundle collection
+- [transport-setup/meshtastic.md](../../ops/transport-setup/meshtastic.md) — adapter setup, config, delivery semantics
+- [diagnostics-and-evidence.md](../../ops/diagnostics-and-evidence.md) — evidence provenance and bundle collection

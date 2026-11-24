@@ -10,7 +10,7 @@ your current core, adapter commits, SDKs, and endpoints.
 ## Quick Validation
 
 ```bash
-# Install matrix in the MEDRE environment; see [installation](../install.md)
+# Install matrix in the MEDRE environment; see [installation](../../ops/install.md)
 source .venv/bin/activate
 
 export MATRIX_HOMESERVER=http://localhost:8008
@@ -28,7 +28,7 @@ Expected: 13 passed / 0 failed / 0 skipped (plaintext path).
 No external homeserver needed. Uses a local Docker Synapse container.
 
 ```bash
-# Install matrix, meshtastic in the MEDRE environment; see [installation](../install.md)
+# Install matrix, meshtastic in the MEDRE environment; see [installation](../../ops/install.md)
 
 # All Docker integration tests
 uv run --no-sync pytest tests/integration/ -m docker -v
@@ -47,7 +47,7 @@ Expected: 15 passed, 1 xfailed (third-party inbound requires second user during 
 ## E2EE Live Validation
 
 ```bash
-# Install matrix[e2e] in the MEDRE environment; see [installation](../install.md)
+# Install matrix[e2e] in the MEDRE environment; see [installation](../../ops/install.md)
 
 # Docker E2EE harness
 MEDRE_SYNAPSE_PORT=8009 pytest tests/integration/test_synapse_e2ee_smoke.py -m docker -v
@@ -83,17 +83,6 @@ While the test waits (30 s window), send a message from `@alice:localhost` into 
 | `../medre-adapter-matrix/tests/test_matrix_sync_checkpoint_ownership.py`  | unit         | SDK cursor and host application checkpoint         |
 | `../medre-adapter-matrix/tests/test_matrix_durable_admission_boundary.py` | unit         | nio admission rejection and durable handoff        |
 | `../medre-adapter-matrix/tests/test_matrix_sync_recovery_sdk_contract.py` | `matrix_sdk` | Pinned mindroom-nio recovery API contract          |
-
-## Evidence Tiers Achieved
-
-| Tier           | Sub-class                    | Date       | Result                           |
-| -------------- | ---------------------------- | ---------- | -------------------------------- |
-| H (historical) | External live (matrix.org)   | 2026-05-10 | 13/13 plaintext, 7/7 E2EE        |
-| docker         | Docker SDK-boundary          | 2026-05-22 | 15 passed, 1 xfailed             |
-| docker         | Docker SDK-boundary E2EE     | 2026-05-25 | 3/3 passed                       |
-| docker         | Docker SDK-boundary E2EE     | 2026-08-18 | 4/4 passed (incl. cross-signing) |
-| —              | External live (sk.community) | 2026-05-12 | NOT EXECUTED (token rejected)    |
-| —              | External live (matrix.org)   | 2026-05-12 | NOT EXECUTED (password rejected) |
 
 ## Cross-Signing Validation
 
@@ -211,5 +200,5 @@ design); the interactive session is the intended path for that evidence.
 
 ## See Also
 
-- [transport-setup/matrix.md](../transport-setup/matrix.md) — adapter setup, config, and troubleshooting
-- [diagnostics-and-evidence.md](../diagnostics-and-evidence.md) — evidence provenance and bundle collection
+- [transport-setup/matrix.md](../../ops/transport-setup/matrix.md) — adapter setup, config, and troubleshooting
+- [diagnostics-and-evidence.md](../../ops/diagnostics-and-evidence.md) — evidence provenance and bundle collection

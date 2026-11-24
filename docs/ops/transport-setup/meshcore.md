@@ -313,6 +313,6 @@ sudo systemctl restart bluetooth
 
 ### See Also
 
-- [live-validation/meshcore.md](../live-validation/meshcore.md) — live smoke test procedures
+- [live-validation/meshcore.md](../../dev/live-validation/meshcore.md) — live smoke test procedures
 - [diagnostics-and-evidence.md](../diagnostics-and-evidence.md) — evidence provenance and bundle collection
 - [recovery-and-replay.md](../recovery-and-replay.md) — crash recovery and replay

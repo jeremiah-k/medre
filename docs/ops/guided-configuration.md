@@ -98,7 +98,7 @@ medre smoke --config bridge.yaml \
 
 Repeat for other mappings and reverse legs when present. Smoke uses fake
 adapters and rejects real configurations. Use
-[live validation](live-validation/short-iterations.md) to test native delivery.
+[live validation](../dev/live-validation/short-iterations.md) to test native delivery.
 
 ## Create native connections without hand-writing adapter fields
 

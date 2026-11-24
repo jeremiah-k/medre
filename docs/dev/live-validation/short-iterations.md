@@ -11,7 +11,7 @@ separate final check.
 Run from a MEDRE source checkout. Native protocol and pair tests live in their
 owning adapter repositories; cross-adapter and Docker tests remain in core.
 Configure the four editable paths in the
-[local development profile](../../dev/environment.md#work-on-adapters-at-any-location)
+[local development profile](../environment.md#work-on-adapters-at-any-location)
 for any checkout layout. The profile selects aliases matrix, meshtastic,
 meshcore and lxmf. Install native SDKs and Matrix encryption explicitly:
 
@@ -24,7 +24,7 @@ Run adapter tests with `medre dev test ALIAS -- ...` through `uv run --no-sync`;
 these commands use the adapter's own test configuration. A Git-only install can
 run the smoke but requires editable checkouts to run adapter source tests.
 For a deployment without source checkouts, start with
-[Getting Started](../getting-started.md).
+[Getting Started](../../ops/getting-started.md).
 
 Use an owned private channel on each mesh. Assign device A to MEDRE and device
 B to the independent native SDK peer. Set these endpoint variables in a private
@@ -248,6 +248,3 @@ fix with its specification and PR description, rerun the affected stage, and
 open a focused PR. Keep harness corrections and operational documentation in
 their own concerns. Review fixes adversarially before publication. For CI,
 locate the new run once and use `gh run watch --exit-status` to completion.
-
-The [October 2026 campaign record](campaign-2026-10-03.md) records observed
-results and unresolved limits from the first pass through this procedure.

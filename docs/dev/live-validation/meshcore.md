@@ -10,7 +10,7 @@ your current core, adapter commits, SDKs, and endpoints.
 ## Quick Validation
 
 ```bash
-# Install meshcore in the MEDRE environment; see [installation](../install.md)
+# Install meshcore in the MEDRE environment; see [installation](../../ops/install.md)
 source .venv/bin/activate
 
 export MESHCORE_CONNECTION_TYPE="tcp"
@@ -62,34 +62,17 @@ The adapter-wrapper callback bridge is proven at the fake-pipeline level:
 
 ## BLE Validation
 
-Mock-based BLE validation tests exist in `../medre-adapter-meshcore/tests/test_meshcore_live.py::TestMeshCoreBLEValidation` and pass without hardware. Live BLE validation was completed June 2026 against a real MeshCore BLE node on Linux BlueZ. This was the first live 3-way bridge across Matrix, Meshtastic, and MeshCore BLE.
+Mock-based BLE validation tests exist in `../medre-adapter-meshcore/tests/test_meshcore_live.py::TestMeshCoreBLEValidation` and pass without hardware.
 
-Results:
+BLE connection requires a pre-scan and stale BlueZ device cleanup before connecting, and BLE remains less reliable than serial or TCP on Linux BlueZ: expect intermittent disconnects and reconnect cycles.
 
-- Matrix ↔ MeshCore: bidirectional routing observed.
-- Meshtastic ↔ MeshCore: bidirectional routing observed.
-- All messages routed on channel index 0.
-- Connection and reconnect bugs were observed during testing and are being tracked.
-- BLE connection required pre-scan and stale BlueZ device cleanup before connecting (pattern sourced from mmrelay).
-- BLE remains less reliable than serial or TCP on Linux BlueZ. Expect intermittent disconnects and reconnect cycles.
-
-Bidirectional routing was confirmed by observing messages arrive on the second MeshCore device independently. `send_text` is accepted by the local MeshCore SDK/node; remote receipt is only proven by observing the second device, not by any RF confirmation from the SDK.
+Remote receipt is only proven by observing a second MeshCore device independently; `send_text` is accepted by the local MeshCore SDK/node, and the SDK provides no RF confirmation.
 
 ```bash
 export MESHCORE_CONNECTION_TYPE="ble"
 export MESHCORE_BLE_ADDRESS="AA:BB:CC:DD:EE:FF"
 pytest ../medre-adapter-meshcore/tests/test_meshcore_live.py -m live -v
 ```
-
-## Evidence Tiers Achieved
-
-| Tier       | Sub-class           | Date       | Result                                                                                                                                                                                           |
-| ---------- | ------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| synthetic  | Fake callback       | —          | Proven: simulate_inbound → codec → pipeline → fake outbound                                                                                                                                      |
-| synthetic  | Wrapper callback    | —          | Proven: \_on_message → MeshCoreCodec.decode → pipeline routing → fake outbound                                                                                                                   |
-| local-int  | Pinned loopback     | current    | Proven in CI: real pinned SDK against the local companion endpoint — framing/APPSTART, inbound dispatch, outbound MSG_SENT, reconnect, cancellation. No RF claim                                 |
-| —          | Docker SDK-boundary | —          | Not proven (no containerized MeshCore node)                                                                                                                                                      |
-| historical | Live network/radio  | 2026-06-11 | Historical record only, not a current-tree validation claim: first live 3-way bridge (Matrix + Meshtastic + MeshCore BLE); bidirectional routing observed with connection/reconnect bugs present |
 
 ## Physical Pair Validation (2026-09-19, campaign `buildout/hardware-readiness`)
 
@@ -154,9 +137,7 @@ Operational firmware truths proven on this hardware:
   hazard, not firmware damage: allow settle time between a runtime stop and
   the next start, verify a healthy 3/3 adapter start before arming traffic,
   and reserve hub power-cycle + clock re-sync for a genuinely wedged board
-  (RTC is always lost and must be re-synced afterwards). During a soak, the
-  board then held one steady central for the full window with zero
-  reconnects (see the LXMF page's three-transport pass).
+  (RTC is always lost and must be re-synced afterwards).
 
 ## Hardware Bring-Up Notes (2026-09-19, campaign `buildout/hardware-readiness`)
 
@@ -187,7 +168,7 @@ Operational firmware truths proven on this hardware:
 
 For a serial-first bring-up procedure that wires Matrix, Meshtastic, and
 MeshCore together with four additional one-way MeshCore routes, see
-[matrix-meshtastic-meshcore.md](matrix-meshtastic-meshcore.md).
+[matrix-meshtastic-meshcore.md](../../ops/live-validation/matrix-meshtastic-meshcore.md).
 
 ## Deterministic Local Integration
 
@@ -195,7 +176,7 @@ Before hardware validation, run the real pinned MeshCore SDK against MEDRE's
 local companion-protocol endpoint:
 
 ```bash
-# Install meshcore in the MEDRE environment; see [installation](../install.md)
+# Install meshcore in the MEDRE environment; see [installation](../../ops/install.md)
 pytest ../medre-adapter-meshcore/tests/test_meshcore_local_integration.py \
   -m "local_integration and meshcore_sdk and not soak" -v
 ```
@@ -207,6 +188,6 @@ behavior. A manual repeated-cycle variant is available with
 
 ## See Also
 
-- [matrix-meshtastic-meshcore.md](matrix-meshtastic-meshcore.md) -- serial-first 3-way bridge bring-up (Matrix + Meshtastic + MeshCore)
-- [transport-setup/meshcore.md](../transport-setup/meshcore.md) — adapter setup, config, delivery semantics
-- [diagnostics-and-evidence.md](../diagnostics-and-evidence.md) — evidence provenance and bundle collection
+- [matrix-meshtastic-meshcore.md](../../ops/live-validation/matrix-meshtastic-meshcore.md) -- serial-first 3-way bridge bring-up (Matrix + Meshtastic + MeshCore)
+- [transport-setup/meshcore.md](../../ops/transport-setup/meshcore.md) — adapter setup, config, delivery semantics
+- [diagnostics-and-evidence.md](../../ops/diagnostics-and-evidence.md) — evidence provenance and bundle collection

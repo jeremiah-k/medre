@@ -4,7 +4,7 @@
 Opt-in ONLY: set ``MESHCORE_PAIR=1`` plus explicit owned BLE addresses.
 The ordinary suite never opens a radio; nothing here provisions or pairs
 as a fixture side effect (host-level bluetoothctl pairing is a documented
-prerequisite, see docs/ops/live-validation/meshcore.md).
+prerequisite, see docs/dev/live-validation/meshcore.md).
 
 Roles (default lab allocation, reversible via env):
 - MEDRE owns one board over BLE (``MESHCORE_MEDRE_BLE_ADDRESS``).

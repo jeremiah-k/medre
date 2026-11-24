@@ -48,13 +48,13 @@ applies to all transports equally.
 Two refinements keep this matrix honest. First, MeshCore and LXMF also run
 a deterministic local-integration tier — the pinned real SDK against a
 local loopback endpoint, exercised in CI
-([live-validation/meshcore.md](live-validation/meshcore.md),
-[live-validation/lxmf.md](live-validation/lxmf.md)). It proves SDK framing
+([live-validation/meshcore.md](../dev/live-validation/meshcore.md),
+[live-validation/lxmf.md](../dev/live-validation/lxmf.md)). It proves SDK framing
 and adapter behavior, not RF propagation or external-peer reachability.
-Second, the matrix records current-tree claims only: dated historical
-records — the MeshCore BLE 3-way bridge (June 2026) and the Meshtastic
-serial CLI capture (May 2026) — are preserved on those transports'
-live-validation pages as history and are not re-claimed here.
+Second, the matrix records current-tree claims only. Dated records of past
+runs, such as the MeshCore Bluetooth bridge of June 2026 and the Meshtastic
+serial capture of May 2026, live on the transport's live-validation page or
+in the repository history, and are not re-claimed here.
 
 ## Quick Bundle Collection
 

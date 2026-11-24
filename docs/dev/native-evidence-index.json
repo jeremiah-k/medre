@@ -10,7 +10,7 @@
     "report_status": "reported_in_project_documents; private individual receipts are not distributed with this source stack",
     "source_documents": [
       "docs/dev/attribution-status.md",
-      "docs/ops/live-validation/adapter-campaign.md",
+      "docs/dev/live-validation/adapter-campaign.md",
       "docs/changes/releases/0.1.0/325-native-simplex-group-campaign.md"
     ],
     "not_qualified": [
