@@ -357,6 +357,18 @@ Cross-signing diagnostic fields are defined in the
    scrape-compatible text snapshot, but MEDRE does not run a Prometheus HTTP
    endpoint.
 
+### Sharing a room with MMRelay
+
+[MMRelay](https://github.com/jeremiah-k/meshtastic-matrix-relay) can bridge
+its Meshtastic mesh into the same room this adapter monitors: set the room in
+`room_allowlist`, and give the MMRelay operator this bot's Matrix user ID to
+list under `matrix.trusted_relays` on their side. Keep one relay per radio
+mesh: two relays attached to the same mesh while sharing a room relay each
+other's messages back until the mesh and the room flood. See
+[sharing a room with MMRelay](../shared-rooms-with-mmrelay.md) for
+verification in both directions, MMRelay-side warnings, privacy notes, and
+account migration.
+
 ## Reference
 
 - Device identity and crypto store behavior, validation harnesses, and Classic

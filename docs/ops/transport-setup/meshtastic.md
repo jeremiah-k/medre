@@ -229,6 +229,17 @@ reachability.
 6. **Single-channel operation.** Current validation covers text on a single channel index only.
 7. **No inbound pubsub delivery proven at Docker level.** meshtasticd simulation mode may not relay packets between TCP clients.
 
+### Sharing a room with MMRelay
+
+[MMRelay](https://github.com/jeremiah-k/meshtastic-matrix-relay) can share a
+Matrix room with a MEDRE deployment that owns its own mesh: MEDRE needs only
+the room in the Matrix adapter's `room_allowlist`, and the MMRelay operator
+must trust the MEDRE bot's Matrix user ID on their side. Keep one relay per
+radio mesh: two relays attached to the same mesh while sharing a room relay
+each other's messages back until the mesh and the room flood. See
+[sharing a room with MMRelay](../shared-rooms-with-mmrelay.md) for what each
+side sets, verification, privacy notes, and account migration.
+
 ## Reference
 
 - Connection mode construction, manual adapter wiring, startup and shutdown
