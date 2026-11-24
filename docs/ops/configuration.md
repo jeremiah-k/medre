@@ -1690,3 +1690,142 @@ medre run --config /path/to/config.yaml
 
 For explicit package changes and source overrides, see
 [package management](package-management.md).
+
+## Configuration Examples
+
+### Single Matrix Adapter (Plaintext)
+
+```yaml
+runtime:
+  name: matrix-bridge
+  shutdown_timeout_seconds: 10
+
+logging:
+  level: INFO
+  format: text
+
+storage:
+  backend: sqlite
+
+adapters:
+  matrix:
+    bot:
+      enabled: true
+      adapter_kind: real
+      homeserver: "https://matrix.example.com"
+      user_id: "@bot:example.com"
+      access_token: "<matrix-access-token>"
+      room_allowlist:
+        - "!room:example.com"
+      encryption_mode: plaintext
+```
+
+### Single Matrix Adapter (E2EE)
+
+```yaml
+runtime:
+  name: matrix-e2ee
+  shutdown_timeout_seconds: 10
+
+logging:
+  level: INFO
+  format: text
+
+storage:
+  backend: sqlite
+
+adapters:
+  matrix:
+    securebot:
+      enabled: true
+      adapter_kind: real
+      homeserver: "https://matrix.example.com"
+      user_id: "@securebot:example.com"
+      access_token: "<matrix-access-token>"
+      room_allowlist:
+        - "!secretroom:example.com"
+      encryption_mode: e2ee_required
+```
+
+E2EE mode requires the `mindroom-nio[e2e]` optional dependency. The crypto store is created automatically at `{state}/adapters/securebot/matrix/store/`. Device ID is discovered via the Matrix `whoami()` endpoint on first connect — do not configure it manually.
+
+### Two Meshtastic Radios (LongFast + ShortTurbo)
+
+```yaml
+runtime:
+  name: dual-radio
+  shutdown_timeout_seconds: 15
+
+logging:
+  level: INFO
+  format: json
+
+storage:
+  backend: sqlite
+
+adapters:
+  meshtastic:
+    longfast:
+      enabled: true
+      adapter_kind: real
+      connection_type: serial
+      serial_port: /dev/ttyACM0
+      origin_label: LongFast Net
+      default_channel: 0
+      channel_mapping:
+        "0": general
+        "1": alerts
+
+    shortturbo:
+      enabled: true
+      adapter_kind: real
+      connection_type: tcp
+      host: meshtastic-turbo.local
+      port: 4403
+      origin_label: ShortTurbo Net
+      default_channel: 0
+      channel_mapping:
+        "0": fast
+```
+
+Each radio is a separate adapter with its own connection. Startup order: `meshtastic.longfast`, then `meshtastic.shortturbo` (sorted by adapter_id).
+
+### Mixed Runtime (Matrix + Meshtastic)
+
+```yaml
+runtime:
+  name: mixed-bridge
+  shutdown_timeout_seconds: 15
+
+logging:
+  level: INFO
+  format: json
+
+storage:
+  backend: sqlite
+
+adapters:
+  matrix:
+    bridge:
+      enabled: true
+      adapter_kind: real
+      homeserver: "https://matrix.example.com"
+      user_id: "@bridge:example.com"
+      access_token: "<matrix-access-token>"
+      room_allowlist:
+        - "!bridge-room:example.com"
+      encryption_mode: plaintext
+
+  meshtastic:
+    radio:
+      enabled: true
+      adapter_kind: real
+      connection_type: serial
+      serial_port: /dev/ttyACM0
+      origin_label: LocalMesh
+      default_channel: 0
+      channel_mapping:
+        "0": general
+```
+
+Startup order: `matrix.bridge` first (alphabetical by transport), then `meshtastic.radio`.
