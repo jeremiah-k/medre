@@ -133,7 +133,7 @@ medre diagnostics --config /tmp/missing-sdk.yaml
 
 Expected: if **all** adapters fail to build: exit code **3**. If **some** succeed: exit code **0** with `startup_health == "degraded"`.
 
-Fix: install the Matrix provider with its SDK in the MEDRE environment using
+Fix: install the Matrix adapter with its SDK in the MEDRE environment using
 [installation](install.md), then re-run `medre diagnostics`.
 
 **Caveat:** A single adapter failing to build with others succeeding results in degraded health (exit 0), not a build failure exit code.
@@ -738,7 +738,7 @@ Symptom-driven shortcuts for the common post-crash cases:
   restart/worker recovery may converge it; if the finding persists, inspect the
   outbox lease/status and the worker that should advance it.
 - **`terminal_outbox_nonterminal_receipt`**: the outbox is already terminal and
-  will not be reclaimed. Inspect the complete receipt chain and deferred feedback/provider
+  will not be reclaimed. Inspect the complete receipt chain and deferred feedback/transport
   observation evidence directly; treat a persistent mismatch as missing or contradictory
   receipt evidence rather than waiting for reclaim.
 - **`retry_wait_missing_next_retry`**: the scheduler cannot retry; replay the

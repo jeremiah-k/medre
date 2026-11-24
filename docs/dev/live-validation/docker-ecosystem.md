@@ -84,7 +84,7 @@ certificate-signing Key Usage for strict TLS clients. Previously generated
 certificates are not rotated implicitly; prepare a new lab after expiry or when
 an older lab CA lacks that extension.
 
-The `contracts` stage runs provider suites sequentially and its host/child
+The `contracts` stage runs adapter suites sequentially and its host/child
 timeouts scale with the number of recorded sources. Grouped stages allow enough
 time for these child budgets and still require an explicit `down` on failure.
 

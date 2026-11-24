@@ -213,8 +213,8 @@ def test_states_limits_and_links_storage_guide() -> None:
         "getting-started.md must state plainly that general timed "
         "retention profiles and physical erasure are not available"
     )
-    assert "copies held by connected transports and providers are unaffected" in text, (
-        "getting-started.md must state that provider-owned copies are " "unaffected"
+    assert "copies held by connected transports and adapters are unaffected" in text, (
+        "getting-started.md must state that adapter-owned copies are " "unaffected"
     )
     raw = GETTING_STARTED_MD.read_text(encoding="utf-8")
     assert "[privacy and message storage](message-storage.md)" in raw, (

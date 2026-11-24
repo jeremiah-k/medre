@@ -122,7 +122,7 @@ Back it up and restore matching state if possible. Use
   requirements; this text-oriented procedure does not independently qualify them.
 - Peer-device trust defaults to `verification_policy: permissive`. Opt-in `strict`
   requires affirmative trust in MEDRE's local nio store, with no operator
-  peer-verification workflow. The provider's opt-in Docker device-trust scenario
+  peer-verification workflow. The adapter's opt-in Docker device-trust scenario
   qualifies refusal, verified delivery with peer decryption, trust reset, restart
   persistence, and permissive delivery; external-live peer trust remains unqualified.
 - No room-key backup/import/export workflow is managed by MEDRE.
@@ -141,7 +141,7 @@ pytest -q ../medre-adapter-matrix/tests/test_matrix_sync_checkpoint_ownership.py
 pytest -q ../medre-adapter-matrix/tests/test_matrix_sync_recovery_sdk_contract.py -m matrix_sdk
 ```
 
-With the Matrix provider installed in the test environment, the SDK-contract
+With the Matrix adapter installed in the test environment, the SDK-contract
 test verifies the pinned SDK-owned durable Classic Sync surfaces. The storage
 tests characterize the crash
 windows independently of a homeserver: admission is atomic, pending work and the

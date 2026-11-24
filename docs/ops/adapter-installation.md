@@ -3,7 +3,7 @@
 For a first installation, follow [Getting Started](getting-started.md).
 For a persistent CLI with `medre adapters install` and `medre update`, see
 [package management](package-management.md). This reference covers source choices,
-reproducibility, and provider ownership.
+reproducibility, and adapter ownership.
 
 **Adapter discovery is source-agnostic.** MEDRE loads installed Python
 `medre.adapters` entry points. An adapter does not need to be on PyPI, hosted
@@ -26,7 +26,7 @@ name belongs in dependencies; the source belongs in `tool.uv.sources`.
 A bridge using MEDRE, Matrix, and MeshCore directly from Git can use
 (replace example commits with real **full commit SHAs**):
 
-Matrix requires Python 3.12+ for its durable sync backend. Core and providers
+Matrix requires Python 3.12+ for its durable sync backend. Core and adapters
 whose package metadata permits it can run on Python 3.11.
 
 ```toml
@@ -46,7 +46,7 @@ medre-adapter-matrix = { git = "https://github.com/jeremiah-k/medre-adapter-matr
 medre-adapter-meshcore = { git = "https://github.com/jeremiah-k/medre-adapter-meshcore.git", rev = "FULL_MESHCORE_COMMIT_SHA" }
 ```
 
-When a provider is published on an index, omit its entry from
+When an adapter is published on an index, omit its entry from
 `tool.uv.sources` to use that index. Keep the entry when testing a pre-release
 Git revision; an index package cannot be assumed to exist.
 
@@ -58,7 +58,7 @@ medre-adapter-matrix = { path = "/path/to/matrix-provider", editable = true }
 ```
 
 Run `uv lock` to resolve the complete dependency graph, then `uv sync --locked`
-for reproducible installs. From the project directory, validate the providers
+for reproducible installs. From the project directory, validate the adapters
 and configuration without starting a native connection:
 
 ```bash
@@ -97,7 +97,7 @@ like any other Python package. Git direct URLs, local checkouts, other indexes
 and wheel files remain supported. For pip deployments, use a reviewed, pinned requirements
 file with a constraints/lock workflow appropriate for your deployment.
 
-The named provider must be installed **in the same Python environment as
+The named adapter must be installed **in the same Python environment as
 MEDRE**. Restart MEDRE after changing installed distributions; adapter
 discovery is process-static. This is ordinary Python packaging, not a MEDRE
 repository-download protocol.
@@ -121,26 +121,26 @@ adapters:
 ```
 
 `medre config sample` includes SDK-free samples contributed by installed
-providers. With one contribution it creates two offline sample instances; with
+adapters. With one contribution it creates two offline sample instances; with
 none it emits a loadable empty config with installation guidance. Install a
-provider and regenerate to exercise routing. Providers may omit fake/sample
+adapter and regenerate to exercise routing. Adapters may omit fake/sample
 support; consult their documentation for real connection settings.
 
 Broken entry points are reported as `broken`, separately from `missing`,
-including the actual provider distribution name and entry-point reference.
+including the actual adapter distribution name and entry-point reference.
 Repair or uninstall those distributions and restart MEDRE. Help and unrelated
-healthy providers remain usable; configuring a broken provider fails with a
+healthy adapters remain usable; configuring a broken adapter fails with a
 configuration error.
 
 Optional CLI contribution errors appear as `broken CLI contribution`. Core
-omits the failed command tree while preserving help, version, healthy provider
+omits the failed command tree while preserving help, version, healthy adapter
 commands, and runtime discovery. Preflight exits 2 until the contribution is
 repaired; `medre adapters` also displays the registration error.
 
 MEDRE does not assume that the `meshcore` transport comes from a PyPI package
 named `medre-adapter-meshcore`: the adapter author chooses their distribution
 name and advertises the `meshcore` entry point. This also supports community
-providers without a first-party allowlist or source registry.
+adapters without a first-party allowlist or source registry.
 
 ```bash
 medre adapters check --config bridge.yaml   # installed entry-point preflight
@@ -149,13 +149,13 @@ medre run --config bridge.yaml              # no downloads at startup
 ```
 
 The adapter preflight inspects declared transport groups, including disabled
-instances (they still need config model providers). It does **not** validate
+instances (they still need config models from their adapter). It does **not** validate
 credentials, SDK availability, or the remainder of the YAML configuration.
 Use `medre adapters` to inspect the available adapter-owned SDK dependency
-probes. An installed provider can still report its SDK as unavailable (for
+probes. An installed adapter can still report its SDK as unavailable (for
 example, LXMF needs both the `LXMF` and `RNS` modules). `medre config check`
 validates runtime configuration, and adapter startup verifies the live service.
-A missing provider is reported without loading any transport SDK or fetching a
+A missing adapter is reported without loading any transport SDK or fetching a
 package. Invalid config is reported separately from an absent config without
 echoing config values in the adapter inventory.
 
@@ -168,18 +168,18 @@ medre readiness --config bridge.yaml          # short human summary
 medre readiness --config bridge.yaml --json   # machine-readable report
 ```
 
-Per compatibility-snapshot provider it lists the pinned repository revision,
+Per compatibility-snapshot adapter it lists the pinned repository revision,
 the declared distribution, and whether that distribution is installed and
-registered — every provider appears, installed or not. Per configured adapter
-it reports the provider and SDK distribution states, whether the configuration
+registered — every adapter appears, installed or not. Per configured adapter
+it reports the adapter and SDK distribution states, whether the configuration
 is valid, and whether the offline preflight passed, with typed reasons when
 something is blocked. The command contacts nothing and writes nothing; it
-exits 0 whenever it produces a report, so an installation with zero providers
+exits 0 whenever it produces a report, so an installation with zero adapters
 installed is a report, not an error.
 
 Offline results never establish runtime readiness, native acceptance, or
 recipient verification: the report states this boundary in its own output.
-Install or repair providers with the guidance in this document, validate with
+Install or repair adapters with the guidance in this document, validate with
 `medre config check`, preview routing with `medre routes plan`, and qualify
 native delivery separately.
 
@@ -202,7 +202,7 @@ with `transport="community_radio"`. Only the entry-point name must match the
 runtime transport name; repository names, import names, and distributions are
 independent. No global registry edit is needed. See
 [adapter authoring](../dev/adapter-authoring.md) for the lifecycle and event
-contracts. Providers are executable third-party code: install only packages
+contracts. Adapters are executable third-party code: install only packages
 and revisions you trust.
 
 ## Why this differs from MMRelay community plugins
@@ -223,7 +223,7 @@ complete environment with uv. The adapter package's own dependencies bring
 in its SDK. Matrix includes its crypto backend; `medre-adapter-matrix[e2e]`
 remains a compatible install spelling. Configure encryption policy separately.
 
-For development, install provider repos as editable packages with a local
+For development, install adapter repos as editable packages with a local
 `pyproject.toml` deployment manifest or run `uv pip install -e` for each after
 `uv sync` of MEDRE's core `dev` dependencies. SDK-free fakes belong to the
 corresponding adapter distribution and are not a feature of a core-only install.

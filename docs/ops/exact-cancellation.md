@@ -51,7 +51,7 @@ delivery to an explicit outcome; see
 **Limitations:** This is a first-release local OS owner boundary, not a remote
 multiuser RBAC service. It cannot clear a reserved/uncertain native attempt,
 advance retries, cancel whole events, or infer recipient non-delivery. Backup
-and provider journals are independent retention/identity scopes.
+and transport journals are independent retention/identity scopes.
 
 Storage failures exit with code 3. A refused cancellation exits with code 1;
 a missing or ambiguous preview target exits with code 5.

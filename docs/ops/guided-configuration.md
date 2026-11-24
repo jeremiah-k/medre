@@ -9,20 +9,20 @@ In a uv deployment, prefix the commands below with `uv run --locked`.
 
 ## Build a first bridge with sample instances
 
-Install your chosen providers in MEDRE's environment, then run:
+Install your chosen adapters in MEDRE's environment, then run:
 
 ```bash
 medre config bridge --output bridge.yaml
 ```
 
-Without an input file, MEDRE starts from installed providers' fake samples and
+Without an input file, MEDRE starts from installed adapters' fake samples and
 an empty route set. The list shows each instance ID, platform, and whether the
 instance is an SDK-free sample or a real connection. Sample instance IDs are
 `<provider>_<number>`, such as `matrix_1`, so
-each ID names its platform; one sample-contributing provider supplies two
+each ID names its platform; one sample-contributing adapter supplies two
 distinct instances, `<provider>_1` and `<provider>_2`, and further instances
-of a provider belong under the same `adapters.<provider>` group in the saved
-file. A provider without fake sample support can still participate through an
+of an adapter belong under the same `adapters.<provider>` group in the saved
+file. An adapter without fake sample support can still participate through an
 existing configuration. Only the two selected sample instances are saved;
 unused sample connections are omitted. An existing input configuration
 retains all its connections.
@@ -41,10 +41,10 @@ Press Ctrl+C at any prompt to cancel without saving.
 3. Enter the room ID, channel index, topic, or other conversation identifier
    for each side. The prompts call these source and destination contexts.
    They remain strings, including numeric channels.
-   Each prompt shows the provider's declared example address in parentheses;
+   Each prompt shows the adapter's declared example address in parentheses;
    the example is a format reference, not a required value. Each pair is
    validated as soon as it is entered: a rejected address — for example a
-   room the provider's allowlist omits, a duplicate source context, or a pair
+   room the adapter's allowlist omits, a duplicate source context, or a pair
    an existing route already connects — reports the reason and prompts again
    for the source context instead of aborting after all prompts. Enter
    additional pairs as needed, then leave the next source context blank. An
@@ -64,11 +64,11 @@ are intentional. MEDRE applies native-reference duplicate, self-loop, and
 route-trace guards during delivery; see
 [loop suppression](../spec/routing-delivery.md#5-loop-suppression) for their
 scope. The topology warnings alone do not show whether a native echo will be
-recognized by a provider.
+recognized by an adapter.
 
 The generated route permits `message.created` and `message.text`. Other event
 kinds need an explicit policy change. Replies and any attachments carried by
-those events continue to follow the existing attachment settings, provider
+those events continue to follow the existing attachment settings, adapter
 capabilities, and fallback policies.
 
 Validate the saved file and check the expanded legs:
@@ -102,10 +102,10 @@ adapters and rejects real configurations. Use
 
 ## Create native connections without hand-writing adapter fields
 
-For providers that declare an offline native-setup form (Matrix, Meshtastic,
+For adapters that declare an offline native-setup form (Matrix, Meshtastic,
 MeshCore, XMPP and LXMF), use **`medre config native`** before building routes.
-It prompts for provider-defined connection fields, validates them through the
-provider's real config model and pure preflight, and creates a new YAML file.
+It prompts for adapter-defined connection fields, validates them through the
+adapter's real config model and pure preflight, and creates a new YAML file.
 It never contacts an account, radio, or server. It requires an interactive
 terminal; scripts can continue using reviewed YAML templates.
 
@@ -119,17 +119,17 @@ medre config bridge --config connections.yaml --output bridge.yaml
 
 For MeshCore, replace `--transport meshtastic` with `--transport meshcore`.
 The radio form lets you choose TCP, serial, or BLE, then asks only for the
-fields relevant to that connection. XMPP and LXMF expose pure provider-owned
+fields relevant to that connection. XMPP and LXMF expose pure adapter-owned
 connection fields; an LXMF identity path refers to an existing identity and
 never creates one. Consult the
 [transport setup guides](transport-setup/README.md) for native preparation.
 Use `medre adapter chatmail` and `medre adapter simplexchat` to provision those
 profiles. Provisioning contacts the native service.
 
-Providers that cannot offer a form may instead declare a typed setup journey.
-Running **`medre config native`** against such a provider prints that
-provider-owned journey offline with an `informational_only` classification:
-each step shows the provider's own command verbatim, its purpose, and an
+Adapters that cannot offer a form may instead declare a typed setup journey.
+Running **`medre config native`** against such an adapter prints that
+adapter-owned journey offline with an `informational_only` classification:
+each step shows the adapter's own command verbatim, its purpose, and an
 evidence note stating what the step proves and does not prove. Core never
 runs these commands (they contact the native service) and writes nothing —
 you run them manually, then author the YAML yourself. Completing a step is
@@ -140,7 +140,7 @@ send authority.
 terminal prompt, never a CLI argument, and is saved in the resulting YAML.
 Files are created exclusively (owner-only permissions on POSIX; directory ACLs
 apply on Windows). Treat **every generated copy** as credential-bearing:
-keep it outside Git, restrict read access, and prefer the provider's
+keep it outside Git, restrict read access, and prefer the adapter's
 sidecar/env-secret workflow if you do not want to store tokens in YAML. Do
 not publish the generated configuration or paste it into an AI prompt.
 Reusing a file through `--config` preserves existing native values and any
@@ -186,7 +186,7 @@ medre routes plan --config revised.yaml
 ## Add a route to native connections
 
 Use `--config` with a file containing your existing adapter connections. Native
-connection fields and prerequisites stay with their providers; see
+connection fields and prerequisites stay with their adapters; see
 [transport setup guides](transport-setup/README.md). The workflow does not request or
 display connection credentials. Existing fields, literal secrets, and path
 placeholders are retained in the new file; environment values are not copied.
@@ -208,10 +208,10 @@ contexts must use a room ID (`!room:server`), not a room alias (`#room:server`),
 even without a room allowlist: inbound events carry room IDs. Repeat `--map`
 for more conversation pairs. A two-way mapping needs an unambiguous reverse address;
 mapping two sources to the same destination is supported only for
-`source_to_dest` routes. Both endpoints may use the same provider, but this
+`source_to_dest` routes. Both endpoints may use the same adapter, but this
 workflow requires two different adapter instances.
 
-Provider configuration restrictions are checked before preview or saving. For
+Adapter configuration restrictions are checked before preview or saving. For
 example, a Matrix instance with an explicit `room_allowlist` must include every
 room from which an enabled route receives messages, including reverse legs.
 Update the input configuration (or the corresponding environment override)
@@ -231,7 +231,7 @@ just as with `medre config check`.
 Existing configuration errors are reported before context entry. A bad context
 pair can be retried without losing earlier accepted pairs. Fake-smoke next steps
 are shown only when every enabled adapter in the saved configuration is fake;
-providers also need context-aware fake event support. On Windows, the printed
+adapters also need context-aware fake event support. On Windows, the printed
 commands are quoted for PowerShell.
 
 ## Preview, automation, and file protection
@@ -248,9 +248,9 @@ overwritten. New files use owner-only permissions on POSIX; on Windows,
 restrict the parent directory's ACL before saving. The source file is not
 modified. YAML comments and formatting are regenerated.
 
-Provider discovery and SDK package metadata can identify missing prerequisites;
+Adapter discovery and SDK package metadata can identify missing prerequisites;
 they cannot prove authentication, native address validity, service reachability,
 radio provisioning, or recipient delivery. Run
-`medre adapters check --config bridge.yaml`, review provider setup, and qualify
+`medre adapters check --config bridge.yaml`, review adapter setup, and qualify
 native delivery separately. Keep generated configurations out of Git and share
 only [sanitized diagnostics](diagnostics-and-evidence.md).

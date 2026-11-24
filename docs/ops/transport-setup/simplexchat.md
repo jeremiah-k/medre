@@ -13,7 +13,7 @@ exclusively lock the profile and must not race a running relay. Pick one
 
 The official SDK downloads its native library on first initialization; an
 existing installation can be selected with `libs_dir`.
-Provider CI qualifies Linux x86-64; other SDK platforms need their own validation.
+Adapter CI qualifies Linux x86-64; other SDK platforms need their own validation.
 
 ## Set up
 
@@ -87,7 +87,7 @@ admits missing messages through durable checkpoints; large profiles can need
 additional startup time. The example allows 120 seconds for the full adapter
 start because the native session's default `startup_timeout_seconds` is 90.
 Increase the runtime budget as needed for retained history; keep it above the
-provider's own session budget.
+adapter's own session budget.
 A successful outbound handoff confirms the native local queue. An uncertain
 reservation requires inspection rather than blind resubmission.
 
@@ -133,7 +133,7 @@ together.
 
 - [stopped-state snapshots](../stopped-state-snapshots.md) — coherent backup
   procedure.
-- The [profile](../../spec/transport-profiles/simplexchat.md) and provider-owned
+- The [profile](../../spec/transport-profiles/simplexchat.md) and adapter-owned
   [configuration schema](https://github.com/jeremiah-k/medre-adapter-simplexchat/blob/main/docs/schemas/config.schema.json).
 - [guided configuration](../guided-configuration.md) — the route builder used
   to connect two adapters.

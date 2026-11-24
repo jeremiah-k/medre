@@ -164,18 +164,18 @@ runtime:
   shutdown_timeout_seconds: 10 # graceful shutdown deadline in seconds
 ```
 
-| Field                           | Type   | Default   | Description                                                                            |
-| ------------------------------- | ------ | --------- | -------------------------------------------------------------------------------------- |
-| `name`                          | string | `"medre"` | Instance name used in logs and diagnostics.                                            |
-| `adapter_start_timeout_seconds` | number | `60`      | Cooperative deadline for each adapter start; unavailable providers fail independently. |
-| `shutdown_timeout_seconds`      | int    | `10`      | Maximum seconds to wait for adapters to stop before forcing exit.                      |
+| Field                           | Type   | Default   | Description                                                                           |
+| ------------------------------- | ------ | --------- | ------------------------------------------------------------------------------------- |
+| `name`                          | string | `"medre"` | Instance name used in logs and diagnostics.                                           |
+| `adapter_start_timeout_seconds` | number | `60`      | Cooperative deadline for each adapter start; unavailable adapters fail independently. |
+| `shutdown_timeout_seconds`      | int    | `10`      | Maximum seconds to wait for adapters to stop before forcing exit.                     |
 
 Use MEDRE_RUNTIME_ADAPTER_START_TIMEOUT_SECONDS to override the startup budget
-in a deployment environment. Expiry cancels that provider's setup and retires its
+in a deployment environment. Expiry cancels that adapter's setup and retires its
 partial resources while healthy peers continue. This is a cooperative deadline:
 native constructor threads require SDK cancellation or a worker-process boundary
 to bound process exit. Runtime shutdown does not forcibly terminate Python threads.
-Keep this budget above a provider's initial connection wait to allow its degraded
+Keep this budget above an adapter's initial connection wait to allow its degraded
 startup and background recovery policy to take ownership; the 60-second default
 allows Meshtastic's normal 30-second initial wait to finish first.
 
@@ -500,16 +500,16 @@ routes:
         - message.created
 ```
 
-| Field                                                           | Type           | Default            | Description                                                                                                                |
-| --------------------------------------------------------------- | -------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------- |
-| `source_adapters`                                               | list of string | _(required)_       | Adapter IDs that originate events. No overlap with `dest_adapters`.                                                        |
-| `dest_adapters`                                                 | list of string | _(required)_       | Adapter IDs that receive events. No overlap with `source_adapters`.                                                        |
-| `directionality`                                                | string         | `"source_to_dest"` | `source_to_dest`, `dest_to_source`, or `bidirectional`.                                                                    |
-| `priority`                                                      | integer        | `100`              | Route matching/planning order; lower values run first, then route ID for ties. Not transport QoS.                          |
-| `ownership`                                                     | string         | `"shared"`         | `shared` permits overlap; `exclusive` rejects overlap with other enabled exclusive route source domains.                   |
-| `enabled`                                                       | bool           | `true`             | Active at startup. Disabled routes are validated but not registered.                                                       |
-| `forward_typing`                                                | bool           | `false`            | Forward transient activity on concrete channel mappings when both providers support typing. Static route allowlists apply. |
-| `source_room` / `dest_room` / `source_channel` / `dest_channel` | string         | `None`             | Room/channel targeting. `source_room` is an alias for `source_channel`, `dest_room` for `dest_channel`.                    |
+| Field                                                           | Type           | Default            | Description                                                                                                               |
+| --------------------------------------------------------------- | -------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| `source_adapters`                                               | list of string | _(required)_       | Adapter IDs that originate events. No overlap with `dest_adapters`.                                                       |
+| `dest_adapters`                                                 | list of string | _(required)_       | Adapter IDs that receive events. No overlap with `source_adapters`.                                                       |
+| `directionality`                                                | string         | `"source_to_dest"` | `source_to_dest`, `dest_to_source`, or `bidirectional`.                                                                   |
+| `priority`                                                      | integer        | `100`              | Route matching/planning order; lower values run first, then route ID for ties. Not transport QoS.                         |
+| `ownership`                                                     | string         | `"shared"`         | `shared` permits overlap; `exclusive` rejects overlap with other enabled exclusive route source domains.                  |
+| `enabled`                                                       | bool           | `true`             | Active at startup. Disabled routes are validated but not registered.                                                      |
+| `forward_typing`                                                | bool           | `false`            | Forward transient activity on concrete channel mappings when both adapters support typing. Static route allowlists apply. |
+| `source_room` / `dest_room` / `source_channel` / `dest_channel` | string         | `None`             | Room/channel targeting. `source_room` is an alias for `source_channel`, `dest_room` for `dest_channel`.                   |
 
 #### Route Policy (`routes.<route_id>.policy`)
 
@@ -734,7 +734,7 @@ Keep in mind:
 Typing forwarding is opt-in because it discloses activity independently of
 message content, including in encrypted rooms. Add `forward_typing: true` to a
 route with concrete source and destination channels, or to a context map whose
-entries each specify `dest_context`. Both providers need native typing support;
+entries each specify `dest_context`. Both adapters need native typing support;
 the runtime rejects unsupported endpoints. Message event-kind filters do not
 grant or deny activity; the explicit flag and static route allowlists do.
 
@@ -1058,7 +1058,7 @@ the adapter's entire startup attempt.
 
 **XMPP, Chatmail, and SimpleX Chat:**
 
-| Provider            | Scalar override example                             |
+| Adapter             | Scalar override example                             |
 | ------------------- | --------------------------------------------------- |
 | XMPP                | `MEDRE_ADAPTER__CHAT__JID=bridge@example.org/medre` |
 | XMPP password       | `MEDRE_ADAPTER__CHAT__PASSWORD=<private-password>`  |
@@ -1110,9 +1110,9 @@ MEDRE_ADAPTER__RADIO_A__SERIAL_PORT=/dev/ttyACM0
 ```
 
 `TRANSPORT` is required for env-created adapters. Accepted values are
-the installed provider names shown by `medre adapters`, including `matrix`,
+the installed adapter names shown by `medre adapters`, including `matrix`,
 `meshtastic`, `meshcore`, `lxmf`, `xmpp`, `chatmail`, and `simplexchat`. The
-provider must be installed in the same environment. `TRANSPORT` and the optional
+The adapter must be installed in the same environment. `TRANSPORT` and the optional
 `ADAPTER_KIND` (`real` or `fake`) use canonical lowercase values and are
 case-sensitive; mixed-case variants are rejected. The token is lowercased and
 underscores are replaced with hyphens for the default `adapter_id` (for example,
@@ -1292,7 +1292,7 @@ ls -la /path/to/identity.key
 
 XMPP account passwords and encrypted SimpleX profile keys can use environment
 overrides. Chatmail login QR payloads and SimpleX connection links use hidden
-provider prompts or stdin; never put them in command arguments or shared YAML.
+adapter prompts or stdin; never put them in command arguments or shared YAML.
 Their profiles, account databases, ownership sidecars, and handoff journals are
 private state. Stop native owners before maintenance and use
 [stopped-state snapshots](stopped-state-snapshots.md) for coherent backups.
@@ -1658,7 +1658,7 @@ boundaries; verify that runtime separately.
 
 The Matrix E2EE store is derived under the resolved state directory
 (`{state}/adapters/{adapter_id}/matrix/store`). Persist it together with the
-rest of the MEDRE state and native provider profiles.
+rest of the MEDRE state and native transport profiles.
 
 ## Library Usage vs Runtime Usage
 

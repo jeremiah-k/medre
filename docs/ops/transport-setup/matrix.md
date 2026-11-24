@@ -1,9 +1,9 @@
 # Matrix Transport Setup
 
-Install the provider in the same environment as MEDRE using the
+Install the adapter in the same environment as MEDRE using the
 [installation guide](../install.md). Activate a project environment before
 invoking CLI tools; persistent uv tools already expose `medre` on PATH.
-The provider supplies both its SDK-free fake and its native SDK dependencies.
+The adapter supplies both its SDK-free fake and its native SDK dependencies.
 
 Setting up and running the MEDRE Matrix adapter against a real homeserver.
 
@@ -27,7 +27,7 @@ presentation and the separate application-service design, see
 | A test room       | Encrypted, bot has joined it (the setup below selects encrypted rooms)                                                                                                                                    |
 | Network access    | Your machine can reach the homeserver's HTTP(S) port                                                                                                                                                      |
 
-You do not need Docker, a domain name, or federation. MEDRE connects to an existing homeserver account; it does not host or administer the homeserver. Running a local Synapse or Conduit server for provider testing is covered in the [developer testing guide](../../dev/testing.md#local-synapse-homeserver-for-matrix-testing).
+You do not need Docker, a domain name, or federation. MEDRE connects to an existing homeserver account; it does not host or administer the homeserver. Running a local Synapse or Conduit server for adapter testing is covered in the [developer testing guide](../../dev/testing.md#local-synapse-homeserver-for-matrix-testing).
 
 ## Set up
 
@@ -182,7 +182,7 @@ room, and in an encrypted room it cannot decrypt any message, so nothing is
 processed. `e2ee_optional` falls back to plaintext when the crypto library does
 not load; `e2ee_required` fails startup instead of downgrading.
 
-Supply account settings through MEDRE's environment overrides or the provider's
+Supply account settings through MEDRE's environment overrides or the adapter's
 credential sidecar. The instance token matches `adapters.matrix.bridge`:
 
 ```bash
@@ -244,7 +244,7 @@ Immediately after authentication, health remains `degraded` until the first succ
 ### First sync during startup
 
 Authentication and room membership precede sync readiness. With the default
-budget, the provider logs `Waiting up to 45s for the first Matrix sync acknowledgement`
+budget, the adapter logs `Waiting up to 45s for the first Matrix sync acknowledgement`
 while it waits for accepted native progress. `initial_sync_timeout_seconds`
 controls the displayed budget; zero disables waiting and emits no wait log.
 If it expires, the sync owner stays active, health is `degraded`, and

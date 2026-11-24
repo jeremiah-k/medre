@@ -10,7 +10,7 @@ normative invariant and the store-by-store census live in
 [the ceiling specification](../spec/content-privacy-ceiling.md).
 
 The sweep is **disabled by default**. An elapsed ceiling denies content
-reads and scrubs provider metadata from newly written native references at
+reads and scrubs transport metadata from newly written native references at
 insertion time, but does not by itself purge physical SQLite rows or create
 a receipt.
 Enable the sweep in the bridge YAML configuration (SQLite storage only):
@@ -451,8 +451,8 @@ The commands open the database strictly read-only; no schema or
 application data is written, migrated, or checkpointed, though SQLite may
 create or update WAL bookkeeping sidecars for its readers. The audit
 covers the logical stores in the specification's census only: adapter
-checkpoints, plugin state, provider-native stores, SQLite free pages and
-WAL frames, backups, exports, and provider copies remain the documented
+checkpoints, plugin state, transport-native stores, SQLite free pages and
+WAL frames, backups, exports, and transport copies remain the documented
 unmeasured scopes. Receipt presence is not a physical-erasure certificate;
 byte-level erasure still requires the explicit operator step documented in
 [the ceiling specification](../spec/content-privacy-ceiling.md).

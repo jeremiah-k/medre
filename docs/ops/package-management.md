@@ -33,7 +33,7 @@ medre sources show
 medre sources show --json
 ```
 
-The inventory reads package metadata without importing providers or contacting
+The inventory reads package metadata without importing adapters or contacting
 an index. It separates configured catalog requirements, uv's saved request, the
 installed version, and direct-source metadata such as a resolved Git commit or
 editable directory. Outside a persistent tool environment it reports the
@@ -119,7 +119,7 @@ use it only when deliberately pinning that package.
 
 `--all` selects core and explicitly installed first-party adapters, retaining
 community and unrelated requests. Repository, ref, version, path and explicit
-requirement options select exactly one package. For a community Git provider,
+requirement options select exactly one package. For a community Git adapter,
 supply its repository explicitly; MEDRE does not invent an upstream URL.
 
 uv stores successful choices in its tool receipt. Ordinary `medre upgrade`
@@ -181,7 +181,7 @@ index. Requirements must include the distribution name; aliases are convenience
 names, independent of runtime transport names and Python import paths. To change
 a source, edit the catalog and run `medre adapters install ALIAS` again. Removing
 an adapter matches its distribution name, so retain the alias's distribution
-until removal completes. Additional aliases may name any trusted provider;
+until removal completes. Additional aliases may name any trusted adapter;
 this catalog is not a discovery allowlist.
 
 Use SSH agents, credential helpers, and uv's own index configuration for private
@@ -221,9 +221,9 @@ medre adapters reset
 
 Reset uses MEDRE's built-in first-party source defaults, independently of saved
 catalog overrides. It removes the development-only `integration` extra while
-retaining other extras such as `e2e`. It selects only installed providers and
-retains the core request, community providers and unrelated package requests.
-Community providers have no host-owned default: select their source explicitly
+retaining other extras such as `e2e`. It selects only installed adapters and
+retains the core request, community adapters and unrelated package requests.
+Community adapters have no host-owned default: select their source explicitly
 with `install`. uv may re-resolve shared dependencies and other moving sources
 when rebuilding the complete tool request.
 
@@ -277,7 +277,7 @@ hidden pins in the receipt. Custom receipt settings that cannot be replayed caus
 updates to refuse with guidance to use uv directly or a native bulk upgrade.
 
 Adapters are identified from installed distribution metadata, including third-party
-providers, without importing their SDKs. A broken provider can be updated or
+adapters, without importing their SDKs. A broken adapter can be updated or
 removed without loading its CLI hooks. No installed adapters is a successful
 adapter-only no-op. A selection never installs an absent adapter. Core-only
 updates do not inspect adapter discovery metadata.
@@ -296,13 +296,13 @@ An optional core requirement selects a different core repository, revision or
 index constraint during source synchronization. Adapter-only commands retain the
 installed core request. Catalog requirements apply to selected installed
 packages with matching distribution names, preserving installed extras such as
-Matrix E2EE. Unrelated requests remain unchanged. If a provider changes its
+Matrix E2EE. Unrelated requests remain unchanged. If an adapter changes its
 distribution name, install the replacement explicitly and remove the previous
 explicit requirement by its distribution name:
 
 ```bash
 medre adapters install replacement
-medre adapters remove previous-provider
+medre adapters remove previous-adapter
 ```
 
 Distribution names still work after an alias is removed. A null alias never

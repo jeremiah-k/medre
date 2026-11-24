@@ -14,7 +14,7 @@ uv tool install medre
 ```
 
 Matrix requires Python 3.12 or later. Use `uv tool install --python 3.12 medre`
-for that provider. To add the Matrix and Meshtastic adapters:
+for that adapter. To add the Matrix and Meshtastic adapters:
 
 ```bash
 medre adapters install matrix meshtastic

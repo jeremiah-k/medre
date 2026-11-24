@@ -23,7 +23,7 @@ python -m scripts.adapter_campaign.lab down --directory "$lab_dir"
 
 The grouped `native` and `all` stages include `fidelity`. Run `down` after a
 failure too. This tier uses no radios or host networking changes. Keep candidate
-provider selections in a private local development profile; committed
+adapter selections in a private local development profile; committed
 compatibility pins identify merged revisions.
 
 ## Required cases
@@ -94,7 +94,7 @@ that file with `-m live`. Ordinary CI runs the offline controls and oracles.
 Use `--stage presentation` in the Docker lab to run the ten reply/restart cases
 plus six independent presentation cases. This stage is opt-in; grouped `native`
 and `all` retain the baseline conversation tier. Qualify OAuth and provision the
-native accounts first. Select the candidate Matrix and XMPP providers in the
+native accounts first. Select the candidate Matrix and XMPP adapters in the
 private development profile; do not change committed compatibility pins.
 
 ```console
@@ -116,7 +116,7 @@ strong text, opaque code, and an explicit unstyled body. The campaign checks
 canonical span offsets, source HTML/control observations, exact recipient text,
 Matrix semantic tags and attribution scope, and the actual XMPP unstyled XML
 control. Expected values come from fixed fixture cases, independently of the
-provider conversions and the outbox. Presentation reports use version 2; the
+adapter conversions and the outbox. Presentation reports use version 2; the
 offline analyzer also accepts complete version-1 baseline evidence.
 
 The opt-in pytest entry uses `MEDRE_PRESENTATION_CAMPAIGN` and optionally

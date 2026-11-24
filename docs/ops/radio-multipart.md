@@ -22,7 +22,7 @@ with other sends and fanout through the existing session owner.
 ## Meshtastic
 
 Merged Meshtastic #15 uses the same `max_text_parts` opt-in. With that
-provider installed against merged core #343 or newer, add the limit to each selected
+adapter installed against merged core #343 or newer, add the limit to each selected
 Meshtastic instance while retaining its existing connection and route settings:
 
 ```yaml
