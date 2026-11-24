@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 
 _DOC = Path(__file__).resolve().parents[1] / "docs/ops/content-ceiling-audit.md"
+
+pytestmark = pytest.mark.skipif(
+    shutil.which("bash") is None,
+    reason="the rehearsal is a bash script and this platform has no bash",
+)
 
 
 def _script() -> str:
