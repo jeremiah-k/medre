@@ -26,6 +26,15 @@ and reactions across the room. The authored body always stays the visible
 text: embedded metadata never replaces it, supplies identity, or authorizes
 mutations.
 
+Attribution chains across the room. Neither relay rewrites the text it
+receives, so a message that crossed the room keeps the first relay's
+attribution and gains the second's. A message from the MMRelay mesh that
+MEDRE passes on to another transport reads `[sender/origin]: [node/mesh]:
+message`; a Matrix message that MMRelay carries onto its mesh reads
+`[node/mesh]: [sender/origin]: message`. The leading prefix always names the
+relay that sent it to you, and the one inside names where it came from
+before that.
+
 ## One relay per radio mesh
 
 A radio mesh carries the traffic of exactly one bridge whose rooms are
@@ -77,9 +86,9 @@ With `medre run` healthy and the room allowlisted:
   names and sent by the MMRelay bot account. In `medre diagnostics`, the
   Matrix adapter's `inbound_published` counter rises.
 - **Room to mesh.** Post in the room as an ordinary Matrix user — not from
-  the MEDRE bot account, whose own messages MEDRE suppresses. The message
-  reaches the MMRelay mesh with MMRelay's radio-side prefix applied on its
-  side.
+  the MEDRE bot account, whose own messages MEDRE suppresses. MEDRE relays
+  the post with its own attribution; MMRelay carries it onto its mesh
+  behind MMRelay's prefix, as described above.
 
 ## What MEDRE ignores, and where it shows
 
