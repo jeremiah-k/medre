@@ -217,10 +217,10 @@ Pinned provider: `medre-adapter-simplexchat`; SDK package
 `simplex-chat` (its native library is prefetched by the adapter contract
 job in CI).
 
-| Leg                                      | Highest tier reached today | Basis                                                                                                                                                                                 | Automation                                                                                                               |
-| ---------------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Exact-target native acceptance (G01/G02) | `sdk_contract`             | Provider-owned `tests/test_sdk_contract.py` at the pinned provider commit; outbound acceptance at this pin confirms only the native local queue.                                      | SDK contract tier runs in CI; a two-profile local tier on one host is not built yet and would be the next reachable step |
-| SimpleX replies (G05, and register G08)  | Not classified             | Provider PR #40 retains independent recipient quote captures, restart/uncertain-handoff traces and an ordinary routed probe at recorded source pairs; replies now advertise `native`. | Operator-run (independent peer profile)                                                                                  |
+| Leg                                      | Highest tier reached today | Basis                                                                                                                                                                                 | Automation                                                                                                                                                                                                                                                            |
+| ---------------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Exact-target native acceptance (G01/G02) | `sdk_contract`             | Provider-owned `tests/test_sdk_contract.py` at the pinned provider commit; outbound acceptance at this pin confirms only the native local queue.                                      | SDK contract tier runs in CI; the provider main now carries an opt-in, live-marked two-profile local recipient tier whose recorded runs observe production-path sends and quote targets, not acceptance under replay authority; that acceptance rung is not built yet |
+| SimpleX replies (G05, and register G08)  | Not classified             | Provider PR #40 retains independent recipient quote captures, restart/uncertain-handoff traces and an ordinary routed probe at recorded source pairs; replies now advertise `native`. | Operator-run (independent peer profile)                                                                                                                                                                                                                               |
 
 The provider campaign used separate native profiles and processes on one host.
 The retained campaign metadata does not identify whether relay services were
@@ -286,8 +286,11 @@ Outstanding legs, grouped by what each needs:
   (no independent acceptance observer). Native Meshtastic acceptance still
   needs an actual provider-side or recipient-side observation.
 - Needs a new local service tier or an extended harness: Chatmail needs
-  a containerized relay harness, and SimpleX needs a local two-profile
-  tier. Each must first establish that the pinned SDK can honestly
+  a containerized relay harness, and SimpleX's local two-profile tier —
+  merged on the provider main at `99524139383efec6b028f225fc9892d7da7d8ea4`
+  as an opt-in, live-marked operator-run recipient harness, not yet at
+  the manifest pin — still needs its acceptance-under-replay-authority
+  rung. Each must first establish that the pinned SDK can honestly
   produce an acceptance observation at that tier before labeling it.
 - Operator-run only (hardware or external peer): radio interruption
   (Meshtastic, MeshCore BLE/serial), native MeshCore physical-companion
