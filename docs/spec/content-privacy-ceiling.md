@@ -273,7 +273,7 @@ An operator who requires byte-level erasure MUST, after enforcement:
 pages but does **not** remove content-bearing WAL frames. Even with that
 setting, a successful `wal_checkpoint(TRUNCATE)` is required; secure delete
 is not an alternative to WAL cleanup. Neither method erases backups, earlier
-file snapshots, or provider-owned copies.
+file snapshots, or transport-owned copies.
 
 Expiration denies authorized content reads at the installed hard ceiling;
 it does **not** prove logical removal while the default-off sweep has not
@@ -284,13 +284,13 @@ paths can leave late residuals, so a previous clean result is not a
 permanent certificate. The `sqlite_free_pages_and_wal` scope remains
 unmeasured even when logical absence has been verified: physical page
 images require the operator erasure step above.
-Backups, exports, file-level snapshots, and provider copies remain
+Backups, exports, file-level snapshots, and transport copies remain
 independently retained as documented by
 [content-retention.md](content-retention.md) and
 [security-privacy.md](security-privacy.md). A developer-facing inventory of
-which provider-owned copies exist around one installation, with
+which transport-owned copies exist around one installation, with
 per-transport ownership, preservation, and erase-ability matrices, is in
-[the provider retention inventory](../dev/provider-retention-inventory.md);
+[the transport and adapter retention inventory](../dev/provider-retention-inventory.md);
 it records discovery only and adds no guarantee to this page.
 
 ## 6. Coherence requirements
