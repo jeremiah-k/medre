@@ -235,7 +235,7 @@ and never auto-abandoned: absence of evidence is not a negative answer.
 ## 8. Did content expiry change what can be read?
 
 If the bridge enables `content_ceiling`, an event whose ceiling has
-elapsed denies content reads and scrubs provider metadata from new native
+elapsed denies content reads and scrubs transport metadata from new native
 references — replay can no longer re-render its content. The ceiling's
 own read-only commands report which state an event is in:
 
@@ -389,6 +389,6 @@ with nothing recorded.
   run claims one durable target generation per identity. See
   [recovery and replay](recovery-and-replay.md) for the duplicate-risk
   table.
-- The ceiling audit covers the logical SQLite census only; provider
+- The ceiling audit covers the logical SQLite census only; transport
   queues, backups, exports, logs, and SQLite free pages remain documented
   unmeasured scopes.

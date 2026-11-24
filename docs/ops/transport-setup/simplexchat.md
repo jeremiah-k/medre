@@ -109,7 +109,7 @@ worker-death recovery.
 | `database_prefix`         | `{state}/adapters/sx/simplexchat/profile` | Native profile database location                           | Custom state layouts; keep setup and runtime identical |
 | `database_key`            | empty                                     | Encryption key for an encrypted profile; sensitive         | Encrypted profiles, via the environment override       |
 | `state_dir`               | resolved state directory                  | Base directory for adapter state                           | Custom state layouts                                   |
-| `native_cache_dir`        | provider default                          | Native library cache location                              | Non-standard installs                                  |
+| `native_cache_dir`        | adapter default                           | Native library cache location                              | Non-standard installs                                  |
 | `libs_dir`                | SDK default                               | Existing native library installation                       | Offline or preinstalled libraries                      |
 | `command_timeout_seconds` | `30.0`                                    | Bound per native command                                   | Slow hosts                                             |
 | `startup_timeout_seconds` | `90.0`                                    | Native session start budget                                | Large retained history                                 |
