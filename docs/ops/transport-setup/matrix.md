@@ -17,15 +17,15 @@ presentation and the separate application-service design, see
 
 ### Prerequisites
 
-| Requirement       | Details                                                                                                                                                                                                                    |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Matrix homeserver | Synapse or Conduit, local or reachable over the network                                                                                                                                                                    |
-| Bot account       | A dedicated Matrix user, not your personal account                                                                                                                                                                         |
-| Python            | 3.12 or later                                                                                                                                                                                                              |
-| Package install   | Install matrix in the MEDRE environment; see [installation](../install.md) (plaintext). Install matrix[e2e] in the MEDRE environment; see [installation](../install.md) (adds Olm/Megolm crypto libs for encrypted rooms). |
-| Access token      | Obtained via login API or Element UI                                                                                                                                                                                       |
-| A test room       | Unencrypted, bot has joined it                                                                                                                                                                                             |
-| Network access    | Your machine can reach the homeserver's HTTP(S) port                                                                                                                                                                       |
+| Requirement       | Details                                                                                                                                                                                                   |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Matrix homeserver | Synapse or Conduit, local or reachable over the network                                                                                                                                                   |
+| Bot account       | A dedicated Matrix user, not your personal account                                                                                                                                                        |
+| Python            | 3.12 or later                                                                                                                                                                                             |
+| Package install   | Install matrix in the MEDRE environment once; see [installation](../install.md). The distribution declares its Olm/Megolm crypto backend as a dependency, so there is no separate crypto extra to select. |
+| Access token      | Obtained via login API or Element UI                                                                                                                                                                      |
+| A test room       | Encrypted, bot has joined it (the setup below defaults to encrypted rooms)                                                                                                                                |
+| Network access    | Your machine can reach the homeserver's HTTP(S) port                                                                                                                                                      |
 
 You do not need Docker, a domain name, or federation. MEDRE connects to an existing homeserver account; it does not host or administer the homeserver. Running a local Synapse or Conduit server for provider testing is covered in the [developer testing guide](../../dev/testing.md#local-synapse-homeserver-for-matrix-testing).
 
@@ -171,10 +171,16 @@ adapters:
   matrix:
     bridge:
       adapter_kind: real
-      encryption_mode: plaintext
+      encryption_mode: e2ee_required
       room_allowlist: ["!abc123:localhost"]
 routes: {}
 ```
+
+New private rooms and direct messages in Element are encrypted by default, so
+the example requires encryption: `plaintext` is the option for an unencrypted
+room, and in an encrypted room it cannot decrypt any message, so nothing is
+processed. `e2ee_optional` falls back to plaintext when the crypto library does
+not load; `e2ee_required` fails startup instead of downgrading.
 
 Supply account settings through MEDRE's environment overrides or the provider's
 credential sidecar. The instance token matches `adapters.matrix.bridge`:
@@ -254,22 +260,22 @@ for startup versus current health observations.
 
 Keys not needed for the common case, with the adapter's defaults:
 
-| Key                                        | Default      | What it changes                                                                            | When to touch it                                              |
-| ------------------------------------------ | ------------ | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------- |
-| `room_allowlist`                           | unset        | Rooms whose messages are accepted inbound                                                  | Always set it to exactly the rooms you monitor                |
-| `encryption_mode`                          | `plaintext`  | `e2ee_required` / `e2ee_optional` operate in encrypted rooms (needs the matrix[e2e] extra) | When the target rooms are encrypted                           |
-| `verification_policy`                      | `permissive` | Encrypted-send peer-device trust policy                                                    | Only for strict refusal of unverified recipient devices       |
-| `require_encrypted_rooms`                  | `false`      | Drops events from rooms not established as encrypted                                       | When every routed room must be encrypted                      |
-| `auto_join_rooms`                          | empty        | Room IDs joined at startup                                                                 | When startup should join rooms without a client joining first |
-| `initial_sync_timeout_seconds`             | `45.0`       | Startup wait for the first acknowledged sync; `0` disables                                 | Slow homeservers or large accounts                            |
-| `sync_timeout_ms`                          | `30000`      | Long-poll window per sync request                                                          | Rarely; sync latency tuning                                   |
-| `sync_stale_timeout_seconds`               | `300.0`      | Recycles the sync loop without durable progress; `0` disables                              | Only after confirming normal long-poll timing                 |
-| `startup_backlog_suppress_seconds`         | `60.0`       | Suppresses events older than the start baseline; `0` disables                              | Homeservers with heavy federation lag                         |
-| `megolm_key_request_rate_limit_per_minute` | `30`         | Missing-room-key request budget per minute                                                 | Only when key recovery is rate-limited                        |
-| `megolm_key_request_max_inflight`          | `4`          | Concurrent missing-room-key recovery tasks                                                 | Only when key recovery needs more parallelism                 |
-| `metadata_embedding_mode`                  | `safe`       | How MEDRE metadata is embedded in outbound messages                                        | Presentation changes                                          |
-| `origin_label`                             | empty        | Prefix identifying this origin on the other side                                           | Labeling in mixed bridges                                     |
-| `relay_prefix`                             | unset        | Custom rendering template for relayed text                                                 | Custom presentation                                           |
+| Key                                        | Default      | What it changes                                                                                               | When to touch it                                              |
+| ------------------------------------------ | ------------ | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| `room_allowlist`                           | unset        | Rooms whose messages are accepted inbound                                                                     | Always set it to exactly the rooms you monitor                |
+| `encryption_mode`                          | `plaintext`  | `e2ee_required` / `e2ee_optional` operate in encrypted rooms (the crypto backend ships with the distribution) | When the target rooms are encrypted                           |
+| `verification_policy`                      | `permissive` | Encrypted-send peer-device trust policy                                                                       | Only for strict refusal of unverified recipient devices       |
+| `require_encrypted_rooms`                  | `false`      | Drops events from rooms not established as encrypted                                                          | When every routed room must be encrypted                      |
+| `auto_join_rooms`                          | empty        | Room IDs joined at startup                                                                                    | When startup should join rooms without a client joining first |
+| `initial_sync_timeout_seconds`             | `45.0`       | Startup wait for the first acknowledged sync; `0` disables                                                    | Slow homeservers or large accounts                            |
+| `sync_timeout_ms`                          | `30000`      | Long-poll window per sync request                                                                             | Rarely; sync latency tuning                                   |
+| `sync_stale_timeout_seconds`               | `300.0`      | Recycles the sync loop without durable progress; `0` disables                                                 | Only after confirming normal long-poll timing                 |
+| `startup_backlog_suppress_seconds`         | `60.0`       | Suppresses events older than the start baseline; `0` disables                                                 | Homeservers with heavy federation lag                         |
+| `megolm_key_request_rate_limit_per_minute` | `30`         | Missing-room-key request budget per minute                                                                    | Only when key recovery is rate-limited                        |
+| `megolm_key_request_max_inflight`          | `4`          | Concurrent missing-room-key recovery tasks                                                                    | Only when key recovery needs more parallelism                 |
+| `metadata_embedding_mode`                  | `safe`       | How MEDRE metadata is embedded in outbound messages                                                           | Presentation changes                                          |
+| `origin_label`                             | empty        | Prefix identifying this origin on the other side                                                              | Labeling in mixed bridges                                     |
+| `relay_prefix`                             | unset        | Custom rendering template for relayed text                                                                    | Custom presentation                                           |
 
 `device_id` and `store_path` are internal: the adapter discovers the device ID
 and derives the store path; see the
@@ -277,7 +283,7 @@ and derives the store path; see the
 
 ### E2EE text validation
 
-The `medre-adapter-matrix[e2e]` distribution extra installs `mindroom-nio[e2e]` with Olm/Megolm crypto libraries. When `encryption_mode` is set to `e2ee_required` or `e2ee_optional`, the adapter operates in encrypted rooms.
+The Matrix adapter distribution declares `mindroom-nio[e2e]`, with Olm/Megolm crypto libraries, as a dependency. When `encryption_mode` is set to `e2ee_required` or `e2ee_optional`, the adapter operates in encrypted rooms.
 
 The adapter discovers its device ID via `whoami()` and derives an internal store path automatically — no operator configuration of `device_id` or `store_path` is required. The store persists Olm/Megolm session keys and device keys across restarts.
 
@@ -316,7 +322,7 @@ In `plaintext` mode the adapter does not initialise the crypto subsystem. No dev
 | `OlmUnverifiedDeviceError` in encrypted room | Peer-device permissive send policy not applied                                                                        | Update to current MEDRE version; E2EE sends intentionally permit unverified peer devices                                                                                                                                                                                                         |
 | `cross_signing_reset_required=true`          | Local/server own-device identity state disagrees                                                                      | Back up state; restore the matching E2EE store or use the explicit password-authenticated reset workflow                                                                                                                                                                                         |
 | `cross_signing_chain_status=missing`         | No own-device cross-signing identity is established                                                                   | Re-run `medre adapter matrix auth login --adapter-id <id>` with a fresh password                                                                                                                                                                                                                 |
-| `ENCRYPTION_ENABLED=False` in diagnostics    | `medre-adapter-matrix[e2e]` not installed                                                                             | Install matrix[e2e] in the MEDRE environment; see [installation](../install.md)                                                                                                                                                                                                                  |
+| `ENCRYPTION_ENABLED=False` in diagnostics    | The nio crypto backend did not load in this environment                                                               | Reinstall the Matrix adapter with its declared dependencies; see [installation](../install.md)                                                                                                                                                                                                   |
 
 Cross-signing diagnostic fields are defined in the
 [Matrix internals page](../../dev/transport-internals/matrix.md).
