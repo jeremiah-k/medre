@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -11,9 +10,25 @@ import pytest
 
 _DOC = Path(__file__).resolve().parents[1] / "docs/ops/content-ceiling-audit.md"
 
+
+def _bash_works() -> bool:
+    """Whether ``bash`` on the path can run a script.
+
+    Some Windows images ship a stub ``bash.exe`` that only prints an
+    install hint for the Linux subsystem and exits nonzero.
+    """
+    try:
+        probe = subprocess.run(
+            ["bash", "-c", "true"], capture_output=True, check=False, timeout=30
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return probe.returncode == 0
+
+
 pytestmark = pytest.mark.skipif(
-    shutil.which("bash") is None,
-    reason="the rehearsal is a bash script and this platform has no bash",
+    not _bash_works(),
+    reason="the rehearsal is a bash script and this platform has no working bash",
 )
 
 
