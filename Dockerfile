@@ -8,7 +8,7 @@ FROM scratch AS xmpp
 FROM scratch AS chatmail
 FROM scratch AS simplexchat
 
-FROM python:3.15-slim-bookworm@sha256:96599df822d0e1c6bb700014a05c7f3c8cabc6e0f7ff3c4f9f69cee033b4b5d9 AS runtime-base
+FROM python:3.15-slim-bookworm@sha256:498829c717b1e59fc42f0e7865eafe4e04ca0f70a3769d4ae70ba218df54507c AS runtime-base
 # Native runtime dependencies for the seven supported providers. Keep compilers
 # and Git in the builder. Debian security updates are resolved during rebuilds.
 # hadolint ignore=DL3008
