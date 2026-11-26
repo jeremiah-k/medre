@@ -90,12 +90,13 @@ class RuntimeStatusFile:
         if app is None:
             return result
         eligibility, readiness = app.route_eligibility, app.startup_readiness
-        if eligibility is not None and readiness is not None:
+        if eligibility is not None:
             registered = set(eligibility.registered)
             result["startup_routes_registered"] = len(registered)
-            result["startup_routes_blocked"] = len(
-                registered & {route.route_id for route in readiness.skipped}
-            )
+            if readiness is not None:
+                result["startup_routes_blocked"] = len(
+                    registered & {route.route_id for route in readiness.skipped}
+                )
         if self.phase != "running":
             return result
         result["adapters_started"] = len(app.started_adapter_ids)
@@ -125,7 +126,7 @@ class RuntimeStatusFile:
         finally:
             Path(name).unlink(missing_ok=True)
 
-    async def _write_observation(self) -> None:
+    async def _write_observation(self, protected_paths: tuple[Path, ...] = ()) -> None:
         # A filesystem can stall indefinitely. Keep at most one worker and
         # never join it on the runtime's event loop or default executor.
         # Snapshot on the owner loop before passing JSON-shaped data to it.
@@ -143,6 +144,12 @@ class RuntimeStatusFile:
         def write() -> None:
             error: Exception | None = None
             try:
+                if protected_paths:
+                    destination = self.path.resolve()
+                    if any(path.resolve() == destination for path in protected_paths):
+                        raise ValueError(
+                            "status file must be separate from config, storage and shutdown snapshot"
+                        )
                 self._write(observation)
             except Exception as exc:
                 error = exc
@@ -152,7 +159,12 @@ class RuntimeStatusFile:
                 # The loop may have closed while the filesystem was stalled.
                 pass
 
-        threading.Thread(target=write, name="medre-status", daemon=True).start()
+        # A failed start leaves no worker to finish this future.
+        try:
+            threading.Thread(target=write, name="medre-status", daemon=True).start()
+        except Exception:
+            self._pending_write = None
+            raise
         error = await asyncio.wait_for(
             asyncio.shield(pending), timeout=max(0, deadline - loop.time())
         )
@@ -163,10 +175,10 @@ class RuntimeStatusFile:
         """Retire outstanding work; a stalled filesystem cannot hold shutdown."""
         self._retired.set()
 
-    async def initialize(self) -> None:
+    async def initialize(self, protected_paths: tuple[Path, ...] = ()) -> None:
         """Fail before opening any adapter if the requested output is unusable."""
         async with self._publication_lock:
-            await self._write_observation()
+            await self._write_observation(protected_paths)
             self._initialized = True
 
     async def publish(self, phase: str | None = None) -> None:

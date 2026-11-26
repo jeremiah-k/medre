@@ -152,23 +152,38 @@ async def test_projection_uses_retained_observation_not_private_data(
     assert status.snapshot()["startup_routes_blocked"] == 1
 
 
-async def test_failed_update_does_not_destroy_last_good_file(tmp_path, monkeypatch):
-    path = tmp_path / "runtime.json"
-    status = RuntimeStatusFile(path)
+async def test_worker_start_failure_allows_next_publication(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    status = RuntimeStatusFile(tmp_path / "runtime.json")
     await status.initialize()
-    old = path.read_bytes()
 
-    calls = []
+    def refuse(_thread: threading.Thread) -> None:
+        raise RuntimeError("thread unavailable")
 
-    def fail(*args):
-        calls.append(args)
-        raise OSError("injected failure")
+    with monkeypatch.context() as patch:
+        patch.setattr(threading.Thread, "start", refuse)
+        await status.publish("running")
+    assert json.loads(status.path.read_text())["phase"] == "starting"
 
-    monkeypatch.setattr("medre.runtime.status_file.os.replace", fail)
-    await status.publish("running")
-    assert len(calls) == 1
-    assert path.read_bytes() == old
-    assert list(tmp_path.iterdir()) == [path]
+    await status.publish("stopped")
+    assert json.loads(status.path.read_text())["phase"] == "stopped"
+
+
+async def test_failed_start_preserves_available_route_count(tmp_path: Path) -> None:
+    status = RuntimeStatusFile(tmp_path / "runtime.json")
+    status.app = cast(
+        Any,
+        SimpleNamespace(
+            route_eligibility=SimpleNamespace(registered=("private-route",)),
+            startup_readiness=None,
+        ),
+    )
+    await status.initialize()
+    await status.publish("failed")
+    result = json.loads(status.path.read_text())
+    assert result["startup_routes_registered"] == 1
+    assert result["startup_routes_blocked"] is None
 
 
 async def test_unexpected_projection_failure_is_best_effort(tmp_path, monkeypatch):

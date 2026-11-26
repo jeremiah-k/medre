@@ -513,11 +513,6 @@ async def _run(
         status = RuntimeStatusFile(Path(status_path).expanduser().absolute())
         if status.path.suffix.lower() != ".json":
             raise ValueError("status file must have a .json suffix")
-        if (
-            snapshot_path is not None
-            and Path(snapshot_path).resolve() == status.path.resolve()
-        ):
-            raise ValueError("status file must be separate from shutdown snapshot")
     except (OSError, ValueError, TypeError, RuntimeError) as exc:
         _print_status_setup_error(exc)
         sys.exit(EXIT_CONFIG)
@@ -562,20 +557,17 @@ async def _run_runtime(
 
     if status is not None:
         try:
-            protected = [paths.config_file]
+            protected = [paths.config_file, snapshot_path]
             if config.storage.backend == "sqlite":
                 protected.append(
                     paths.expand_placeholder(config.storage.path)
                     if config.storage.path
                     else paths.database_path
                 )
-            if any(
-                path is not None and Path(path).resolve() == status.path.resolve()
-                for path in protected
-            ):
-                raise ValueError("status file must be separate from config and storage")
-            await status.initialize()
-        except (OSError, ValueError, TypeError, MedrePathsError) as exc:
+            await status.initialize(
+                tuple(Path(path) for path in protected if path is not None)
+            )
+        except (OSError, ValueError, TypeError, RuntimeError, MedrePathsError) as exc:
             _print_status_setup_error(exc)
             sys.exit(EXIT_CONFIG)
 

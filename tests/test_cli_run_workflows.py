@@ -373,7 +373,10 @@ async def test_status_file_tracks_owned_runtime_lifecycle(
     assert final["adapters_started"] is None
 
 
-async def test_status_file_cannot_create_configured_database(tmp_path: Path) -> None:
+@pytest.mark.parametrize("existing", [False, True])
+async def test_status_file_preserves_configured_database(
+    tmp_path: Path, existing: bool
+) -> None:
     import medre.cli.run_commands as run_mod
 
     config = tmp_path / "config.yaml"
@@ -383,10 +386,36 @@ async def test_status_file_cannot_create_configured_database(tmp_path: Path) -> 
             "backend: memory", f"backend: sqlite\n  path: '{database}'"
         )
     )
+    if existing:
+        database.write_bytes(b"configured database")
     with pytest.raises(SystemExit) as exc:
         await run_mod._run(str(config), status_path=str(database))
     assert exc.value.code == run_mod.EXIT_CONFIG
-    assert not database.exists()
+    if existing:
+        assert database.read_bytes() == b"configured database"
+    else:
+        assert not database.exists()
+
+
+async def test_status_file_rejects_literal_snapshot_alias(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import medre.cli.run_commands as run_mod
+
+    config = tmp_path / "config.yaml"
+    config.write_text(CONFIG_SINGLE_ADAPTER)
+    monkeypatch.chdir(tmp_path)
+    literal_path = tmp_path / "~" / "runtime.json"
+    literal_path.parent.mkdir()
+
+    async def unexpected_start(*_args):
+        pytest.fail("runtime started with colliding output paths")
+
+    monkeypatch.setattr(run_mod, "_wait_for_run_shutdown", unexpected_start)
+    with pytest.raises(SystemExit) as exc:
+        await run_mod._run(str(config), "~/runtime.json", str(literal_path))
+    assert exc.value.code == run_mod.EXIT_CONFIG
+    assert not literal_path.exists()
 
 
 class TestRealSnapshotOnShutdown:

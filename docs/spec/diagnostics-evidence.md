@@ -1820,3 +1820,5 @@ The [runtime-status schema](../schemas/runtime-status.schema.json) defines the
 additive observation document. Startup health has no retained observation
 timestamp; the heartbeat MUST NOT initiate sampling to populate it. Known
 startup route counts remain available during stopping and terminal phases.
+The registered count is available as soon as route registration completes.
+The blocked count requires a startup readiness result.
