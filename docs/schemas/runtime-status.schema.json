@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre/main/docs/schemas/runtime-status.schema.json",
+  "title": "Runtime status heartbeat",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "medre.runtime-status.v1"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "process_id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "updated_at": {
+      "type": "number"
+    },
+    "phase": {
+      "enum": [
+        "starting",
+        "running",
+        "stopping",
+        "stopped",
+        "failed"
+      ]
+    },
+    "health_scope": {
+      "enum": [
+        "unavailable",
+        "startup",
+        "retained"
+      ]
+    },
+    "runtime_health": {
+      "enum": [
+        null,
+        "healthy",
+        "degraded",
+        "failed"
+      ]
+    },
+    "health_observed_at": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "adapters_started": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "startup_routes_registered": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "startup_routes_blocked": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    }
+  },
+  "required": [
+    "schema",
+    "run_id",
+    "process_id",
+    "updated_at",
+    "phase",
+    "health_scope",
+    "runtime_health",
+    "health_observed_at",
+    "adapters_started",
+    "startup_routes_registered",
+    "startup_routes_blocked"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "health_scope": {
+            "const": "retained"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "health_observed_at": {
+            "type": "number"
+          },
+          "runtime_health": {
+            "type": "string"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "health_observed_at": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "health_scope": {
+            "const": "unavailable"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "runtime_health": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "runtime_health": {
+            "type": "string"
+          },
+          "phase": {
+            "const": "running"
+          }
+        }
+      }
+    }
+  ]
+}

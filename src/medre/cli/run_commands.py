@@ -11,11 +11,12 @@ import time
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from medre.config.env import apply_env_overrides
 from medre.config.errors import ConfigError
 from medre.config.loader import load_config
+from medre.config.paths import MedrePathsError
 from medre.core.lifecycle.states import AdapterState
 from medre.core.observability.sanitization import (
     sanitize_error,
@@ -40,6 +41,9 @@ from medre.runtime.summaries import (
 from .exit_codes import EXIT_BUILD, EXIT_CONFIG, EXIT_STARTUP
 from .json import to_json
 from .smoke_commands import _setup_logging, _transport_for_adapter
+
+if TYPE_CHECKING:
+    from medre.runtime.status_file import RuntimeStatusFile
 
 logger = logging.getLogger("medre")
 
@@ -479,7 +483,65 @@ def _settled_startup_banner(app: Any, config: Any, paths: Any) -> _SettledStartu
     )
 
 
-async def _run(config_path: str | None, snapshot_path: str | None = None) -> None:
+def _print_status_setup_error(exc: Exception) -> None:
+    # OSError strings can contain private filesystem paths. Report the errno
+    # description, not the filename or the rejected file's contents.
+    detail = exc.strerror if isinstance(exc, OSError) else None
+    if isinstance(exc, TimeoutError):
+        detail = "status destination did not respond within the write budget"
+    if isinstance(exc, ValueError) and not isinstance(exc, MedrePathsError):
+        detail = sanitize_error_line(str(exc))
+    print(
+        f"Cannot initialize runtime status file: {detail or type(exc).__name__}",
+        file=sys.stderr,
+    )
+
+
+async def _run(
+    config_path: str | None,
+    snapshot_path: str | None = None,
+    status_path: str | None = None,
+) -> None:
+    """Run the bridge, optionally publishing a content-free status heartbeat."""
+    if status_path is None:
+        await _run_runtime(config_path, snapshot_path)
+        return
+
+    from medre.runtime.status_file import RuntimeStatusFile
+
+    try:
+        status = RuntimeStatusFile(Path(status_path).expanduser().absolute())
+        if status.path.suffix.lower() != ".json":
+            raise ValueError("status file must have a .json suffix")
+        if (
+            snapshot_path is not None
+            and Path(snapshot_path).resolve() == status.path.resolve()
+        ):
+            raise ValueError("status file must be separate from shutdown snapshot")
+    except (OSError, ValueError, TypeError, RuntimeError) as exc:
+        _print_status_setup_error(exc)
+        sys.exit(EXIT_CONFIG)
+    task = asyncio.create_task(status.heartbeat())
+    try:
+        await _run_runtime(config_path, snapshot_path, status=status)
+    except BaseException:
+        await status.publish("failed")
+        raise
+    else:
+        if status.phase not in {"stopped", "failed"}:
+            await status.publish("stopped")
+    finally:
+        status.close()
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+async def _run_runtime(
+    config_path: str | None,
+    snapshot_path: str | None = None,
+    *,
+    status: RuntimeStatusFile | None = None,
+) -> None:
     """Load config, build the runtime, and run until interrupted."""
     _reset_shutdown_evidence()
 
@@ -497,6 +559,25 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
     except Exception as exc:
         print(f"Config error: {exc}", file=sys.stderr)
         sys.exit(EXIT_CONFIG)
+
+    if status is not None:
+        try:
+            protected = [paths.config_file]
+            if config.storage.backend == "sqlite":
+                protected.append(
+                    paths.expand_placeholder(config.storage.path)
+                    if config.storage.path
+                    else paths.database_path
+                )
+            if any(
+                path is not None and Path(path).resolve() == status.path.resolve()
+                for path in protected
+            ):
+                raise ValueError("status file must be separate from config and storage")
+            await status.initialize()
+        except (OSError, ValueError, TypeError, MedrePathsError) as exc:
+            _print_status_setup_error(exc)
+            sys.exit(EXIT_CONFIG)
 
     # Check for enabled adapters *before* building runtime.
     enabled_adapters = config.adapters.all_enabled()
@@ -535,6 +616,9 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
             flush=True,
         )
         sys.exit(EXIT_BUILD)
+
+    if status is not None:
+        status.app = app
 
     # Report build failures before startup.
     if app.build_failures:
@@ -577,6 +661,10 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
         try:
             started = await _start_interruptibly(app)
             if not started:
+                if status is not None:
+                    await status.publish(
+                        "stopped" if app.state.value == "stopped" else "failed"
+                    )
                 _print("Runtime startup interrupted")
                 return
         except Exception as exc:
@@ -632,11 +720,15 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
                 format_duration_ms(run_start),
                 extra=sanitize_for_log({"adapter_count": len(app.started_adapter_ids)}),
             )
+            if status is not None:
+                await status.publish("running")
             await _wait_for_run_shutdown(app, shutdown_wake)
         except KeyboardInterrupt:
             logger.info("KeyboardInterrupt — shutting down")
         finally:
             # Shutdown
+            if status is not None:
+                await status.publish("stopping")
             _print("Runtime shutting down")
             logger.info("Runtime shutdown requested")
 
@@ -740,6 +832,12 @@ async def _run(config_path: str | None, snapshot_path: str | None = None) -> Non
                         flush=True,
                     )
 
+            if status is not None:
+                await status.publish(
+                    "stopped"
+                    if not shutdown_errors and app.state.value == "stopped"
+                    else "failed"
+                )
             logger.info("MEDRE stopped")
     finally:
         signals.restore()

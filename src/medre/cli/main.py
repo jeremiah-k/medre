@@ -126,6 +126,13 @@ def _build_parser(*, include_adapter_cli: bool = True) -> argparse.ArgumentParse
         help="Write final runtime snapshot JSON to PATH on graceful shutdown",
     )
 
+    run_p.add_argument(
+        "--status-file",
+        default=None,
+        metavar="PATH",
+        help="Publish a content-free runtime heartbeat to a dedicated JSON file",
+    )
+
     # config (with sub-subcommands)
     config_p = sub.add_parser("config", help="Config management commands")
     config_sub = config_p.add_subparsers(dest="config_command", required=True)
@@ -1343,6 +1350,7 @@ def main(argv: list[str] | None = None) -> None:
                 _run(
                     args.config or getattr(args, "config_path", None),
                     snapshot_path=getattr(args, "snapshot_on_shutdown", None),
+                    status_path=getattr(args, "status_file", None),
                 )
             )
         except KeyboardInterrupt:

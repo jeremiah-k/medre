@@ -349,9 +349,50 @@ class TestSnapshotOnShutdown:
 # ===================================================================
 
 
+async def test_status_file_tracks_owned_runtime_lifecycle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import medre.cli.run_commands as run_mod
+
+    config = tmp_path / "config.yaml"
+    config.write_text(CONFIG_SINGLE_ADAPTER)
+    status_path = tmp_path / "runtime.json"
+    running = {}
+
+    async def request_shutdown(app, _shutdown_wake: asyncio.Event) -> None:
+        running.update(json.loads(status_path.read_text()))
+        assert app.state.value == "running"
+
+    monkeypatch.setattr(run_mod, "_wait_for_run_shutdown", request_shutdown)
+    await run_mod._run(str(config), status_path=str(status_path))
+    final = json.loads(status_path.read_text())
+    assert running["phase"] == "running"
+    assert running["adapters_started"] == 1
+    assert final["phase"] == "stopped"
+    assert final["run_id"] == running["run_id"]
+    assert final["adapters_started"] is None
+
+
+async def test_status_file_cannot_create_configured_database(tmp_path: Path) -> None:
+    import medre.cli.run_commands as run_mod
+
+    config = tmp_path / "config.yaml"
+    database = tmp_path / "database.json"
+    config.write_text(
+        CONFIG_SINGLE_ADAPTER.replace(
+            "backend: memory", f"backend: sqlite\n  path: '{database}'"
+        )
+    )
+    with pytest.raises(SystemExit) as exc:
+        await run_mod._run(str(config), status_path=str(database))
+    assert exc.value.code == run_mod.EXIT_CONFIG
+    assert not database.exists()
+
+
 class TestRealSnapshotOnShutdown:
     """_run() lifecycle writes a valid snapshot to the specified path."""
 
+    @pytest.mark.asyncio
     async def test_banner_failure_still_writes_shutdown_snapshot(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -939,3 +980,31 @@ def test_settled_banner_never_counts_nonready_states(state_name: str | None) -> 
     assert not settled.all_ready
     assert settled.outcome_line == "MEDRE runtime running — 0/1 adapter(s) ready"
     assert (state_name.lower() if state_name else "unknown") in settled.text
+
+
+async def test_status_file_rejects_literal_tilde_snapshot_collision(
+    tmp_path, monkeypatch
+):
+    import medre.cli.run_commands as run_mod
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "~").mkdir()
+    config = tmp_path / "config.yaml"
+    config.write_text(CONFIG_SINGLE_ADAPTER)
+    status_path = tmp_path / "~" / "runtime.json"
+    with pytest.raises(SystemExit) as exc:
+        await run_mod._run(str(config), "~/runtime.json", str(status_path))
+    assert exc.value.code == run_mod.EXIT_CONFIG
+    assert not status_path.exists()
+
+
+async def test_status_file_reports_no_enabled_adapters(tmp_path: Path) -> None:
+    import medre.cli.run_commands as run_mod
+
+    config = tmp_path / "config.yaml"
+    config.write_text(CONFIG_SINGLE_ADAPTER.replace("enabled: true", "enabled: false"))
+    status = tmp_path / "runtime.json"
+    with pytest.raises(SystemExit) as exc:
+        await run_mod._run(str(config), status_path=str(status))
+    assert exc.value.code == run_mod.EXIT_CONFIG
+    assert json.loads(status.read_text())["phase"] == "failed"
