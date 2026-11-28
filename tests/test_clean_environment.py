@@ -829,7 +829,7 @@ class TestReproducibilityEvidence:
 class TestCIPythonPolicy:
     """CI workflow Python versions are deliberate policy, not pins.
 
-    The test matrix (3.11 through 3.14) mirrors ``requires-python`` and the
+    The core test matrix (3.11 through 3.15) mirrors ``requires-python`` and the
     classifiers. Workflow ``python-version`` values must stay minor-level
     (``3.14``) so every matrix job floats across patch releases; a Renovate
     pin attempt rewrote ``3.14`` to ``3.14.7``. Renovate is disabled for
