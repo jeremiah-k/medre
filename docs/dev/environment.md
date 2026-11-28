@@ -17,19 +17,19 @@ uv run --no-sync pytest tests/test_core_independence.py -q
 uv creates `.venv` and installs MEDRE in editable mode. An existing compatible
 Python can be used; uv can also provision one. Choose an interpreter explicitly
 with `uv sync --locked --extra dev --python 3.13` when reproducing a CI leg.
-CI tests CPython 3.11–3.14 and pins its uv tool version in `.tool-versions`.
+CI tests core on CPython 3.11–3.15 and pins its uv version in `.tool-versions`.
 `pyproject.toml` declares the minimum supported uv version.
 
 Core supports Python 3.11+. Adapters can require a newer interpreter: the Matrix
 adapter requires Python 3.12+ for its durable mindroom-nio sync backend. CI records
 adapter minimum minor versions as `python_requires` (for example, `>=3.12`) in
 the compatibility snapshot, and selects only supported adapter/interpreter pairs.
-Full cross-adapter tests use interpreters supported by every selected adapter;
-the adapter-free core suite also runs on Python 3.11. Individual adapter contract
-jobs retain Python 3.11 coverage wherever the adapter supports it.
-Package metadata remains authoritative during installation. On Python 3.11,
-select adapters explicitly with `medre dev sync meshtastic meshcore` or another
-compatible subset; use Python 3.12+ for Matrix and the full development selection.
+The adapter-free suite covers Python 3.15 independently of the curated adapter
+matrix, which currently runs through Python 3.14. Individual adapters can qualify
+additional Python versions as their SDKs allow. Package metadata governs actual
+installation. On Python 3.11, select a compatible subset with a command such as
+`medre dev sync meshtastic meshcore`. Use Python 3.12–3.14 for the full development
+selection qualified by the cross-adapter matrix.
 
 MEDRE's `dev` dependencies are an optional extra, not a dependency group.
 Use `--extra dev`; `--dev` alone does not select those tools. This preserves the
