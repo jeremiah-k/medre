@@ -1,5 +1,6 @@
 """Core adapter and delivery boundary contracts."""
 
+from medre.core._errors import DuplicateEventError
 from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterCodec,
@@ -43,5 +44,6 @@ __all__ = [
     "DeferredHandoffFailed",
     "DeliveryConfirmationLevel",
     "DeliveryFeedback",
+    "DuplicateEventError",
     "PostHandoffObservation",
 ]

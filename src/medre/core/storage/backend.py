@@ -17,6 +17,8 @@ from datetime import datetime
 from functools import cache
 from typing import Any, AsyncGenerator, Protocol, runtime_checkable
 
+from medre.core._errors import DuplicateEventError as DuplicateEventError
+from medre.core._errors import StorageError as StorageError
 from medre.core.delivery_authority import DeliveryIdentity, delivery_identity
 from medre.core.events import (
     CanonicalEvent,
@@ -86,10 +88,6 @@ DEFAULT_QUERY_LIMIT: int = 1000
 # ---------------------------------------------------------------------------
 # Exceptions
 # ---------------------------------------------------------------------------
-
-
-class StorageError(Exception):
-    """Base exception for all storage-related errors."""
 
 
 class OutboxSnapshotReadError(StorageError):
@@ -268,16 +266,6 @@ class ContentCeilingMismatchError(StorageError):
     ``event_content_dependencies.deadline``. An admission that would write a
     deadline other than the event's installed ceiling fails closed, and the
     whole admission transaction rolls back.
-    """
-
-
-class DuplicateEventError(StorageError):
-    """Raised when attempting to append a canonical event whose ``event_id``
-    already exists in the store.
-
-    Events are append-only; callers that need idempotent semantics should
-    check with :meth:`~StorageBackend.get` before calling
-    :meth:`~StorageBackend.append`, or catch this exception.
     """
 
 
