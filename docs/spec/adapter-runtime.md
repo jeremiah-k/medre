@@ -252,6 +252,11 @@ Intentional policy filtering and self/echo suppression remain valid acceptance
 outcomes. The ordinary non-durable `publish_inbound` startup filter remains
 independent of this requirement.
 
+If durable publication raises `medre.core.contracts.DuplicateEventError`,
+the requested canonical event ID is already stored. An adapter can stop
+retrying that publication. This does not establish that the current request
+was newly admitted or that any recipient received it.
+
 Adapters **MUST NOT** import/call another adapter, bypass the pipeline, mutate
 published events, access internal routing/event-bus objects, write receipts or
 outbox state, or infer lifecycle decisions from feedback persistence.

@@ -685,6 +685,12 @@ class AdapterContract(ABC):
         ----------
         event:
             The canonical event to publish.
+
+        Raises
+        ------
+        medre.core.contracts.DuplicateEventError
+            If durable admission refuses the request because its canonical
+            event ID already exists.
         """
         if self._is_stale_event(event):
             self._stale_events_dropped += 1

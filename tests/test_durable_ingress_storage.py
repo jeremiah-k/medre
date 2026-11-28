@@ -97,6 +97,9 @@ async def test_mismatched_inbound_ref_event_id_is_rejected(tmp_path) -> None:
 async def test_duplicate_canonical_id_with_new_native_identity_is_rejected(
     tmp_path,
 ) -> None:
+    from medre.core.contracts import DuplicateEventError as AdapterDuplicateEventError
+
+    assert AdapterDuplicateEventError is DuplicateEventError
     storage = SQLiteStorage(str(tmp_path / "medre.db"))
     await storage.initialize()
     try:
@@ -106,7 +109,7 @@ async def test_duplicate_canonical_id_with_new_native_identity_is_rejected(
         )
         replay = _event("evt-same-id", "$second-native")
 
-        with pytest.raises(DuplicateEventError, match="Duplicate event"):
+        with pytest.raises(AdapterDuplicateEventError, match="Duplicate event"):
             await storage.admit_ingress(
                 replay, _ref(replay.event_id, "$second-native"), "recovered"
             )
