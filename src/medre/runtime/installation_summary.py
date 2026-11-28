@@ -12,7 +12,7 @@ from urllib.parse import SplitResult, urlsplit, urlunsplit
 
 _logger = logging.getLogger(__name__)
 
-_CORE_FALLBACK_VERSION = "0.2.3"
+_CORE_FALLBACK_VERSION = "0.3.0"
 _NAME = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?")
 _VERSION = re.compile(r"[A-Za-z0-9][A-Za-z0-9.!+_-]*")
 _COMMIT = re.compile(r"(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})")
