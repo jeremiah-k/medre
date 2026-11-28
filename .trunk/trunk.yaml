@@ -24,18 +24,18 @@ lint:
     - actionlint@1.7.12 # renovate: datasource=github-releases depName=rhysd/actionlint
     - bandit@1.9.4 # renovate: datasource=pypi depName=bandit
     - black@26.10.1 # renovate: datasource=pypi depName=black
-    - checkov@3.4.6 # renovate: datasource=pypi depName=checkov
+    - checkov@3.4.11 # renovate: datasource=pypi depName=checkov
     - isort@9.0.2 # renovate: datasource=pypi depName=isort
-    - renovate@44.256.1 # renovate: datasource=npm depName=renovate
+    - renovate@45.3.2 # renovate: datasource=npm depName=renovate
     - ruff@0.17.6 # renovate: datasource=pypi depName=ruff
     - shellcheck@0.11.0 # renovate: datasource=github-releases depName=koalaman/shellcheck
     - shfmt@3.14.1 # renovate: datasource=github-releases depName=mvdan/sh
     - taplo@0.10.0 # renovate: datasource=github-releases depName=tamasfe/taplo
     - yamllint@1.38.0 # renovate: datasource=pypi depName=yamllint
     - git-diff-check
-    - markdownlint@0.50.0 # renovate: datasource=npm depName=markdownlint-cli
+    - markdownlint@0.50.1 # renovate: datasource=npm depName=markdownlint-cli
     - prettier@3.10.1 # renovate: datasource=npm depName=prettier
-    - trufflehog@3.100.0 # renovate: datasource=github-releases depName=trufflesecurity/trufflehog
+    - trufflehog@3.100.1 # renovate: datasource=github-releases depName=trufflesecurity/trufflehog
   definitions:
     - name: black
       direct_configs:
