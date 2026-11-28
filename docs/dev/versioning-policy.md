@@ -87,3 +87,20 @@ Current source configuration schemas live under `docs/schemas/current/`.
 The top-level 0.1.0 snapshots and their manifest retain the released bytes.
 Check source drift against the current schemas and package both sets. Use the
 current schema for options introduced after 0.1.0.
+
+### Evolve configuration schemas with the release
+
+Use the current schema for optional configuration fields added by core or by
+an adapter promoted in the compatibility manifest. Omission must still load
+for existing configurations. Review the effective default separately and
+document any change in behavior. For example, an empty Matrix relay allowlist
+changes which envelopes are accepted without making existing YAML invalid.
+
+Update the current schema and its exact-delta test together. Qualify the current
+schema against the pinned adapter validators and check the released snapshot
+against its original digest. Use the MEDRE release tag or the schema bundled
+with the installed build when validating that version's configuration. The
+JSON Schema `$schema` value names the validation dialect. It does not version
+MEDRE's configuration. A new optional field needs no separate schema version
+or SQLite migration. An older build can still reject a field introduced by a
+newer build.
