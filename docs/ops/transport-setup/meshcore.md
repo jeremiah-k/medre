@@ -30,7 +30,10 @@ Most MeshCore nodes expose a TCP interface. SDK default port: 4000.
 
 1. Power on the node and connect it to your network.
 2. Find the node's IP address.
-3. Verify TCP connectivity:
+3. Verify TCP connectivity, **only while no other client is using that
+   companion**. Some servers (including openHop virtual companions) evict the
+   existing client when another client connects. Do not use these examples as
+   recurring health checks for an active bridge.
 
 ```bash
 nc -zv 192.168.1.100 4000
@@ -55,6 +58,45 @@ asyncio.run(check())
 ```
 
 **Note:** `create_tcp` can return `None` if the transport connects but `appstart()` fails. Always check for `None`.
+
+#### openHop virtual companions
+
+openHop Repeater can expose a standard MeshCore companion over TCP. Use the
+existing MeshCore adapter; a separate openHop transport is not needed.
+
+- Create a dedicated virtual companion identity in openHop, with the desired
+  channels and a distinct TCP listener. Keep its signing key in openHop.
+- Use a private network or loopback when both processes share a network
+  namespace. The companion protocol is not protected by dashboard API
+  authentication. Do not expose it to the public internet.
+- Explicitly set the companion port (for example 5001), not the dashboard or
+  radio modem port. Choose a tested idle timeout appropriate for a persistent
+  bridge. Disable idle expiration for a dedicated private endpoint if desired.
+- Only one TCP client can own that companion. Give phones and test observers
+  separate identities; do not probe the bridge's active listener.
+- Use a separate Meshtastic radio/endpoint if bridging to Meshtastic. Do not
+  open or reconfigure the radio that openHop owns.
+
+Example adapter instance (inside the bridge YAML):
+
+```yaml
+adapters:
+  meshcore:
+    openhop:
+      enabled: true
+      adapter_kind: real
+      connection_type: tcp
+      host: 127.0.0.1
+      port: 5001
+      origin_label: MeshCore
+```
+
+Validate with `medre config check --config PATH` and
+`medre routes plan --config PATH` before starting. Use an isolated test channel
+and one-way route first. Startup readiness or native command acceptance is not
+proof of recipient delivery; test both directions using independent peers.
+Check queued-message draining after reconnect before relying on offline
+continuity.
 
 #### Serial Connectivity
 

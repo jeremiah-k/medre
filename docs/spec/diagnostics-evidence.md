@@ -1801,3 +1801,24 @@ Its `schema_source` MUST distinguish `source-tree`, `package-data`, and
 `not-packaged`. A missing example-config validator script MUST NOT imply that
 packaged schema resources are absent. Missing or malformed schema entries MUST
 retain the existing four-key failure shape without starting adapter SDKs.
+
+### Process heartbeat
+
+An explicitly requested runtime status file is a derived observation only.
+It MUST contain only lifecycle, aggregate retained-health and startup-route
+facts, not native identifiers, event content, configuration, or credentials.
+The heartbeat timestamp MUST NOT be interpreted as a health sample timestamp.
+Publication MUST NOT initiate transport operations or authorize delivery.
+Consumers MUST treat stale or unsupported documents as unavailable.
+Publication replaces the document atomically. On Windows a reader that
+holds the document open prevents its replacement; such a publication MUST
+retain the last good document and log once, and the publication after the
+reader closes the document MUST succeed. Consumers MUST open, read, and
+close the document rather than hold it open across publications.
+
+The [runtime-status schema](../schemas/runtime-status.schema.json) defines the
+additive observation document. Startup health has no retained observation
+timestamp; the heartbeat MUST NOT initiate sampling to populate it. Known
+startup route counts remain available during stopping and terminal phases.
+The registered count is available as soon as route registration completes.
+The blocked count requires a startup readiness result.

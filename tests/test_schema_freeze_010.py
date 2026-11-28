@@ -28,6 +28,9 @@ POST_RELEASE_SCHEMA_FILES: dict[str, str] = {
     "handoff-settlements.schema.sql": (
         "ecceceaf4808b658313101674b60e260850b5e679a7b6f4788d74281fc549237"
     ),
+    "runtime-status.schema.json": (
+        "58af3eb649a8dafaebc4eb56c0ca335d2e6c96f134c06740cfd5a2383cae7eb5"
+    ),
     "work-status.schema.json": (
         "06b171e89749e49673351fe6040c670a5756ce1a71a672a3483c561a205463a3"
     ),

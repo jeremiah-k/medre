@@ -1009,3 +1009,34 @@ Four finding kinds extend the convergence diagnostics for recovery-specific anom
 - [troubleshooting.md](troubleshooting.md) — failure drill interpretation, routing diagnostics
 - [transport-setup/matrix.md](transport-setup/matrix.md) — Matrix adapter setup and validation
 - [transport-setup/meshtastic.md](transport-setup/meshtastic.md) — Meshtastic adapter setup and validation
+
+### Optional process status heartbeat
+
+`medre run --config bridge.yaml --status-file /private/runtime.json` publishes
+an atomic, content-free JSON heartbeat every five seconds and on lifecycle
+transitions. The parent directory must already exist; use a dedicated private
+`.json` file with one writer. Existing unrelated files are rejected before
+startup. The output is initialized after configuration loading and must not
+coincide with the config, shutdown snapshot or configured SQLite database.
+An abrupt termination leaves the last observation, which consumers must age
+out (a suggested maximum age is 30 seconds). File publication failure after
+startup does not stop message routing.
+
+The `medre.runtime-status.v1` document contains `run_id`, `process_id`, Unix `updated_at`,
+`phase` (`starting`, `running`, `stopping`, `stopped`, `failed`),
+`health_scope` (`unavailable`, `startup`, `retained`), `runtime_health`,
+`health_observed_at` (aggregate publication time, not each adapter's sampling
+time; null for startup and unavailable scopes), `adapters_started`,
+`startup_routes_registered`, and `startup_routes_blocked`. Unknown values are
+null. The route counts are startup-derived expanded-route counts, not current
+route health; retained after startup through shutdown when known. File writes
+use a single off-loop worker with a one-second wait budget. A stalled
+filesystem may leave a stale observation, including at shutdown. On Windows
+a reader that holds the file open blocks its replacement; the publication
+then leaves the last good file and logs once, and the next publication
+after the reader closes the file succeeds. Readers should open, read, and
+close the file.
+Use a dedicated private directory on a local filesystem. The heartbeat
+never opens another adapter, polls a radio, queries storage, exposes message
+content, or constitutes delivery evidence. A fresh heartbeat is not proof of
+fresh health observations or recipient delivery.
