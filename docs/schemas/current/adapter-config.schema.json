@@ -47,6 +47,19 @@
           "default": null,
           "description": "Optional set of room IDs to accept messages from. Null means all rooms."
         },
+        "trusted_relays": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^@[^:]+:.+",
+            "not": {
+              "pattern": "[\\s*]"
+            }
+          },
+          "uniqueItems": true,
+          "default": [],
+          "description": "Exact Matrix user IDs permitted to send the reserved MEDRE envelope. An empty list trusts no peer. Membership compares the wire sender exactly. A permitted sender does not give embedded claims authority."
+        },
         "metadata_embedding_mode": {
           "type": "string",
           "default": "safe",
