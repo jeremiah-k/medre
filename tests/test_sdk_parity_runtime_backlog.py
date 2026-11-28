@@ -26,6 +26,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 from dataclasses import fields as dataclass_fields
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -472,39 +473,29 @@ class TestP05MeshCoreContactListSubscriptionsResolved:
     No topology canonical events are emitted from contact/self-info handlers.
     """
 
-    def test_subscribe_events_has_five_subscriptions(self) -> None:
-        """_subscribe_events subscribes to five EventType members."""
-        source = inspect.getsource(
-            meshcore_session_mod.MeshCoreSession._subscribe_events,
+    def test_subscribe_events_registers_each_supported_event_once(self) -> None:
+        events = (
+            "CONTACT_MSG_RECV",
+            "CHANNEL_MSG_RECV",
+            "DISCONNECTED",
+            "CONTACTS",
+            "SELF_INFO",
         )
-        # Count subscribe calls (mc.EventType.* passed to self._meshcore.subscribe).
-        subscribe_calls = [
-            line
-            for line in source.splitlines()
-            if "mc.EventType." in line
-            and "subscribe(" not in line
-            and "hasattr" not in line
-        ]
-        # Five subscriptions: CONTACT_MSG_RECV, CHANNEL_MSG_RECV,
-        # DISCONNECTED, CONTACTS, SELF_INFO.
-        assert len(subscribe_calls) >= 5, (
-            f"Expected at least 5 EventType subscribe references, "
-            f"found {len(subscribe_calls)}. "
+        sdk = SimpleNamespace(
+            EventType=SimpleNamespace(**{name: name for name in events})
         )
+        config = _make_meshcore_config()
+        session = meshcore_session_mod.MeshCoreSession(
+            config=config, adapter_id=config.adapter_id
+        )
+        client = MagicMock()
+        session._meshcore = client
 
-    def test_contacts_subscription_present(self) -> None:
-        """_subscribe_events subscribes to CONTACTS event type."""
-        source = inspect.getsource(
-            meshcore_session_mod.MeshCoreSession._subscribe_events,
-        )
-        assert "CONTACTS" in source
+        session._subscribe_events(sdk)
 
-    def test_self_info_subscription_present(self) -> None:
-        """_subscribe_events subscribes to SELF_INFO event type."""
-        source = inspect.getsource(
-            meshcore_session_mod.MeshCoreSession._subscribe_events,
-        )
-        assert "SELF_INFO" in source
+        assert sorted(
+            call.args[0] for call in client.subscribe.call_args_list
+        ) == sorted(events)
 
 
 # ===================================================================
